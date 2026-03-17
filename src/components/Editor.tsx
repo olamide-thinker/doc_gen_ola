@@ -1215,12 +1215,12 @@ const Editable: React.FC<EditableProps> = ({
     <div
       onDoubleClick={() => !readOnly && setIsEditing(true)}
       className={cn(
-        "relative w-full h-full transition-all group overflow-hidden",
+        "relative w-full h-full transition-all group font-lexend overflow-hidden",
         !readOnly && "hover:bg-amber-100/20 cursor-text",
         className,
       )}
     >
-      <span className="block w-full truncate">{displayValue}</span>
+      <span className="block w-full ">{displayValue}</span>
     </div>
   );
 };
@@ -1288,7 +1288,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
           return (
             <td
               key={col.id}
-              className="relative h-10 p-3 overflow-hidden text-center border-r border-slate-100"
+              className="relative h-10 p-3 overflow-hidden border-r border-slate-100"
               style={{ width: col.width }}
             >
               <div
@@ -1309,10 +1309,10 @@ const SortableRow: React.FC<SortableRowProps> = ({
               </div>
 
               {!isPreview && (
-                <div className="absolute left-[-24px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
+                <div className="absolute left-[-14px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
                   <button
                     onClick={() => onRemoveRow(startIndex + idx)}
-                    className="p-1.5 bg-white border border-slate-200 text-red-400 hover:text-red-500 hover:border-red-100 rounded-lg shadow-sm transition-all active:scale-95"
+                    className="h-full p-1 text-red-400 transition-all bg-white border rounded-lg shadow-sm border-slate-200 hover:text-red-500 hover:border-red-100 active:scale-95"
                     title="Delete Row"
                   >
                     <Trash2 size={13} />
