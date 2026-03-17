@@ -33,6 +33,9 @@ export interface Footer {
 
 export interface InvoiceCode {
   text: string;
+  prefix?: string;
+  count?: string;
+  year?: string;
   x: number;
   y: number;
   color: string;
