@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, FormEvent, ChangeEvent } from "react";
 import {
   Printer,
   FileText,
@@ -20,10 +20,56 @@ import {
 } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { 
+  DocData, 
+  TableColumn, 
+  TableRow, 
+  SummaryItem, 
+  Contact, 
+  Footer,
+  TotalPrice
+} from "./types";
 
-const App = () => {
+interface EditableProps {
+  value: string | number;
+  onSave: (val: string | number) => void;
+  className?: string;
+  multiline?: boolean;
+  numeric?: boolean;
+  containerPadding?: string;
+  readOnly?: boolean;
+}
+
+interface A4PageProps {
+  data: DocData;
+  rows: TableRow[];
+  pageIndex: number;
+  totalPrice: TotalPrice | null;
+  headerImage: string;
+  headerHeight: number;
+  onHeaderResize: (e: React.MouseEvent) => void;
+  isFirstPage: boolean;
+  isLastPage: boolean;
+  startIndex: number;
+  onUpdateContact: (field: keyof Contact, value: string) => void;
+  onUpdateTitle: (value: string) => void;
+  onUpdateCell: (rowIndex: number, colId: string, value: string | number) => void;
+  onRemoveRow: (index: number) => void;
+  onMoveRow: (index: number, direction: number) => void;
+  onAddRowAbove: (index: number) => void;
+  onAddRowBelow: (index: number) => void;
+  resolveFormula: (data: TableRow | Record<string, number>, formula: string | undefined, context?: Record<string, number>) => number;
+  isPreview: boolean;
+}
+
+interface TotalRowProps {
+  label: string;
+  value: number;
+}
+
+const App: React.FC = () => {
   // --- Constants ---
-  const DEFAULT_DOC_DATA = {
+  const DEFAULT_DOC_DATA: DocData = {
     contact: {
       name: "OLUWAKEMI ISINKAYE",
       address1: "Prime Waters Garden II",
@@ -74,18 +120,18 @@ const App = () => {
   };
 
   // --- State ---
-  const [docData, setDocData] = useState(() => {
+  const [docData, setDocData] = useState<DocData>(() => {
     const saved = localStorage.getItem("docData");
     return saved ? JSON.parse(saved) : DEFAULT_DOC_DATA;
   });
   
-  const [jsonInput, setJsonInput] = useState(() => JSON.stringify(docData, null, 2));
+  const [jsonInput, setJsonInput] = useState<string>(() => JSON.stringify(docData, null, 2));
 
-  const [headerImage, setHeaderImage] = useState(
+  const [headerImage, setHeaderImage] = useState<string>(
     () => localStorage.getItem("headerImage") || "/shan-letterhead.png",
   );
   
-  const [headerHeight, setHeaderHeight] = useState(
+  const [headerHeight, setHeaderHeight] = useState<number>(
     () => Number(localStorage.getItem("headerHeight")) || 128,
   );
 
@@ -96,6 +142,7 @@ const App = () => {
     return params.get("preview") === "true";
   });
   const [previewPass, setPreviewPass] = useState("");
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   useEffect(() => {
     localStorage.setItem("headerImage", headerImage || "");
@@ -108,7 +155,7 @@ const App = () => {
   useEffect(() => {
     // Migration: Ensure docData always has the required nested structure
     let needsUpdate = false;
-    const stabilized = JSON.parse(JSON.stringify(docData)); // Deep clone for safety
+    const stabilized = JSON.parse(JSON.stringify(docData)) as DocData; // Deep clone for safety
 
     if (!stabilized.table.summary) {
       stabilized.table.summary = DEFAULT_DOC_DATA.table.summary;
@@ -147,7 +194,7 @@ const App = () => {
   }, [docData.footer.notes, editor]);
 
   // --- Formula Logic ---
-  const resolveFormula = (data, formula, context = {}) => {
+  const resolveFormula = (data: TableRow | Record<string, number>, formula: string | undefined, context: Record<string, number> = {}): number => {
     if (!formula) return 0;
     try {
       let expression = formula;
@@ -156,7 +203,7 @@ const App = () => {
       Object.keys(context).forEach(key => {
         const val = Number(context[key]) || 0;
         const regex = new RegExp(`\\b${key}\\b`, 'g');
-        expression = expression.replace(regex, val);
+        expression = expression.replace(regex, val.toString());
       });
 
       // 2. Inject row/item variables (A, B, C...)
@@ -164,7 +211,7 @@ const App = () => {
       matches.forEach(id => {
         const val = Number(data[id]) || 0;
         const regex = new RegExp(`\\b${id}\\b`, 'g');
-        expression = expression.replace(regex, val);
+        expression = expression.replace(regex, val.toString());
       });
 
       // 3. Inject ID-based variables (like 'logistics' if data is a summary map)
@@ -173,10 +220,11 @@ const App = () => {
         if (context[id] !== undefined) return; // Already handled by context
         const val = Number(data[id]) || 0;
         const regex = new RegExp(`\\b${id}\\b`, 'g');
-        expression = expression.replace(regex, val);
+        expression = expression.replace(regex, val.toString());
       });
 
       if (/[^0-9\s+\-*/().]/.test(expression)) return 0;
+      // eslint-disable-next-line no-eval
       return eval(expression);
     } catch (e) {
       console.error("Formula error:", e);
@@ -184,92 +232,14 @@ const App = () => {
     }
   };
 
-  const parseLetterContext = (text) => {
-    if (!text.trim())
-      return {
-        contact: { name: "", address1: "", address2: "" },
-        title: "",
-        items: [],
-        date: new Date().toLocaleDateString("en-GB", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        }),
-      };
-
-    const lines = text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l !== "");
-    let contact = { name: "", address1: "", address2: "" };
-    let title = "";
-    let items = [];
-    let mode = null;
-
-    lines.forEach((line) => {
-      const lowerLine = line.toLowerCase();
-      if (lowerLine.startsWith("contact")) {
-        mode = "contact";
-        return;
-      }
-      if (lowerLine.includes("title")) {
-        mode = "title";
-        return;
-      }
-      if (lowerLine.startsWith("content")) {
-        mode = "content";
-        return;
-      }
-
-      if (mode === "contact") {
-        if (!contact.name) contact.name = line;
-        else if (!contact.address1) contact.address1 = line;
-        else contact.address2 = line;
-      } else if (mode === "title") {
-        title += (title ? " " : "") + line;
-      } else if (mode === "content") {
-        const cleanedLine = line.replace(/^-\s*/, "");
-        const parts = cleanedLine.split(/\s+(\d{1,3}(?:,\d{3})*)$/);
-        if (parts.length > 1) {
-          items.push({
-            id: Math.random().toString(36).substr(2, 9),
-            desc: parts[0].trim(),
-            price: parseInt(parts[1].replace(/,/g, ""), 10),
-            qty: 1,
-          });
-        } else if (line.length > 3) {
-          items.push({
-            id: Math.random().toString(36).substr(2, 9),
-            desc: line,
-            price: 0,
-            qty: 1,
-          });
-        }
-      }
-    });
-
-    return {
-      contact,
-      title,
-      items,
-      date: new Date().toLocaleDateString("en-GB", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      }),
-    };
-  };
-
   // --- Handlers ---
-  const handleJsonImport = (input) => {
+  const handleJsonImport = (input?: string) => {
     try {
       let data = JSON.parse(input || jsonInput);
       
       // Migration: Convert legacy 'items' to 'table.rows'
       if (data.items && (!data.table || !data.table.rows)) {
-        const rows = data.items.map(item => ({
+        const rows = data.items.map((item: any) => ({
           B: item.desc || "",
           C: item.qty || 1,
           D: item.price || 0
@@ -299,18 +269,18 @@ const App = () => {
     }
   };
 
-  const updateContactField = (field, value) => {
+  const updateContactField = (field: keyof Contact, value: string) => {
     setDocData((prev) => ({
       ...prev,
       contact: { ...prev.contact, [field]: value },
     }));
   };
 
-  const updateTitle = (value) => {
+  const updateTitle = (value: string) => {
     setDocData((prev) => ({ ...prev, title: value }));
   };
 
-  const updateCell = (rowIndex, colId, value) => {
+  const updateCell = (rowIndex: number, colId: string, value: string | number) => {
     setDocData((prev) => {
       const newRows = [...prev.table.rows];
       newRows[rowIndex] = { ...newRows[rowIndex], [colId]: value };
@@ -318,7 +288,7 @@ const App = () => {
     });
   };
 
-  const removeTableRow = (index) => {
+  const removeTableRow = (index: number) => {
     setDocData((prev) => ({
       ...prev,
       table: {
@@ -328,7 +298,7 @@ const App = () => {
     }));
   };
 
-  const moveTableRow = (index, direction) => {
+  const moveTableRow = (index: number, direction: number) => {
     setDocData((prev) => {
       const newRows = [...prev.table.rows];
       const targetIndex = index + direction;
@@ -339,10 +309,10 @@ const App = () => {
     });
   };
 
-  const addTableRow = (index, offset = 0) => {
+  const addTableRow = (index: number, offset = 0) => {
     setDocData((prev) => {
       const newRows = [...prev.table.rows];
-      const newRow = {};
+      const newRow: TableRow = {};
       prev.table.columns.forEach(col => {
         if (col.type === 'number') newRow[col.id] = 0;
         else if (col.type === 'text') newRow[col.id] = "";
@@ -352,7 +322,7 @@ const App = () => {
     });
   };
 
-  const updateEmphasisKey = (index, newKey) => {
+  const updateEmphasisKey = (index: number, newKey: string) => {
     setDocData((prev) => {
       const newEmphasis = [...prev.footer.emphasis];
       newEmphasis[index].key = newKey;
@@ -360,7 +330,7 @@ const App = () => {
     });
   };
 
-  const updateEmphasisValue = (index, newValue) => {
+  const updateEmphasisValue = (index: number, newValue: string) => {
     setDocData((prev) => {
       const newEmphasis = [...prev.footer.emphasis];
       newEmphasis[index].value = newValue;
@@ -368,7 +338,7 @@ const App = () => {
     });
   };
 
-  const addEmphasisRow = (index, offset = 0) => {
+  const addEmphasisRow = (index: number, offset = 0) => {
     setDocData((prev) => {
       const newEmphasis = [...prev.footer.emphasis];
       newEmphasis.splice(index + offset, 0, { key: "New Key", value: "New Value" });
@@ -376,7 +346,7 @@ const App = () => {
     });
   };
 
-  const removeEmphasisRow = (index) => {
+  const removeEmphasisRow = (index: number) => {
     setDocData((prev) => ({
       ...prev,
       footer: {
@@ -386,13 +356,8 @@ const App = () => {
     }));
   };
 
-  const toggleColumn = (col) => {
-    setColumns((prev) => ({ ...prev, [col]: !prev[col] }));
-  };
-
   const handlePrint = () => window.print();
-
-  const handleDownload = () => window.print(); // For now, same as print
+  const handleDownload = () => window.print(); 
 
   const generatePreviewLink = async () => {
     const pass = prompt("Set a password for the preview:");
@@ -424,21 +389,21 @@ const App = () => {
     }
   };
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
+  const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (f) => setHeaderImage(f.target.result);
+      reader.onload = (f) => setHeaderImage(f.target?.result as string);
       reader.readAsDataURL(file);
     }
   };
 
-  const handleHeaderResize = (e) => {
+  const handleHeaderResize = (e: React.MouseEvent) => {
     e.preventDefault();
     const startY = e.clientY;
     const startHeight = headerHeight;
-    const handleMouseMove = (e) => {
-      const newHeight = startHeight + (e.clientY - startY);
+    const handleMouseMove = (ev: MouseEvent) => {
+      const newHeight = startHeight + (ev.clientY - startY);
       setHeaderHeight(Math.max(50, newHeight));
     };
     const handleMouseUp = () => {
@@ -449,16 +414,38 @@ const App = () => {
     document.addEventListener("mouseup", handleMouseUp);
   };
 
+  const handlePasswordSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const pass = formData.get("password") as string;
+    const params = new URLSearchParams(window.location.search);
+    const sharedPass = params.get("pass");
+    const sharedData = params.get("data");
+
+    if (pass === sharedPass) {
+      if (sharedData) {
+        try {
+          const decoded = JSON.parse(atob(sharedData));
+          setDocData(decoded);
+          setIsAuthenticated(true);
+        } catch (err) {
+          alert("Corrupted link data.");
+        }
+      }
+    } else {
+      alert("Incorrect password.");
+    }
+  };
+
   const subTotal = (docData.table.rows || []).reduce((acc, row) => {
     const totalCol = docData.table.columns.find(c => c.type === 'formula' || c.id === 'E');
     const rowTotal = totalCol?.type === 'formula' 
       ? resolveFormula(row, totalCol.formula) 
-      : (Number(row[totalCol?.id]) || 0);
+      : (Number(row[totalCol?.id || '']) || 0);
     return acc + rowTotal;
   }, 0);
 
-  // Calculate dynamic summaries (Logistics, VAT, etc.)
-  const summaryCalculations = (docData.table.summary || []).reduce((acc, item) => {
+  const summaryCalculations = (docData.table.summary || []).reduce((acc: Record<string, number>, item) => {
     const context = { subTotal, ...acc };
     const value = item.type === 'formula' 
       ? resolveFormula({}, item.formula, context) 
@@ -475,10 +462,9 @@ const App = () => {
     calculatedValue: summaryCalculations[item.id] || 0
   }));
 
-  // Reduced limits to ensure they actually fit on A4 pages
   const firstPageLimit = 10;
   const otherPagesLimit = 18;
-  const chunks = [];
+  const chunks: TableRow[][] = [];
   const safeItems = docData.table.rows || [];
 
   if (safeItems.length > 0) {
@@ -669,13 +655,18 @@ const App = () => {
                       </div>
                     </div>
                   ))}
+                  <button
+                    onClick={() => addEmphasisRow(docData.footer.emphasis.length)}
+                    className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-slate-900 hover:text-slate-900 transition-all text-[10px] font-bold uppercase tracking-wider"
+                  >
+                    + Add Account Field
+                  </button>
                 </div>
               </section>
             </div>
           </div>
         )}
 
-        {/* Preview Area */}
         <div
           className={`preview-container ${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin print:bg-white print:p-0 print:overflow-visible`}
         >
@@ -772,7 +763,6 @@ const App = () => {
           }
           .no-print { display: none !important; }
 
-          /* Surgical layout overrides for printing */
           .app-root, .app-main, .preview-container { 
             height: auto !important; 
             overflow: visible !important; 
@@ -798,21 +788,27 @@ const App = () => {
           }
         }
       `}</style>
+      <div className="fixed bottom-6 right-6 z-50 flex gap-4 no-print">
+        <button
+          onClick={() => setIsPreview(!isPreview)}
+          className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl font-bold font-lexend shadow-2xl hover:bg-slate-800 transition-all active:scale-95 border border-slate-800"
+        >
+          {isPreview ? (
+            <>
+              <Layout size={18} /> EDIT MODE
+            </>
+          ) : (
+            <>
+              <Check size={18} /> PREVIEW MODE
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 };
 
-const ToggleButton = ({ active, onClick, label, icon }) => (
-  <button
-    onClick={onClick}
-    className={`px-4 py-2 rounded-xl text-[11px] font-bold font-lexend border transition-all flex items-center gap-2 ${active ? "bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-900/10" : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}
-  >
-    <span className={active ? "text-white" : "text-slate-400"}>{icon}</span>{" "}
-    {label}
-  </button>
-);
-
-const Editable = ({
+const Editable: React.FC<EditableProps> = ({
   value,
   onSave,
   className = "",
@@ -824,7 +820,7 @@ const Editable = ({
   const [isEditing, setIsEditing] = useState(false);
   const [currentValue, setCurrentValue] = useState(value);
 
-  const handleDoubleClick = (e) => {
+  const handleDoubleClick = (e: React.MouseEvent) => {
     if (readOnly) return;
     e.stopPropagation();
     setCurrentValue(value);
@@ -836,7 +832,7 @@ const Editable = ({
     onSave(currentValue);
   };
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !multiline) handleBlur();
     if (e.key === "Escape") {
       setCurrentValue(value);
@@ -844,7 +840,7 @@ const Editable = ({
     }
   };
 
-  const handleChange = (e) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = numeric ? Number(e.target.value) : e.target.value;
     setCurrentValue(val);
   };
@@ -857,7 +853,7 @@ const Editable = ({
           <textarea
             autoFocus
             className={commonClasses}
-            value={currentValue}
+            value={currentValue as string}
             onChange={handleChange}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
@@ -903,7 +899,7 @@ const Editable = ({
   );
 };
 
-const A4Page = ({
+const A4Page: React.FC<A4PageProps> = ({
   data,
   rows,
   pageIndex,
@@ -939,7 +935,6 @@ const A4Page = ({
         fontFamily: "'Lexend', sans-serif",
       }}
     >
-      {/* Header Area */}
       {isFirstPage && (
         <div
           className="flex items-center justify-center border-b border-slate-100"
@@ -986,7 +981,7 @@ const A4Page = ({
                 <Editable
                   className="font-normal text-[#212121] text-[13px] uppercase"
                   value={data.contact.name}
-                  onSave={(val) => onUpdateContact("name", val)}
+                  onSave={(val) => onUpdateContact("name", val as string)}
                   readOnly={isPreview}
                 />
               </div>
@@ -994,7 +989,7 @@ const A4Page = ({
                 <Editable
                   className="font-normal text-[12px] opacity-90"
                   value={data.contact.address1}
-                  onSave={(val) => onUpdateContact("address1", val)}
+                  onSave={(val) => onUpdateContact("address1", val as string)}
                   readOnly={isPreview}
                 />
               </div>
@@ -1002,7 +997,7 @@ const A4Page = ({
                 <Editable
                   className="font-normal text-[12px] opacity-90"
                   value={data.contact.address2}
-                  onSave={(val) => onUpdateContact("address2", val)}
+                  onSave={(val) => onUpdateContact("address2", val as string)}
                   readOnly={isPreview}
                 />
               </div>
@@ -1021,7 +1016,6 @@ const A4Page = ({
             </div>
           </div>
 
-          {/* Title Area */}
           <div className="flex justify-center mb-10">
             <div
               style={{
@@ -1040,7 +1034,7 @@ const A4Page = ({
             >
               <Editable
                 value={data.title}
-                onSave={onUpdateTitle}
+                onSave={(val) => onUpdateTitle(val as string)}
                 multiline
                 readOnly={isPreview}
               />
@@ -1049,7 +1043,6 @@ const A4Page = ({
         </>
       )}
 
-      {/* Dynamic Table */}
       <div className="overflow-hidden border border-slate-100">
         <table className="w-full border-collapse">
           <thead>
@@ -1176,7 +1169,7 @@ const A4Page = ({
             <TotalRow
               key={item.id}
               label={item.label}
-              value={item.calculatedValue}
+              value={item.calculatedValue || 0}
             />
           ))}
           <div
@@ -1226,7 +1219,6 @@ const A4Page = ({
           </div>
         )}
 
-      {/* Footer Branding */}
       <div className="absolute bottom-10 left-0 w-full text-center px-20">
         <div className="border-t border-slate-100 pt-6 flex justify-between items-center text-[9px] text-slate-300 uppercase font-bold tracking-widest opacity-60 font-lexend">
           <span>Maintenance Proposal 2026</span>
@@ -1238,7 +1230,7 @@ const A4Page = ({
   );
 };
 
-const TotalRow = ({ label, value }) => {
+const TotalRow: React.FC<TotalRowProps> = ({ label, value }) => {
   const isSubTotal = label === "Sub Total";
   return (
     <div
