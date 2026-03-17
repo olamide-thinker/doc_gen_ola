@@ -31,6 +31,13 @@ export interface Footer {
   emphasis: Array<{ key: string; value: string }>;
 }
 
+export interface InvoiceCode {
+  text: string;
+  x: number;
+  y: number;
+  color: string;
+}
+
 export interface DocData {
   contact: Contact;
   title: string;
@@ -41,6 +48,7 @@ export interface DocData {
     summary: SummaryItem[];
   };
   footer: Footer;
+  invoiceCode?: InvoiceCode;
 }
 
 export interface TotalPrice {
