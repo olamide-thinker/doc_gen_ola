@@ -83,7 +83,11 @@ interface A4PageProps {
   onUpdateInvoiceCode: (updates: Partial<InvoiceCode>) => void;
   onUpdateSummaryItem: (id: string, label: string) => void;
   onUpdateDate: (value: string) => void;
+  showRows: boolean;
+  showTotals: boolean;
+  showFooter: boolean;
   isPreview: boolean;
+  isEndOfRows: boolean;
 }
 
 const SortableSummaryItem = ({
@@ -125,7 +129,7 @@ const SortableSummaryItem = ({
         <div
           {...attributes}
           {...listeners}
-          className="transition-colors cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500"
+          className="transition-colors cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 no-print"
         >
           <GripVertical size={14} />
         </div>
@@ -463,8 +467,8 @@ const Editor: React.FC = () => {
   ): number => {
     if (!formula) return 0;
     try {
-      // First, handle percentages (e.g. 75% -> (75/100))
-      let expression = formula.replace(/(\d+(\.\d+)?)%/g, "($1/100)");
+      // First, handle percentages (e.g. 75% -> (75/100) or .5% -> (.5/100))
+      let expression = formula.replace(/(\d*\.?\d+)\s*%/g, "($1/100)");
 
       // Inject context variables (subTotal, prev, or previous summary results)
       Object.keys(context).forEach((key) => {
@@ -476,6 +480,8 @@ const Editor: React.FC = () => {
       // Inject row column variables (A, B, C...)
       const matches = formula.match(/[A-Z]+/g) || [];
       matches.forEach((cid) => {
+        // If it's already in context (like summary items A, B...), use context value
+        if (context[cid] !== undefined) return;
         const val = Number(data[cid]) || 0;
         const regex = new RegExp(`\\b${cid}\\b`, "g");
         expression = expression.replace(regex, val.toString());
@@ -531,9 +537,15 @@ const Editor: React.FC = () => {
 
   const summaryResults: any[] = [];
   let currentRunningTotal = subTotal;
+  const prevSummaryValues: Record<string, number> = {};
 
   (docData.table.summary || []).forEach((item: any, idx: number) => {
-    const itemContext = { subTotal, prev: currentRunningTotal };
+    const displayId = getLetterId(idx);
+    const itemContext = {
+      ...prevSummaryValues,
+      subTotal,
+      prev: currentRunningTotal,
+    };
     const val =
       item.type === "formula"
         ? resolveFormula({}, item.formula, itemContext)
@@ -541,24 +553,163 @@ const Editor: React.FC = () => {
     summaryResults.push({
       ...item,
       calculatedValue: val,
-      displayId: getLetterId(idx),
+      displayId,
     });
+    prevSummaryValues[displayId] = val;
     currentRunningTotal += val;
   });
 
   const grandTotal = currentRunningTotal;
   const summaryForRender = summaryResults;
 
-  const chunks: TableRow[][] = [];
-  const safeItems = docData.table.rows || [];
-  if (safeItems.length > 0) {
-    chunks.push(safeItems.slice(0, 10));
-    for (let i = 10; i < safeItems.length; i += 18) {
-      chunks.push(safeItems.slice(i, i + 18));
+  const MM_TO_PX = 3.78;
+  const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
+  const PADDING_V_PX = (14 + 20) * MM_TO_PX; // 14mm top, 20mm bottom
+  const USABLE_HEIGHT = PAGE_HEIGHT_PX - PADDING_V_PX;
+
+  const calculateChunks = () => {
+    const THEAD_HEIGHT = 42;
+    const TOTAL_ROW_HEIGHT = 48;
+    const GRAND_TOTAL_HEIGHT = 70;
+    const FOOTER_HEADER_HEIGHT = 40;
+    const EMPHASIS_SECTION_HEIGHT =
+      (docData.footer.emphasis?.length || 0) * 32 + 40;
+    const estimateNotesHeight = (html: string) => {
+      if (!html) return 0;
+      const text = html.replace(/<[^>]*>/g, "");
+      const charCount = text.length;
+      const paragraphs = (html.match(/<p>/g) || []).length || 1;
+      const lineCount = Math.ceil(charCount / 75);
+      return lineCount * 22 + paragraphs * 24 + 60;
+    };
+
+    const NOTES_ESTIMATE = estimateNotesHeight(docData.footer.notes);
+    const FOOTER_PADDING_TOP = 40;
+
+    const estimateRowHeight = (row: TableRow) => {
+      const text = String(row.B || "");
+      const lines = Math.ceil(text.length / 45);
+      return Math.max(48, lines * 22);
+    };
+
+    const allRows = docData.table.rows || [];
+    const hasFooterContent = !!(
+      docData.footer.notes || docData.footer.emphasis?.length
+    );
+    let currentRowsProcessed = 0;
+    const pages: any[] = [];
+
+    // Page 1 header elements height
+    // Includes Gap, Address Block, Title, and some Margin
+    const page1HeaderHeight = headerHeight + 50 + 180 + 100;
+
+    let iterations = 0;
+    while (
+      (currentRowsProcessed < allRows.length || pages.length === 0) &&
+      iterations < 50
+    ) {
+      iterations++;
+      const isFirstPage = pages.length === 0;
+      let h = isFirstPage ? page1HeaderHeight : 40;
+      h += THEAD_HEIGHT;
+
+      const rowsForThisPage: TableRow[] = [];
+      while (currentRowsProcessed < allRows.length) {
+        const rHeight = estimateRowHeight(allRows[currentRowsProcessed]);
+        if (h + rHeight <= USABLE_HEIGHT - 10) {
+          rowsForThisPage.push(allRows[currentRowsProcessed]);
+          h += rHeight;
+          currentRowsProcessed++;
+        } else {
+          break;
+        }
+      }
+
+      // Check if we can fit totals and footer
+      let showTotals = false;
+      let showFooter = false;
+
+      if (currentRowsProcessed === allRows.length) {
+        const totalsHeight =
+          (docData.table.summary.length + 1) * TOTAL_ROW_HEIGHT +
+          GRAND_TOTAL_HEIGHT +
+          FOOTER_PADDING_TOP;
+        const footerHeight =
+          (docData.footer.notes ? NOTES_ESTIMATE : 0) +
+          (docData.footer.emphasis?.length ? EMPHASIS_SECTION_HEIGHT : 0);
+
+        if (h + totalsHeight <= USABLE_HEIGHT) {
+          showTotals = true;
+          h += totalsHeight;
+
+          if (h + footerHeight <= USABLE_HEIGHT) {
+            showFooter = true;
+          }
+        }
+      }
+
+      pages.push({
+        rows: rowsForThisPage,
+        showRows: rowsForThisPage.length > 0 || isFirstPage,
+        showTotals,
+        showFooter,
+        isEndOfRows: currentRowsProcessed === allRows.length && (rowsForThisPage.length > 0 || isFirstPage),
+        startIndex:
+          pages.length === 0
+            ? 0
+            : pages[pages.length - 1].startIndex +
+              pages[pages.length - 1].rows.length,
+      });
+
+      // Special case: if we finished rows but couldn't fit totals/footer
+      if (
+        currentRowsProcessed === allRows.length &&
+        (!showTotals || !showFooter)
+      ) {
+        if (!showTotals) {
+          pages.push({
+            rows: [],
+            showRows: false,
+            showTotals: true,
+            showFooter: hasFooterContent
+              ? TOTAL_ROW_HEIGHT * (docData.table.summary.length + 1) +
+                  GRAND_TOTAL_HEIGHT +
+                  NOTES_ESTIMATE +
+                  EMPHASIS_SECTION_HEIGHT <=
+                USABLE_HEIGHT
+              : true,
+            isEndOfRows: false,
+            startIndex: currentRowsProcessed,
+          });
+          // If we still can't fit footer after totals
+          if (hasFooterContent && !pages[pages.length - 1].showFooter) {
+            pages.push({
+              rows: [],
+              showRows: false,
+              showTotals: false,
+              showFooter: true,
+              startIndex: currentRowsProcessed,
+            });
+          }
+        } else if (hasFooterContent && !showFooter) {
+          pages.push({
+            rows: [],
+            showRows: false,
+            showTotals: false,
+            showFooter: true,
+            startIndex: currentRowsProcessed,
+          });
+        }
+        break;
+      }
+
+      if (currentRowsProcessed === allRows.length) break;
     }
-  } else {
-    chunks.push([]);
-  }
+
+    return pages;
+  };
+
+  const pages = calculateChunks();
 
   return (
     <div className="app-root flex flex-col h-screen bg-[#FDFCFB] text-slate-900 overflow-hidden font-sans">
@@ -677,7 +828,7 @@ const Editor: React.FC = () => {
 
               <section className="space-y-4">
                 <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Document Notes
+                  Invoice Notes
                 </label>
                 <div className="border border-slate-200/60 rounded-xl p-4 min-h-[120px]">
                   <EditorContent
@@ -919,6 +1070,46 @@ const Editor: React.FC = () => {
                 </div>
               </section>
 
+              <section className="space-y-4">
+                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
+                  Table Columns
+                </label>
+                <div className="p-3 space-y-2 border border-slate-200/60 rounded-xl">
+                  {docData.table.columns.map((col) => (
+                    <div
+                      key={col.id}
+                      className="flex items-center justify-between"
+                    >
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">
+                        {col.label}
+                      </span>
+                      <button
+                        onClick={() =>
+                          updateDocData((prev) => {
+                            if (!prev) return null;
+                            const nc = prev.table.columns.map((c) =>
+                              c.id === col.id ? { ...c, hidden: !c.hidden } : c,
+                            );
+                            return {
+                              ...prev,
+                              table: { ...prev.table, columns: nc },
+                            };
+                          })
+                        }
+                        className={cn(
+                          "px-2 py-1 text-[9px] font-black uppercase rounded-full border transition-all",
+                          col.hidden
+                            ? "bg-slate-100 text-slate-400 border-slate-200"
+                            : "bg-primary/10 text-primary border-primary/20",
+                        )}
+                      >
+                        {col.hidden ? "Hidden" : "Visible"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
                 className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors border-t border-slate-100 flex items-center justify-center gap-2"
@@ -968,14 +1159,14 @@ const Editor: React.FC = () => {
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            {chunks.map((itemChunk, pageIndex) => (
+            {pages.map((page, pageIndex) => (
               <A4Page
                 key={pageIndex}
                 data={docData}
-                rows={itemChunk}
+                rows={page.rows}
                 pageIndex={pageIndex}
                 totalPrice={
-                  pageIndex === chunks.length - 1
+                  page.showTotals
                     ? { subTotal, summaries: summaryForRender, grandTotal }
                     : null
                 }
@@ -983,8 +1174,12 @@ const Editor: React.FC = () => {
                 headerHeight={headerHeight}
                 onHeaderResize={handleHeaderResize}
                 isFirstPage={pageIndex === 0}
-                isLastPage={pageIndex === chunks.length - 1}
-                startIndex={pageIndex === 0 ? 0 : 10 + (pageIndex - 1) * 18}
+                isLastPage={pageIndex === pages.length - 1}
+                startIndex={page.startIndex}
+                isEndOfRows={page.isEndOfRows}
+                showRows={page.showRows}
+                showTotals={page.showTotals}
+                showFooter={page.showFooter}
                 onUpdateContact={(f, v) =>
                   updateDocData((prev: DocData | null) =>
                     prev
@@ -1112,7 +1307,7 @@ const Editor: React.FC = () => {
         @media print {
           @page {
             size: A4;
-            margin: 0;
+            margin: 0 !important;
           }
           html, body { 
             height: auto !important;
@@ -1128,7 +1323,9 @@ const Editor: React.FC = () => {
           .app-root, .app-main, .preview-container { 
             height: auto !important; 
             overflow: visible !important; 
-            display: block !important;
+            display: grid !important;
+            place-items: center !important;
+            grid-template-columns: 100% !important;
             position: static !important;
             background: white !important;
             padding: 0 !important;
@@ -1138,15 +1335,19 @@ const Editor: React.FC = () => {
 
           .a4-page { 
             box-shadow: none !important; 
-            margin: 0 auto !important; 
+            margin: 0 !important; 
             border: none !important; 
-            page-break-after: always !important;
-            page-break-inside: avoid !important;
+            break-after: page !important;
+            break-inside: avoid !important;
             display: block !important;
             width: 210mm !important;
-            height: 297mm !important;
+            height: 296mm !important; /* Slightly more under 297mm for extra safety */
             position: relative !important;
             background: white !important;
+          }
+          .a4-page:last-child {
+            break-after: avoid !important;
+            margin-bottom: 0 !important;
           }
         }
       `}</style>
@@ -1301,92 +1502,88 @@ const SortableRow: React.FC<SortableRowProps> = ({
         isDragging && "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
       )}
     >
-      {(data.table.columns || []).map((col: any) => {
-        if (col.type === "index") {
+      {(data.table.columns || [])
+        .filter((c) => !c.hidden)
+        .map((col: any) => {
+          if (col.type === "index") {
+            return (
+              <td
+                key={col.id}
+                className="relative h-10 p-3 overflow-hidden border-r border-slate-100"
+                style={{ width: col.width }}
+              >
+                <div
+                  {...attributes}
+                  {...listeners}
+                  className={cn(
+                    "cursor-grab active:cursor-grabbing flex items-center justify-center gap-1 hover:text-primary transition-colors",
+                    isPreview && "pointer-events-none",
+                  )}
+                >
+                  <GripVertical
+                    size={12}
+                    className="transition-opacity text-slate-300 no-print"
+                  />
+                  <span className="font-bold">{startIndex + idx + 1}</span>
+                </div>
+
+                  <div className="absolute left-[-14px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
+                    <button
+                      onClick={() => onRemoveRow(startIndex + idx)}
+                      className="h-full p-1 text-red-400 transition-all bg-white border rounded-lg shadow-sm border-slate-200 hover:text-red-500 hover:border-red-100 active:scale-95"
+                      title="Delete Row"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+              </td>
+            );
+          }
+
+          const cellValue = row[col.id];
+          const isFormula = col.type === "formula";
+          const displayValue = isFormula
+            ? resolveFormula(row, col.formula)
+            : cellValue;
+
           return (
             <td
               key={col.id}
-              className="relative h-10 p-3 overflow-hidden border-r border-slate-100"
+              className={cn(
+                "p-3 border-r border-slate-100 last:border-r-0 relative h-10 overflow-hidden",
+                (col.type === "number" || col.type === "formula") &&
+                  "text-left font-lexend text-medium",
+              )}
               style={{ width: col.width }}
             >
-              <div
-                {...attributes}
-                {...listeners}
-                className={cn(
-                  "cursor-grab active:cursor-grabbing flex items-center justify-center gap-1 hover:text-primary transition-colors",
-                  isPreview && "pointer-events-none",
-                )}
-              >
-                {!isPreview && (
-                  <GripVertical
-                    size={12}
-                    className="transition-opacity text-slate-300"
-                  />
-                )}
-                <span className="font-bold">{startIndex + idx + 1}</span>
-              </div>
-
-              {!isPreview && (
-                <div className="absolute left-[-14px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
-                  <button
-                    onClick={() => onRemoveRow(startIndex + idx)}
-                    className="h-full p-1 text-red-400 transition-all bg-white border rounded-lg shadow-sm border-slate-200 hover:text-red-500 hover:border-red-100 active:scale-95"
-                    title="Delete Row"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
+              {isFormula ? (
+                <span className="opacity-80">
+                  {typeof displayValue === "number"
+                    ? Math.round(displayValue).toLocaleString()
+                    : displayValue}
+                </span>
+              ) : (
+                <Editable
+                  className={cn(
+                    "w-full",
+                    (col.type === "number" || col.type === "formula") &&
+                      "text-left font-lexend",
+                  )}
+                  value={cellValue}
+                  numeric={col.type === "number"}
+                  onSave={(val) =>
+                    onUpdateCell(
+                      startIndex + idx,
+                      col.id,
+                      col.type === "number" ? Number(val) : (val as string),
+                    )
+                  }
+                  readOnly={isPreview}
+                />
               )}
             </td>
           );
-        }
-
-        const cellValue = row[col.id];
-        const isFormula = col.type === "formula";
-        const displayValue = isFormula
-          ? resolveFormula(row, col.formula)
-          : cellValue;
-
-        return (
-          <td
-            key={col.id}
-            className={cn(
-              "p-3 border-r border-slate-100 last:border-r-0 relative h-10 overflow-hidden",
-              (col.type === "number" || col.type === "formula") &&
-                "text-left font-lexend text-medium",
-            )}
-            style={{ width: col.width }}
-          >
-            {isFormula ? (
-              <span className="opacity-80">
-                {typeof displayValue === "number"
-                  ? displayValue.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })
-                  : displayValue}
-              </span>
-            ) : (
-              <Editable
-                className={cn(
-                  "w-full",
-                  (col.type === "number" || col.type === "formula") &&
-                    "text-left font-lexend",
-                )}
-                value={cellValue}
-                onSave={(val) =>
-                  onUpdateCell(
-                    startIndex + idx,
-                    col.id,
-                    col.type === "number" ? Number(val) : (val as string),
-                  )
-                }
-                readOnly={isPreview}
-              />
-            )}
-          </td>
-        );
-      })}
+        })}
     </tr>
   );
 };
@@ -1413,7 +1610,11 @@ const A4Page: React.FC<A4PageProps> = ({
   onUpdateInvoiceCode,
   onUpdateSummaryItem,
   onUpdateDate,
+  showRows,
+  showTotals,
+  showFooter,
   isPreview,
+  isEndOfRows,
 }) => {
   const HEADER_DARK_BROWN = "#503D36";
   const PRIMARY_BROWN = "#8D6E63";
@@ -1424,8 +1625,9 @@ const A4Page: React.FC<A4PageProps> = ({
       className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative overflow-hidden shrink-0"
       style={{
         width: "210mm",
-        minHeight: "297mm",
-        padding: "14mm 8mm",
+        height: "297mm",
+        maxHeight: "297mm",
+        padding: "14mm 8mm 20mm 8mm",
         backgroundColor: "#FFFFFF",
       }}
     >
@@ -1445,7 +1647,7 @@ const A4Page: React.FC<A4PageProps> = ({
             className="object-contain object-center w-full h-full"
           />
           <div
-            className="absolute bottom-0 left-0 right-0 z-10 h-2 bg-transparent cursor-ns-resize"
+            className="absolute bottom-0 left-0 right-0 z-10 h-2 bg-transparent cursor-ns-resize no-print"
             onMouseDown={onHeaderResize}
           />
         </div>
@@ -1540,10 +1742,10 @@ const A4Page: React.FC<A4PageProps> = ({
               <span className="block text-[#503D36] font-normal text-[13px] font-luzia uppercase mb-3 tracking-[0.1em]">
                 Billed From:
               </span>
-              <div className="font-normal text-[#212121] mb-1 text-[15px]">
+              <div className="font-normal text-[#212121] mb-1 text-[12px]">
                 B3F3, The Genesis Estate, Off Odobo Street,
               </div>
-              <div className="font-normal text-[14px] opacity-90">
+              <div className="font-normal text-[12px] opacity-90">
                 Ogba-Ikeja, Lagos.
               </div>
             </div>
@@ -1563,65 +1765,75 @@ const A4Page: React.FC<A4PageProps> = ({
         </>
       )}
 
-      <div className="overflow-hidden border border-slate-100">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr
-              className="text-white text-[13px] font-normal uppercase tracking-[0.2em] font-luzia"
-              style={{ backgroundColor: HEADER_DARK_BROWN }}
-            >
-              {(data.table.columns || []).map((col: any) => (
-                <th
-                  key={col.id}
-                  className="p-4 font-normal text-left border-r border-white/10 last:border-r-0"
-                  style={{ width: col.width || "auto" }}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <SortableContext
-              items={rows.map((r) => r.id as string)}
-              strategy={verticalListSortingStrategy}
-            >
-              {(rows || []).map((row, idx) => (
-                <SortableRow
-                  key={row.id as string}
-                  id={row.id as string}
-                  row={row}
-                  idx={idx}
-                  startIndex={startIndex}
-                  data={data}
-                  isPreview={isPreview}
-                  onUpdateCell={onUpdateCell}
-                  onRemoveRow={onRemoveRow}
-                  resolveFormula={resolveFormula}
+      {showRows && (
+        <div className="overflow-hidden border border-slate-100">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr
+                className="text-white text-[13px] font-normal uppercase tracking-[0.2em] font-luzia"
+                style={{ backgroundColor: HEADER_DARK_BROWN }}
+              >
+                {(data.table.columns || [])
+                  .filter((c) => !c.hidden)
+                  .map((col: any) => (
+                    <th
+                      key={col.id}
+                      className="p-4 font-normal text-left border-r border-white/10 last:border-r-0"
+                      style={{ width: col.width || "auto" }}
+                    >
+                      {col.label}
+                    </th>
+                  ))}
+              </tr>
+            </thead>
+            <tbody>
+              <SortableContext
+                items={rows.map((r) => r.id as string)}
+                strategy={verticalListSortingStrategy}
+              >
+                {(rows || []).map((row, idx) => (
+                  <SortableRow
+                    key={row.id as string}
+                    id={row.id as string}
+                    row={row}
+                    idx={idx}
+                    startIndex={startIndex}
+                    data={data}
+                    isPreview={isPreview}
+                    onUpdateCell={onUpdateCell}
+                    onRemoveRow={onRemoveRow}
+                    resolveFormula={resolveFormula}
+                  />
+                ))}
+              </SortableContext>
+            </tbody>
+          </table>
+          {isEndOfRows && (
+            <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
+              <button
+                onClick={() => onAddRowBelow(startIndex + rows.length - 1)}
+                className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group"
+              >
+                <Plus
+                  size={14}
+                  className="transition-transform duration-300 group-hover:rotate-90"
                 />
-              ))}
-            </SortableContext>
-          </tbody>
-        </table>
-        {isLastPage && !isPreview && (
-          <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
-            <button
-              onClick={() => onAddRowBelow(rows.length - 1)}
-              className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group"
-            >
-              <Plus
-                size={14}
-                className="transition-transform duration-300 group-hover:rotate-90"
-              />
-              Add New Line Item
-            </button>
-          </div>
-        )}
-      </div>
+                Add New Line Item
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
-      {isLastPage && totalPrice && (
+
+      {showTotals && totalPrice && (
         <div className="mt-8 border-t border-slate-100">
-          <TotalRow label="Sub Total" value={totalPrice.subTotal} readOnly />
+          <TotalRow 
+            label="Sub Total" 
+            value={totalPrice.subTotal} 
+            readOnly 
+            className="bg-slate-50/50 font-semibold"
+          />
           {(totalPrice.summaries || []).map((item: any) => (
             <TotalRow
               key={item.id}
@@ -1645,35 +1857,35 @@ const A4Page: React.FC<A4PageProps> = ({
         </div>
       )}
 
-      {isLastPage && data.footer.notes && (
-        <div className="p-4 mt-8 border rounded bg-slate-50 border-slate-200">
-          <h4 className="text-[14px] font-bold text-slate-700 mb-2 uppercase tracking-widest">
-            Document Notes
-          </h4>
-          <div
-            className="text-[14px] font-normal text-[#212121] font-lexend leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: data.footer.notes }}
-          />
-        </div>
-      )}
+      {showFooter && (
+        <>
+          {data.footer.notes && (
+            <div className="p-4 mt-8 border rounded bg-slate-50 border-slate-200">
+              <div
+                className="text-[14px] font-normal text-[#212121] font-lexend leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: data.footer.notes }}
+              />
+            </div>
+          )}
 
-      {isLastPage &&
-        data.footer.emphasis &&
-        Array.isArray(data.footer.emphasis) &&
-        data.footer.emphasis.length > 0 && (
-          <div className="mt-4 bg-[#EDEDED] px-8 py-5 flex flex-col gap-1.5">
-            {data.footer.emphasis.map((item: any, idx: number) => (
-              <div key={idx} className="flex items-center gap-3">
-                <span className="uppercase text-[12px] tracking-widest text-[#7A7672] font-black">
-                  {item.key}:
-                </span>
-                <span className="text-[17px] font-bold tracking-wide text-[#4B4032]">
-                  {item.value}
-                </span>
+          {data.footer.emphasis &&
+            Array.isArray(data.footer.emphasis) &&
+            data.footer.emphasis.length > 0 && (
+              <div className="mt-4 bg-[#EDEDED] px-8 py-5 flex flex-col gap-1.5">
+                {data.footer.emphasis.map((item: any, idx: number) => (
+                  <div key={idx} className="flex items-center gap-3">
+                    <span className="uppercase text-[12px] tracking-widest text-[#7A7672] font-black">
+                      {item.key}:
+                    </span>
+                    <span className="text-[17px] font-bold tracking-wide text-[#4B4032]">
+                      {item.value}
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
+        </>
+      )}
 
       <div className="absolute left-0 w-full px-16 text-center bottom-10">
         <div className="border-t border-slate-100 pt-6 flex justify-between items-center text-[11px] text-slate-300 uppercase font-bold tracking-widest opacity-60 font-lexend">
@@ -1691,15 +1903,17 @@ const TotalRow = ({
   value,
   onSaveLabel,
   readOnly = false,
+  className,
 }: {
   label: string;
   value: number;
   onSaveLabel?: (val: string) => void;
   readOnly?: boolean;
+  className?: string;
 }) => {
   return (
-    <div className="flex justify-between items-center p-4 text-[14px] font-normal border-b border-slate-50 font-lexend h-12">
-      <div className="text-slate-400 uppercase text-[11px] tracking-[0.2em] min-w-[120px] relative h-full overflow-hidden flex items-center">
+    <div className={cn("flex justify-between items-center p-4 text-[14px] font-normal border-b border-slate-70 font-lexend h-12", className)}>
+      <div className="text-slate-500 uppercase text-[11px] tracking-[0.2em] min-w-[120px] relative h-full overflow-hidden flex items-center">
         {onSaveLabel ? (
           <Editable
             value={label}

@@ -11,6 +11,7 @@ export interface TableColumn {
   formula?: string;
   format?: "currency" | "number";
   width?: string;
+  hidden?: boolean;
 }
 
 export interface TableRow {
