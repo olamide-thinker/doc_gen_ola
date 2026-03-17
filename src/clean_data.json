@@ -1,0 +1,75 @@
+{
+  "contact": {
+    "name": "OLUWAKEMI ISINKAYE",
+    "address1": "Prime Waters Garden II",
+    "address2": "Lekki Phase 1"
+  },
+  "title": "PROPOSED For Maintenance of A 5 bedroom apartment at Prime Waters Garden II Lekki Phase 1.",
+  "items": [
+    {
+      "desc": "Master Bedroom Closet Maintenance",
+      "price": 260000,
+      "qty": 1
+    },
+    {
+      "desc": "Glass Works (Change of Glass)",
+      "price": 335000,
+      "qty": 1
+    },
+    {
+      "desc": "Plumbing maintenance",
+      "price": 165000,
+      "qty": 1
+    },
+    {
+      "desc": "Bedframe Joinery Maintenance",
+      "price": 110000,
+      "qty": 1
+    },
+    {
+      "desc": "Tv Console Maintenance",
+      "price": 200000,
+      "qty": 1
+    },
+    {
+      "desc": "Door handles and Locks",
+      "price": 78000,
+      "qty": 1
+    },
+    {
+      "desc": "Switches & Socket",
+      "price": 410000,
+      "qty": 1
+    },
+    {
+      "desc": "Fix & Deep Wash Sofa",
+      "price": 180000,
+      "qty": 1
+    },
+    {
+      "desc": "Launder Rugs",
+      "price": 50000,
+      "qty": 1
+    },
+    {
+      "desc": "Kitchen Joinery & Other Kitchen Maintenance Works",
+      "price": 270000,
+      "qty": 1
+    },
+    {
+      "desc": "Arts in Rooms",
+      "price": 200000,
+      "qty": 1
+    },
+    {
+      "desc": "Dining Rug",
+      "price": 200000,
+      "qty": 1
+    },
+    {
+      "desc": "Apartment Deep Cleaning",
+      "price": 100000,
+      "qty": 1
+    }
+  ]
+}
