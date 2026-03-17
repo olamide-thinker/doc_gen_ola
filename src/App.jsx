@@ -47,7 +47,7 @@ content:
 - Dining Rug 200,000
 - Apartment Deep Cleaning 100,000`);
 
-  const [headerImage, setHeaderImage] = useState(null);
+  const [headerImage, setHeaderImage] = useState("/shan-letterhead.png");
   const [columns, setColumns] = useState({
     views: true,
     unitPrice: true,
@@ -70,23 +70,7 @@ content:
   const [hoveredIndex, setHoveredIndex] = useState(null);
 
   const [isPreview, setIsPreview] = useState(false);
-  const [previewPassword, setPreviewPassword] = useState('');
 
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const preview = urlParams.get('preview');
-    const data = urlParams.get('data');
-    const pass = urlParams.get('pass');
-    if (preview === 'true' && data && pass) {
-      const enteredPass = prompt('Enter password to view preview:');
-      if (enteredPass === pass) {
-        setParsedData(JSON.parse(atob(data)));
-        setIsPreview(true);
-      } else {
-        alert('Incorrect password');
-      }
-    }
-  }, []);
 
   const editor = useEditor({
     extensions: [StarterKit],
@@ -178,6 +162,22 @@ content:
     parseLetterContext(letterContext),
   );
 
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const preview = urlParams.get("preview");
+    const data = urlParams.get("data");
+    const pass = urlParams.get("pass");
+    if (preview === "true" && data && pass) {
+      const enteredPass = prompt("Enter password to view preview:");
+      if (enteredPass === pass) {
+        setParsedData(JSON.parse(atob(data)));
+        setIsPreview(true);
+      } else {
+        alert("Incorrect password");
+      }
+    }
+  }, []);
+
   const handleSyncFromContext = () => {
     setParsedData(parseLetterContext(letterContext));
   };
@@ -199,21 +199,6 @@ content:
       items: prev.items.map((item) =>
         item.id === id ? { ...item, [field]: value } : item,
       ),
-    }));
-  };
-
-  const addItem = () => {
-    setParsedData((prev) => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        {
-          id: Math.random().toString(36).substr(2, 9),
-          desc: "",
-          price: 0,
-          qty: 1,
-        },
-      ],
     }));
   };
 
@@ -316,12 +301,12 @@ content:
   const handleDownload = () => window.print(); // For now, same as print
 
   const generatePreviewLink = () => {
-    const pass = prompt('Set a password for the preview:');
+    const pass = prompt("Set a password for the preview:");
     if (pass) {
       const data = btoa(JSON.stringify(parsedData));
       const url = `${window.location.origin}${window.location.pathname}?preview=true&data=${data}&pass=${pass}`;
       navigator.clipboard.writeText(url);
-      alert('Preview link copied to clipboard!');
+      alert("Preview link copied to clipboard!");
     }
   };
 
@@ -379,233 +364,258 @@ content:
       <div className="flex flex-1 overflow-hidden">
         {!isPreview && (
           <div className="w-full lg:w-[420px] flex flex-col border-r border-slate-200/60 bg-white p-8 overflow-y-auto scrollbar-thin">
-        <div className="flex items-center justify-between mb-10">
-          <div className="flex items-center gap-3 text-slate-900">
-            <div className="p-2 bg-slate-900 rounded-xl">
-              <FileText size={20} className="text-white" />
+            <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center gap-3 text-slate-900">
+                <div className="p-2 bg-slate-900 rounded-xl">
+                  <FileText size={20} className="text-white" />
+                </div>
+                <h1 className="text-xl font-black tracking-tighter font-lexend uppercase text-[14px]">
+                  PRO DOCUMENT
+                </h1>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={generatePreviewLink}
+                  className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all border border-slate-200/60 active:scale-95"
+                  title="Generate Preview Link"
+                >
+                  <Share size={18} />
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all border border-slate-200/60 active:scale-95"
+                  title="Download"
+                >
+                  <Download size={18} />
+                </button>
+                <button
+                  onClick={handlePrint}
+                  className="p-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-all shadow-md active:scale-95 border border-slate-900"
+                  title="Print"
+                >
+                  <Printer size={18} />
+                </button>
+              </div>
             </div>
-            <h1 className="text-xl font-black tracking-tighter font-lexend uppercase text-[14px]">
-              PRO DOCUMENT
-            </h1>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={generatePreviewLink}
-              className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all border border-slate-200/60 active:scale-95"
-              title="Generate Preview Link"
-            >
-              <Share size={18} />
-            </button>
-            <button
-              onClick={handleDownload}
-              className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all border border-slate-200/60 active:scale-95"
-              title="Download"
-            >
-              <Download size={18} />
-            </button>
-            <button
-              onClick={handlePrint}
-              className="p-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-all shadow-md active:scale-95 border border-slate-900"
-              title="Print"
-            >
-              <Printer size={18} />
-            </button>
-          </div>
-        </div>
 
-        <div className="space-y-8">
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend">
-                Letter Context
-              </label>
-              <button
-                onClick={handleSyncFromContext}
-                className="flex items-center gap-1.5 px-3 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold font-lexend transition-all border border-slate-200/60"
-              >
-                <RefreshCw size={12} /> SYNC
-              </button>
-            </div>
-            <textarea
-              className="w-full h-48 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-[11px] font-mono focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none resize-none scrollbar-thin text-slate-700 transition-all shadow-sm"
-              value={letterContext}
-              onChange={(e) => setLetterContext(e.target.value)}
-              placeholder="Paste content..."
-            />
-          </section>
-
-          <section className="bg-slate-50 p-6 rounded-2xl border border-slate-200/60 space-y-4">
-            <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend mb-2 flex items-center gap-2">
-              <Settings2 size={14} /> Columns
-            </h3>
-            <div className="flex gap-2 flex-wrap">
-              <ToggleButton
-                active={columns.views}
-                onClick={() => toggleColumn("views")}
-                label="Views"
-                icon={<Layout size={12} />}
-              />
-              <ToggleButton
-                active={columns.unitPrice}
-                onClick={() => toggleColumn("unitPrice")}
-                label="Prices"
-                icon={<TableIcon size={12} />}
-              />
-              <ToggleButton
-                active={columns.total}
-                onClick={() => toggleColumn("total")}
-                label="Totals"
-                icon={<Check size={12} />}
-              />
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-              Header Branding
-            </label>
-            <div className="relative group cursor-pointer border-2 border-dashed border-slate-200 rounded-2xl p-8 hover:border-slate-900 transition-all bg-slate-50 text-center hover:bg-slate-100/50">
-              <input
-                type="file"
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                onChange={handleImageUpload}
-                accept="image/*"
-              />
-              <Upload size={24} className="mx-auto mb-3 text-slate-400 group-hover:text-slate-900 transition-colors" />
-              <span className="text-[10px] uppercase font-black font-lexend text-slate-400 group-hover:text-slate-900 transition-colors">
-                Logo Upload
-              </span>
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-              Invoice Notes
-            </label>
-            <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm min-h-[150px]">
-              <EditorContent editor={editor} className="text-slate-700 font-lexend" />
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-              Emphasis Key-Value Pairs
-            </label>
-            <div className="flex flex-col gap-3 relative">
-              {emphasisText.map((item, idx) => (
-                <div key={idx} className="relative group/row">
-                  {hoveredIndex === idx && (
-                    <button
-                      className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-slate-800 z-10 shadow-lg border-2 border-white"
-                      onClick={() => addRowAbove(idx)}
-                      title="Add row above"
-                    >
-                      <Plus size={14} />
-                    </button>
-                  )}
-                  <div
-                    className="flex gap-3 items-center p-3 border border-slate-200/60 rounded-xl bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-sm transition-all"
-                    onMouseEnter={() => setHoveredIndex(idx)}
-                    onMouseLeave={() => setHoveredIndex(null)}
+            <div className="space-y-8">
+              <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend">
+                    Letter Context
+                  </label>
+                  <button
+                    onClick={handleSyncFromContext}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold font-lexend transition-all border border-slate-200/60"
                   >
-                    <input
-                      className="w-32 bg-transparent border-b border-slate-200 text-[11px] font-lexend font-bold text-slate-500 hover:border-slate-400 focus:border-slate-900 outline-none transition-colors px-1"
-                      value={item.key}
-                      onChange={(e) => updateKey(idx, e.target.value)}
-                      placeholder="Key"
-                    />
-                    <input
-                      className="flex-1 bg-transparent border-b border-slate-200 text-[11px] font-lexend text-slate-700 hover:border-slate-400 focus:border-slate-900 outline-none transition-colors px-1"
-                      value={item.value}
-                      onChange={(e) => updateValue(idx, e.target.value)}
-                      placeholder="Value"
-                    />
-                    <button
-                      onClick={() => removeRow(idx)}
-                      className="text-slate-300 hover:text-red-500 transition-colors"
-                      title="Remove row"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  {hoveredIndex === idx && (
-                    <button
-                      className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-slate-800 z-10 shadow-lg border-2 border-white"
-                      onClick={() => addRowBelow(idx)}
-                      title="Add row below"
-                    >
-                      <Plus size={14} />
-                    </button>
+                    <RefreshCw size={12} /> SYNC
+                  </button>
+                </div>
+                <textarea
+                  className="w-full h-48 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-[11px] font-mono focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none resize-none scrollbar-thin text-slate-700 transition-all shadow-sm"
+                  value={letterContext}
+                  onChange={(e) => setLetterContext(e.target.value)}
+                  placeholder="Paste content..."
+                />
+              </section>
+
+              <section className="bg-slate-50 p-6 rounded-2xl border border-slate-200/60 space-y-4">
+                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend mb-2 flex items-center gap-2">
+                  <Settings2 size={14} /> Columns
+                </h3>
+                <div className="flex gap-2 flex-wrap">
+                  <ToggleButton
+                    active={columns.views}
+                    onClick={() => toggleColumn("views")}
+                    label="Views"
+                    icon={<Layout size={12} />}
+                  />
+                  <ToggleButton
+                    active={columns.unitPrice}
+                    onClick={() => toggleColumn("unitPrice")}
+                    label="Prices"
+                    icon={<TableIcon size={12} />}
+                  />
+                  <ToggleButton
+                    active={columns.total}
+                    onClick={() => toggleColumn("total")}
+                    label="Totals"
+                    icon={<Check size={12} />}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
+                  Header Branding
+                </label>
+                <div className="relative group cursor-pointer border-2 border-dashed border-slate-200 rounded-2xl p-8 hover:border-slate-900 transition-all bg-slate-50 text-center hover:bg-slate-100/50 overflow-hidden">
+                  <input
+                    type="file"
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                    onChange={handleImageUpload}
+                    accept="image/*"
+                  />
+                  {headerImage ? (
+                    <div className="relative h-20 w-full flex items-center justify-center">
+                      <img src={headerImage} alt="Logo Preview" className="max-h-full object-contain opacity-60 group-hover:opacity-100 transition-opacity" />
+                      <div className="absolute inset-0 flex items-center justify-center bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Upload size={20} className="text-slate-900" />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload
+                        size={24}
+                        className="mx-auto mb-3 text-slate-400 group-hover:text-slate-900 transition-colors"
+                      />
+                      <span className="text-[10px] uppercase font-black font-lexend text-slate-400 group-hover:text-slate-900 transition-colors">
+                        Logo Upload
+                      </span>
+                    </>
                   )}
                 </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      </div>
-      )}
+              </section>
 
-      {/* Preview Area */}
-      <div className={`${isPreview ? 'w-full' : 'flex-1'} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin`}>
-        {isPreview && (
-          <div className="fixed top-6 right-6 z-50 flex gap-2 no-print">
-            <button
-              onClick={handleDownload}
-              className="px-2.5 py-1 bg-black/40 backdrop-blur-xl border border-white/10 hover:bg-black/60 rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-1.5 text-slate-200 text-[10px] font-bold tracking-tight uppercase"
-              title="Download PDF"
-            >
-              <Download size={12} className="text-slate-400 group-hover:text-white" />
-              <span>Download</span>
-            </button>
-            <button
-              onClick={handlePrint}
-              className="px-2.5 py-1 bg-black/40 backdrop-blur-xl border border-white/10 hover:bg-black/60 rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-1.5 text-slate-200 text-[10px] font-bold tracking-tight uppercase"
-              title="Print Document"
-            >
-              <Printer size={12} className="text-slate-400 group-hover:text-white" />
-              <span>Print</span>
-            </button>
+              <section className="space-y-4">
+                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
+                  Invoice Notes
+                </label>
+                <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm min-h-[150px]">
+                  <EditorContent
+                    editor={editor}
+                    className="text-slate-700 font-lexend"
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
+                  Emphasis Key-Value Pairs
+                </label>
+                <div className="flex flex-col gap-3 relative">
+                  {emphasisText.map((item, idx) => (
+                    <div key={idx} className="relative group/row">
+                      {hoveredIndex === idx && (
+                        <button
+                          className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-slate-800 z-10 shadow-lg border-2 border-white"
+                          onClick={() => addRowAbove(idx)}
+                          title="Add row above"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      )}
+                      <div
+                        className="flex gap-3 items-center p-3 border border-slate-200/60 rounded-xl bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-sm transition-all"
+                        onMouseEnter={() => setHoveredIndex(idx)}
+                        onMouseLeave={() => setHoveredIndex(null)}
+                      >
+                        <input
+                          className="w-32 bg-transparent border-b border-slate-200 text-[11px] font-lexend font-bold text-slate-500 hover:border-slate-400 focus:border-slate-900 outline-none transition-colors px-1"
+                          value={item.key}
+                          onChange={(e) => updateKey(idx, e.target.value)}
+                          placeholder="Key"
+                        />
+                        <input
+                          className="flex-1 bg-transparent border-b border-slate-200 text-[11px] font-lexend text-slate-700 hover:border-slate-400 focus:border-slate-900 outline-none transition-colors px-1"
+                          value={item.value}
+                          onChange={(e) => updateValue(idx, e.target.value)}
+                          placeholder="Value"
+                        />
+                        <button
+                          onClick={() => removeRow(idx)}
+                          className="text-slate-300 hover:text-red-500 transition-colors"
+                          title="Remove row"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      {hoveredIndex === idx && (
+                        <button
+                          className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-slate-800 z-10 shadow-lg border-2 border-white"
+                          onClick={() => addRowBelow(idx)}
+                          title="Add row below"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           </div>
         )}
-        {chunks.map((itemChunk, pageIndex) => (
-          <A4Page
-            key={pageIndex}
-            data={parsedData}
-            items={itemChunk}
-            pageIndex={pageIndex}
-            totalPrice={
-              pageIndex === chunks.length - 1
-                ? { subTotal, logistics, vat, grandTotal }
-                : null
-            }
-            headerImage={headerImage}
-            headerHeight={headerHeight}
-            onHeaderResize={handleHeaderResize}
-            invoiceNotes={invoiceNotes}
-            emphasisText={emphasisText}
-            columns={columns}
-            isFirstPage={pageIndex === 0}
-            isLastPage={pageIndex === chunks.length - 1}
-            startIndex={
-              pageIndex === 0
-                ? 0
-                : firstPageLimit + (pageIndex - 1) * otherPagesLimit
-            }
-            onUpdateContact={updateContactField}
-            onUpdateTitle={updateTitle}
-            onUpdateItem={updateItem}
-            onRemoveItem={removeItem}
-            onMoveItemUp={moveItemUp}
-            onMoveItemDown={moveItemDown}
-            onAddItemAbove={addItemAbove}
-            onAddItemBelow={addItemBelow}
-            isPreview={isPreview}
-          />
-        ))}
-      </div>
-    </div>
 
-    <style>{`
+        {/* Preview Area */}
+        <div
+          className={`${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin`}
+        >
+          {isPreview && (
+            <div className="fixed top-6 right-6 z-50 flex gap-2 no-print">
+              <button
+                onClick={handleDownload}
+                className="px-2.5 py-1 bg-black/40 backdrop-blur-xl border border-white/10 hover:bg-black/60 rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-1.5 text-slate-200 text-[10px] font-bold tracking-tight uppercase"
+                title="Download PDF"
+              >
+                <Download
+                  size={12}
+                  className="text-slate-400 group-hover:text-white"
+                />
+                <span>Download</span>
+              </button>
+              <button
+                onClick={handlePrint}
+                className="px-2.5 py-1 bg-black/40 backdrop-blur-xl border border-white/10 hover:bg-black/60 rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-1.5 text-slate-200 text-[10px] font-bold tracking-tight uppercase"
+                title="Print Document"
+              >
+                <Printer
+                  size={12}
+                  className="text-slate-400 group-hover:text-white"
+                />
+                <span>Print</span>
+              </button>
+            </div>
+          )}
+          {chunks.map((itemChunk, pageIndex) => (
+            <A4Page
+              key={pageIndex}
+              data={parsedData}
+              items={itemChunk}
+              pageIndex={pageIndex}
+              totalPrice={
+                pageIndex === chunks.length - 1
+                  ? { subTotal, logistics, vat, grandTotal }
+                  : null
+              }
+              headerImage={headerImage}
+              headerHeight={headerHeight}
+              onHeaderResize={handleHeaderResize}
+              invoiceNotes={invoiceNotes}
+              emphasisText={emphasisText}
+              columns={columns}
+              isFirstPage={pageIndex === 0}
+              isLastPage={pageIndex === chunks.length - 1}
+              startIndex={
+                pageIndex === 0
+                  ? 0
+                  : firstPageLimit + (pageIndex - 1) * otherPagesLimit
+              }
+              onUpdateContact={updateContactField}
+              onUpdateTitle={updateTitle}
+              onUpdateItem={updateItem}
+              onRemoveItem={removeItem}
+              onMoveItemUp={moveItemUp}
+              onMoveItemDown={moveItemDown}
+              onAddItemAbove={addItemAbove}
+              onAddItemBelow={addItemBelow}
+              isPreview={isPreview}
+            />
+          ))}
+        </div>
+      </div>
+
+      <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800;900&family=Lora:ital,wght@0,400;0,700;1,400&display=swap');
         
         .font-lexend { font-family: 'Lexend', sans-serif; }
@@ -643,7 +653,8 @@ const ToggleButton = ({ active, onClick, label, icon }) => (
     onClick={onClick}
     className={`px-4 py-2 rounded-xl text-[11px] font-bold font-lexend border transition-all flex items-center gap-2 ${active ? "bg-slate-900 text-white border-slate-900 shadow-md shadow-slate-900/10" : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}
   >
-    <span className={active ? "text-white" : "text-slate-400"}>{icon}</span> {label}
+    <span className={active ? "text-white" : "text-slate-400"}>{icon}</span>{" "}
+    {label}
   </button>
 );
 
@@ -685,7 +696,6 @@ const Editable = ({
   };
 
   if (isEditing) {
-
     const commonClasses = `w-full h-full bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-1 ${className}`;
     return (
       <div className="absolute inset-0 z-10">
@@ -727,7 +737,7 @@ const Editable = ({
   return (
     <div
       onDoubleClick={handleDoubleClick}
-      className={`relative w-full h-full ${readOnly ? '' : 'hover:bg-amber-100/20 cursor-text'} transition-all group ${containerPadding} ${className}`}
+      className={`relative w-full h-full ${readOnly ? "" : "hover:bg-amber-100/20 cursor-text"} transition-all group ${containerPadding} ${className}`}
     >
       {displayValue}
       {!readOnly && (
@@ -877,7 +887,12 @@ const A4Page = ({
                 paddingBottom: "8px",
               }}
             >
-              <Editable value={data.title} onSave={onUpdateTitle} multiline readOnly={isPreview} />
+              <Editable
+                value={data.title}
+                onSave={onUpdateTitle}
+                multiline
+                readOnly={isPreview}
+              />
             </div>
           </div>
         </>
