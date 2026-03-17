@@ -49,6 +49,7 @@ interface EditableProps {
   className?: string;
   multiline?: boolean;
   numeric?: boolean;
+  isDate?: boolean;
   readOnly?: boolean;
 }
 
@@ -81,6 +82,7 @@ interface A4PageProps {
   ) => number;
   onUpdateInvoiceCode: (updates: Partial<InvoiceCode>) => void;
   onUpdateSummaryItem: (id: string, label: string) => void;
+  onUpdateDate: (value: string) => void;
   isPreview: boolean;
 }
 
@@ -1082,6 +1084,11 @@ const Editor: React.FC = () => {
                     return { ...prev, table: { ...prev.table, summary: ns } };
                   })
                 }
+                onUpdateDate={(v) =>
+                  updateDocData((prev: DocData | null) =>
+                    prev ? { ...prev, date: v } : null,
+                  )
+                }
                 isPreview={isPreview}
               />
             ))}
@@ -1153,6 +1160,7 @@ const Editable: React.FC<EditableProps> = ({
   className = "",
   multiline = false,
   numeric = false,
+  isDate = false,
   readOnly = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -1180,6 +1188,16 @@ const Editable: React.FC<EditableProps> = ({
             autoFocus
             className={cn(commonClasses, "resize-none")}
             value={currentValue as string}
+            onChange={(e) => setCurrentValue(e.target.value)}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+          />
+        ) : isDate ? (
+          <input
+            autoFocus
+            type="date"
+            className={commonClasses}
+            value={currentValue}
             onChange={(e) => setCurrentValue(e.target.value)}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
@@ -1335,7 +1353,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
             className={cn(
               "p-3 border-r border-slate-100 last:border-r-0 relative h-10 overflow-hidden",
               (col.type === "number" || col.type === "formula") &&
-                "text-right font-lexend",
+                "text-left font-lexend text-medium",
             )}
             style={{ width: col.width }}
           >
@@ -1353,7 +1371,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
                 className={cn(
                   "w-full",
                   (col.type === "number" || col.type === "formula") &&
-                    "text-right",
+                    "text-left font-lexend",
                 )}
                 value={cellValue}
                 onSave={(val) =>
@@ -1394,6 +1412,7 @@ const A4Page: React.FC<A4PageProps> = ({
   resolveFormula,
   onUpdateInvoiceCode,
   onUpdateSummaryItem,
+  onUpdateDate,
   isPreview,
 }) => {
   const HEADER_DARK_BROWN = "#503D36";
@@ -1474,8 +1493,13 @@ const A4Page: React.FC<A4PageProps> = ({
 
       {isFirstPage && (
         <>
-          <div className="mb-8 text-[14px] font-normal text-[#212121] font-lexend opacity-80">
-            {data.date}
+          <div className="mb-8 w-[150px] text-[14px] font-normal text-[#212121] font-lexend opacity-80 relative h-[1.5em] overflow-hidden">
+            <Editable
+              value={data.date}
+              onSave={(val) => onUpdateDate(val as string)}
+              isDate={true}
+              readOnly={isPreview}
+            />
           </div>
 
           <div
@@ -1608,13 +1632,13 @@ const A4Page: React.FC<A4PageProps> = ({
             />
           ))}
           <div
-            className="flex items-center justify-between p-6 text-white"
+            className="flex items-center justify-between p-2 px-5 text-white"
             style={{ backgroundColor: PRIMARY_BROWN }}
           >
-            <span className="text-[16px] font-normal tracking-wide font-lexend uppercase">
+            <span className="text-[14px] font-normal tracking-wide font-lexend uppercase">
               Grand Total
             </span>
-            <span className="text-[22px] font-bold font-lexend">
+            <span className="text-[18px] font-bold font-lexend">
               ₦{Math.round(totalPrice.grandTotal).toLocaleString()}
             </span>
           </div>
