@@ -47,14 +47,18 @@ content:
 - Dining Rug 200,000
 - Apartment Deep Cleaning 100,000`);
 
-  const [headerImage, setHeaderImage] = useState("/shan-letterhead.png");
+  const [headerImage, setHeaderImage] = useState(
+    () => localStorage.getItem("headerImage") || "/shan-letterhead.png",
+  );
   const [columns, setColumns] = useState({
     views: true,
     unitPrice: true,
     total: true,
   });
 
-  const [headerHeight, setHeaderHeight] = useState(128);
+  const [headerHeight, setHeaderHeight] = useState(
+    () => Number(localStorage.getItem("headerHeight")) || 128,
+  );
 
   const [invoiceNotes, setInvoiceNotes] = useState(
     `<p>This invoice relates to the approved design stage services, as outlined in our executed proposal and based on the scope discussed during our engagement. Once payment is received and confirmed, we will be delighted to proceed with this phase of the project and begin translating the agreed concepts into detailed design outputs.</p><p>We kindly ask that you review the invoice details at your convenience. Should you have any questions, require clarification, or notice any discrepancies, please let us know in writing within forty-eight (48) hours, and we will be happy to address them promptly. In the absence of any feedback within this period, the invoice will be deemed accepted as issued.</p><p>Please note that this invoice remains valid for seven (7) days from the date of issue. Upon commencement of the design stage, all payments made are non-refundable, irrespective of any subsequent project changes, scope adjustments, or project termination.</p><p>Our goal is to ensure a smooth, transparent, and enjoyable design process for you. If you need any further information or would like to discuss the next steps, please feel free to contact us at <a href="mailto:hello@shaninteriordesign.com">hello@shaninteriordesign.com</a> we are always happy to assist.</p><p>We truly appreciate your trust in Shan Interiors Limited and look forward to creating a space you will love.</p><p>For further information or clarification, contact us at <a href="mailto:hello@shaninteriordesign.com">hello@shaninteriordesign.com</a></p>`,
@@ -70,6 +74,20 @@ content:
   const [hoveredIndex, setHoveredIndex] = useState(null);
 
   const [isPreview, setIsPreview] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isSharedView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("preview") === "true";
+  });
+  const [previewPass, setPreviewPass] = useState("");
+
+  useEffect(() => {
+    localStorage.setItem("headerImage", headerImage || "");
+  }, [headerImage]);
+
+  useEffect(() => {
+    localStorage.setItem("headerHeight", headerHeight.toString());
+  }, [headerHeight]);
 
 
   const editor = useEditor({
@@ -163,20 +181,27 @@ content:
   );
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const preview = urlParams.get("preview");
-    const data = urlParams.get("data");
-    const pass = urlParams.get("pass");
-    if (preview === "true" && data && pass) {
-      const enteredPass = prompt("Enter password to view preview:");
-      if (enteredPass === pass) {
+    if (isSharedView) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const data = urlParams.get("data");
+      const pass = urlParams.get("pass");
+      if (data && pass) {
+        setPreviewPass(pass);
         setParsedData(JSON.parse(atob(data)));
         setIsPreview(true);
-      } else {
-        alert("Incorrect password");
       }
     }
-  }, []);
+  }, [isSharedView]);
+
+  const handlePasswordSubmit = (e) => {
+    e.preventDefault();
+    const entered = e.target.password.value;
+    if (entered === previewPass) {
+      setIsAuthenticated(true);
+    } else {
+      alert("Incorrect password");
+    }
+  };
 
   const handleSyncFromContext = () => {
     setParsedData(parseLetterContext(letterContext));
@@ -359,11 +384,47 @@ content:
     chunks.push([]);
   }
 
+  if (isSharedView && !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#FDFCFB] flex items-center justify-center p-6 font-lexend">
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-10 shadow-xl">
+          <div className="flex flex-col items-center text-center mb-10">
+            <div className="p-4 bg-slate-900 rounded-2xl mb-6">
+              <FileText size={32} className="text-white" />
+            </div>
+            <h2 className="text-2xl font-black tracking-tight text-slate-900 mb-2 uppercase">
+              Secure Preview
+            </h2>
+            <p className="text-slate-500 text-sm">
+              Please enter the password to view this document.
+            </p>
+          </div>
+          <form onSubmit={handlePasswordSubmit} className="space-y-6">
+            <input
+              name="password"
+              type="password"
+              placeholder="••••••••"
+              autoFocus
+              className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 transition-all text-center text-lg tracking-widest"
+              required
+            />
+            <button
+              type="submit"
+              className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl transition-all active:scale-[0.98] shadow-lg shadow-slate-900/10"
+            >
+              Access Document
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-[#FDFCFB] text-slate-900 overflow-hidden font-sans no-print">
-      <div className="flex flex-1 overflow-hidden">
-        {!isPreview && (
-          <div className="w-full lg:w-[420px] flex flex-col border-r border-slate-200/60 bg-white p-8 overflow-y-auto scrollbar-thin">
+    <div className="app-root flex flex-col h-screen bg-[#FDFCFB] text-slate-900 overflow-hidden font-sans">
+      <div className="app-main flex flex-1 overflow-hidden">
+        {!isPreview && !isSharedView && (
+          <div className="w-full lg:w-[420px] flex flex-col border-r border-slate-200/60 bg-white p-8 overflow-y-auto scrollbar-thin no-print">
             <div className="flex items-center justify-between mb-10">
               <div className="flex items-center gap-3 text-slate-900">
                 <div className="p-2 bg-slate-900 rounded-xl">
@@ -549,7 +610,7 @@ content:
 
         {/* Preview Area */}
         <div
-          className={`${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin`}
+          className={`preview-container ${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin print:bg-white print:p-0 print:overflow-visible`}
         >
           {isPreview && (
             <div className="fixed top-6 right-6 z-50 flex gap-2 no-print">
@@ -632,15 +693,44 @@ content:
         .ProseMirror a { color: #0f172a; text-decoration: underline; font-weight: 500; }
 
         @media print {
-          body { margin: 0; padding: 0; background: white !important; }
+          @page {
+            size: A4;
+            margin: 0;
+          }
+          html, body { 
+            height: auto !important;
+            overflow: visible !important;
+            margin: 0 !important; 
+            padding: 0 !important; 
+            background: white !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           .no-print { display: none !important; }
+
+          /* Surgical layout overrides for printing */
+          .app-root, .app-main, .preview-container { 
+            height: auto !important; 
+            overflow: visible !important; 
+            display: block !important;
+            position: static !important;
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+          }
+
           .a4-page { 
             box-shadow: none !important; 
             margin: 0 auto !important; 
             border: none !important; 
             page-break-after: always !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
+            page-break-inside: avoid !important;
+            display: block !important;
+            width: 210mm !important;
+            height: 297mm !important;
+            position: relative !important;
+            background: white !important;
           }
         }
       `}</style>
