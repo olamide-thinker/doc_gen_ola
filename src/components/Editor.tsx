@@ -6,20 +6,36 @@ import {
   Upload,
   RefreshCw,
   User,
-  MapPin,
-  Type,
   Plus,
   Trash2,
   ArrowLeft,
-  Settings2,
   Layout,
-  Table as TableIcon,
-  Check,
   ChevronUp,
   ChevronDown,
   Download,
   Share,
+  Undo2,
+  Redo2,
+  GripVertical,
 } from "../lib/icons/lucide";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { arrayMove } from "@dnd-kit/sortable";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { 
@@ -58,6 +74,8 @@ interface A4PageProps {
   onUpdateCell: (rowIndex: number, colId: string, value: string | number) => void;
   onRemoveRow: (index: number) => void;
   onAddRowBelow: (index: number) => void;
+  onAddRowAbove: (index: number) => void;
+  onMoveRow: (index: number, direction: 'up' | 'down') => void;
   resolveFormula: (data: TableRow | Record<string, number>, formula: string | undefined, context?: Record<string, number>) => number;
   onUpdateInvoiceCode: (updates: Partial<InvoiceCode>) => void;
   isPreview: boolean;
@@ -78,6 +96,14 @@ const Editor: React.FC = () => {
     () => Number(localStorage.getItem("headerHeight")) || 128,
   );
   const [isPreview, setIsPreview] = useState(false);
+  const [rawInput, setRawInput] = useState<string>("");
+  const [history, setHistory] = useState<DocData[]>([]);
+  const [future, setFuture] = useState<DocData[]>([]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   // --- Queries ---
   const { data: docMetadata, isLoading: isLoadingDoc } = useQuery({
@@ -88,10 +114,39 @@ const Editor: React.FC = () => {
 
   useEffect(() => {
     if (docMetadata) {
-      setDocData(docMetadata.content);
-      setJsonInput(JSON.stringify(docMetadata.content, null, 2));
+      if (!docData) {
+        setDocData(docMetadata.content);
+        setJsonInput(JSON.stringify(docMetadata.content, null, 2));
+      }
     }
   }, [docMetadata]);
+
+  const updateDocData = (newData: DocData | ((prev: DocData | null) => DocData | null)) => {
+    setDocData(prev => {
+      const next = typeof newData === 'function' ? newData(prev) : newData;
+      if (prev && next && JSON.stringify(prev) !== JSON.stringify(next)) {
+        setHistory(h => [...h, prev].slice(-50));
+        setFuture([]);
+      }
+      return next;
+    });
+  };
+
+  const undo = () => {
+    if (history.length === 0 || !docData) return;
+    const prev = history[history.length - 1];
+    setHistory(h => h.slice(0, -1));
+    setFuture(f => [docData, ...f]);
+    setDocData(prev);
+  };
+
+  const redo = () => {
+    if (future.length === 0 || !docData) return;
+    const next = future[0];
+    setFuture(f => f.slice(1));
+    setHistory(h => [...h, docData]);
+    setDocData(next);
+  };
 
   // --- Mutations ---
   const saveMutation = useMutation({
@@ -101,9 +156,26 @@ const Editor: React.FC = () => {
     },
   });
 
+  // Undo/Redo shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [history, future, docData]);
+
   // Auto-save logic
   useEffect(() => {
     if (!id || !docData) return;
+    setJsonInput(JSON.stringify(docData, null, 2));
     const timer = setTimeout(() => {
       saveMutation.mutate(docData);
     }, 1500);
@@ -132,6 +204,13 @@ const Editor: React.FC = () => {
     localStorage.setItem("headerHeight", headerHeight.toString());
   }, [headerHeight]);
 
+  useEffect(() => {
+    if (docData && docData.table.rows.some(r => !r.id)) {
+      const updatedRows = docData.table.rows.map(r => r.id ? r : { ...r, id: crypto.randomUUID() });
+      updateDocData({ ...docData, table: { ...docData.table, rows: updatedRows } });
+    }
+  }, [docData]);
+
   const onUpdateInvoiceCode = (updates: Partial<InvoiceCode>) => {
     setDocData(prev => {
       if (!prev) return null;
@@ -143,6 +222,82 @@ const Editor: React.FC = () => {
       };
       return { ...prev, invoiceCode: { ...current, ...updates } };
     });
+  };
+
+  const handleRawImport = () => {
+    if (!rawInput.trim() || !docData) return;
+
+    const sections = rawInput.split(/\n\s*\n/);
+    let newContact = { ...docData.contact };
+    let newTitle = docData.title;
+    let newRows: TableRow[] = [];
+
+    sections.forEach(section => {
+      const lines = section.trim().split('\n');
+      const firstLineLower = lines[0].toLowerCase();
+
+      if (firstLineLower.includes('contact')) {
+        const sameLineContent = lines[0].split(':').slice(1).join(':').trim();
+        const dataLines = sameLineContent ? [sameLineContent, ...lines.slice(1)] : lines.slice(1);
+        if (dataLines[0]) newContact.name = dataLines[0].trim();
+        if (dataLines[1]) newContact.address1 = dataLines[1].trim();
+        if (dataLines[2]) newContact.address2 = dataLines[2].trim();
+      } else if (firstLineLower.includes('title') || firstLineLower.includes('ttitle')) {
+        const sameLineTitle = lines[0].split(':').slice(1).join(':').trim();
+        const titleLines = sameLineTitle ? [sameLineTitle, ...lines.slice(1)] : lines.slice(1);
+        newTitle = titleLines.join('\n').trim();
+      } else if (firstLineLower.includes('content')) {
+        lines.slice(1).forEach(line => {
+          const rowMatch = line.trim().match(/^-?\s*(.*?)\s+([\d,]+)$/);
+          if (rowMatch) {
+            newRows.push({
+              B: rowMatch[1].trim(),
+              C: 1,
+              D: Number(rowMatch[2].replace(/,/g, ''))
+            });
+          }
+        });
+      }
+    });
+
+    if (newRows.length > 0 || newTitle !== docData.title || JSON.stringify(newContact) !== JSON.stringify(docData.contact)) {
+      const updated = {
+        ...docData,
+        contact: newContact,
+        title: newTitle,
+        table: {
+          ...docData.table,
+          rows: newRows.length > 0 ? [...newRows] : docData.table.rows
+        }
+      };
+      setDocData(updated);
+      setJsonInput(JSON.stringify(updated, null, 2));
+      setRawInput("");
+    }
+  };
+
+  const handleApplyJson = () => {
+    try {
+      if (!jsonInput.trim()) return;
+      const parsed = JSON.parse(jsonInput);
+      setDocData(parsed);
+      saveMutation.mutate(parsed);
+    } catch (e) {
+      alert("Invalid JSON format. Please check your syntax.");
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id && docData) {
+      const oldIndex = docData.table.rows.findIndex(r => r.id === active.id);
+      const newIndex = docData.table.rows.findIndex(r => r.id === over.id);
+      const updatedRows = arrayMove(docData.table.rows, oldIndex, newIndex);
+      updateDocData({
+        ...docData,
+        table: { ...docData.table, rows: updatedRows }
+      });
+    }
   };
 
   const handleHeaderResize = (e: React.MouseEvent) => {
@@ -229,6 +384,23 @@ const Editor: React.FC = () => {
               </button>
               <div className="flex gap-2">
                 <button
+                  onClick={undo}
+                  disabled={history.length === 0}
+                  className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition-all border border-slate-200 disabled:opacity-30 active:scale-95"
+                  title="Undo (Ctrl+Z)"
+                >
+                  <Undo2 size={16} />
+                </button>
+                <button
+                  onClick={redo}
+                  disabled={future.length === 0}
+                  className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition-all border border-slate-200 disabled:opacity-30 active:scale-95"
+                  title="Redo (Ctrl+Y)"
+                >
+                  <Redo2 size={16} />
+                </button>
+                <div className="w-px h-6 bg-slate-200 mx-1" />
+                <button
                   onClick={() => setIsPreview(true)}
                   className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl transition-all border border-slate-200/60 active:scale-95"
                   title="Preview"
@@ -256,10 +428,38 @@ const Editor: React.FC = () => {
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend">
+                    Raw Import
+                  </label>
+                  <button 
+                    onClick={handleRawImport}
+                    className="text-[10px] font-bold px-3 py-1 rounded-full bg-primary/10 text-primary uppercase border border-primary/20 hover:bg-primary/20 transition-all"
+                  >
+                    Import Data
+                  </button>
+                </div>
+                <textarea
+                  className="w-full h-40 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-[10px] font-mono focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none resize-none scrollbar-thin text-slate-700 transition-all shadow-sm"
+                  placeholder="Paste contact, title, and content bullets here..."
+                  value={rawInput}
+                  onChange={(e) => setRawInput(e.target.value)}
+                />
+              </section>
+
+              <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend">
                     Data Status
                   </label>
-                  <div className={cn("text-[10px] font-bold px-3 py-1 rounded-full bg-slate-50 text-slate-400 uppercase flex items-center gap-2 border border-slate-200", saveMutation.isPending && "text-blue-500 animate-pulse")}>
-                    {saveMutation.isPending ? "Local Sync..." : "Local Storage Sync"}
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={handleApplyJson}
+                      className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white uppercase border border-slate-900 hover:bg-slate-800 transition-all shadow-sm"
+                    >
+                      Apply JSON
+                    </button>
+                    <div className={cn("text-[10px] font-bold px-3 py-1 rounded-full bg-slate-50 text-slate-400 uppercase flex items-center gap-2 border border-slate-200", saveMutation.isPending && "text-blue-500 animate-pulse")}>
+                      {saveMutation.isPending ? "Local Sync..." : "Local Storage Sync"}
+                    </div>
                   </div>
                 </div>
                 <textarea
@@ -341,47 +541,67 @@ const Editor: React.FC = () => {
               </button>
             </div>
           )}
-          {chunks.map((itemChunk, pageIndex) => (
-            <A4Page
-              key={pageIndex}
-              data={docData}
-              rows={itemChunk}
-              pageIndex={pageIndex}
-              totalPrice={
-                pageIndex === chunks.length - 1
-                  ? { subTotal, summaries: summaryForRender, grandTotal }
-                  : null
-              }
-              headerImage={headerImage}
-              headerHeight={headerHeight}
-              onHeaderResize={handleHeaderResize}
-              isFirstPage={pageIndex === 0}
-              isLastPage={pageIndex === chunks.length - 1}
-              startIndex={
-                pageIndex === 0
-                  ? 0
-                  : 10 + (pageIndex - 1) * 18
-              }
-              onUpdateContact={(f, v) => setDocData((prev: DocData | null) => prev ? ({ ...prev, contact: { ...prev.contact, [f]: v } }) : null)}
-              onUpdateTitle={v => setDocData((prev: DocData | null) => prev ? ({ ...prev, title: v }) : null)}
-              onUpdateCell={(ri, ci, v) => setDocData((prev: DocData | null) => {
-                if (!prev) return null;
-                const nr = [...prev.table.rows];
-                nr[ri] = { ...nr[ri], [ci]: v };
-                return { ...prev, table: { ...prev.table, rows: nr } };
-              })}
-              onRemoveRow={i => setDocData((prev: DocData | null) => prev ? ({ ...prev, table: { ...prev.table, rows: prev.table.rows.filter((_: any, idx: number) => idx !== i) } }) : null)}
-              onAddRowBelow={(i) => setDocData((prev: DocData | null) => {
-                if (!prev) return null;
-                const nr = [...prev.table.rows];
-                nr.splice(i + 1, 0, { B: "New Item", C: 1, D: 0 });
-                return { ...prev, table: { ...prev.table, rows: nr } };
-              })}
-              resolveFormula={resolveFormula}
-              onUpdateInvoiceCode={onUpdateInvoiceCode}
-              isPreview={isPreview}
-            />
-          ))}
+          <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            {chunks.map((itemChunk, pageIndex) => (
+              <A4Page
+                key={pageIndex}
+                data={docData}
+                rows={itemChunk}
+                pageIndex={pageIndex}
+                totalPrice={
+                  pageIndex === chunks.length - 1
+                    ? { subTotal, summaries: summaryForRender, grandTotal }
+                    : null
+                }
+                headerImage={headerImage}
+                headerHeight={headerHeight}
+                onHeaderResize={handleHeaderResize}
+                isFirstPage={pageIndex === 0}
+                isLastPage={pageIndex === chunks.length - 1}
+                startIndex={
+                  pageIndex === 0
+                    ? 0
+                    : 10 + (pageIndex - 1) * 18
+                }
+                onUpdateContact={(f, v) => updateDocData((prev: DocData | null) => prev ? ({ ...prev, contact: { ...prev.contact, [f]: v } }) : null)}
+                onUpdateTitle={v => updateDocData((prev: DocData | null) => prev ? ({ ...prev, title: v }) : null)}
+                onUpdateCell={(ri, ci, v) => updateDocData((prev: DocData | null) => {
+                  if (!prev) return null;
+                  const nr = [...prev.table.rows];
+                  nr[ri] = { ...nr[ri], [ci]: v };
+                  return { ...prev, table: { ...prev.table, rows: nr } };
+                })}
+                onRemoveRow={i => updateDocData((prev: DocData | null) => prev ? ({ ...prev, table: { ...prev.table, rows: prev.table.rows.filter((_: any, idx: number) => idx !== i) } }) : null)}
+                onAddRowBelow={(i) => updateDocData((prev: DocData | null) => {
+                  if (!prev) return null;
+                  const nr = [...prev.table.rows];
+                  nr.splice(nr.length, 0, { id: crypto.randomUUID(), B: "New Item", C: 1, D: 0 });
+                  return { ...prev, table: { ...prev.table, rows: nr } };
+                })}
+                onAddRowAbove={(i) => updateDocData((prev: DocData | null) => {
+                  if (!prev) return null;
+                  const nr = [...prev.table.rows];
+                  nr.splice(i, 0, { id: crypto.randomUUID(), B: "New Item", C: 1, D: 0 });
+                  return { ...prev, table: { ...prev.table, rows: nr } };
+                })}
+                onMoveRow={(i, dir) => updateDocData((prev: DocData | null) => {
+                  if (!prev) return null;
+                  const nr = [...prev.table.rows];
+                  const target = dir === 'up' ? i - 1 : i + 1;
+                  if (target < 0 || target >= nr.length) return prev;
+                  [nr[i], nr[target]] = [nr[target], nr[i]];
+                  return { ...prev, table: { ...prev.table, rows: nr } };
+                })}
+                resolveFormula={resolveFormula}
+                onUpdateInvoiceCode={(updates) => updateDocData(prev => prev ? ({ ...prev, invoiceCode: { ...(prev.invoiceCode || { text: "", x: 0, y: 0, color: "" }), ...updates } }) : null)}
+                isPreview={isPreview}
+              />
+            ))}
+          </DndContext>
         </div>
       </div>
 
@@ -512,6 +732,131 @@ const Editable: React.FC<EditableProps> = ({
   );
 };
 
+interface SortableRowProps {
+  id: string;
+  row: TableRow;
+  idx: number;
+  startIndex: number;
+  data: DocData;
+  isPreview: boolean;
+  onUpdateCell: (rowIndex: number, colId: string, value: string | number) => void;
+  onRemoveRow: (index: number) => void;
+  resolveFormula: (data: TableRow | Record<string, number>, formula: string | undefined, context?: Record<string, number>) => number;
+}
+
+const SortableRow: React.FC<SortableRowProps> = ({
+  id,
+  row,
+  idx,
+  startIndex,
+  data,
+  isPreview,
+  onUpdateCell,
+  onRemoveRow,
+  resolveFormula,
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    backgroundColor: (startIndex + idx) % 2 === 1 ? "#FBFBFB" : "#fff",
+    zIndex: isDragging ? 100 : 1,
+    position: 'relative' as const,
+  };
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "text-[12px] text-[#212121] border-b border-slate-50 font-lexend group transition-colors",
+        isDragging && "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10"
+      )}
+    >
+      {(data.table.columns || []).map((col: any) => {
+        if (col.type === "index") {
+          return (
+            <td
+              key={col.id}
+              className="p-3 text-center border-r border-slate-100 relative"
+              style={{ width: col.width }}
+            >
+              <div 
+                {...attributes} 
+                {...listeners}
+                className={cn(
+                  "cursor-grab active:cursor-grabbing flex items-center justify-center gap-1 hover:text-primary transition-colors",
+                  isPreview && "pointer-events-none"
+                )}
+              >
+                {!isPreview && <GripVertical size={12} className="text-slate-300 transition-opacity" />}
+                <span className="font-bold">{startIndex + idx + 1}</span>
+              </div>
+              
+              {!isPreview && (
+                <div className="absolute left-[-24px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
+                  <button
+                    onClick={() => onRemoveRow(startIndex + idx)}
+                    className="p-1.5 bg-white border border-slate-200 text-red-400 hover:text-red-500 hover:border-red-100 rounded-lg shadow-sm transition-all active:scale-95"
+                    title="Delete Row"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              )}
+            </td>
+          );
+        }
+
+        const cellValue = row[col.id];
+        const isFormula = col.type === "formula";
+        const displayValue = isFormula ? resolveFormula(row, col.formula) : cellValue;
+
+        return (
+          <td
+            key={col.id}
+            className={cn(
+              "p-3 border-r border-slate-100 last:border-r-0",
+              (col.type === "number" || col.type === "formula") && "text-right font-mono"
+            )}
+            style={{ width: col.width }}
+          >
+            {isFormula ? (
+              <span className="opacity-80">
+                {typeof displayValue === "number"
+                  ? displayValue.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })
+                  : displayValue}
+              </span>
+            ) : (
+              <Editable
+                className={cn(
+                  "w-full",
+                  (col.type === "number" || col.type === "formula") && "text-right"
+                )}
+                value={cellValue}
+                onSave={(val) => onUpdateCell(startIndex + idx, col.id, col.type === 'number' ? Number(val) : val as string)}
+                readOnly={isPreview}
+              />
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+};
+
 const A4Page: React.FC<A4PageProps> = ({
   data,
   rows,
@@ -528,6 +873,8 @@ const A4Page: React.FC<A4PageProps> = ({
   onUpdateCell,
   onRemoveRow,
   onAddRowBelow,
+  onAddRowAbove,
+  onMoveRow,
   resolveFormula,
   onUpdateInvoiceCode,
   isPreview,
@@ -689,69 +1036,38 @@ const A4Page: React.FC<A4PageProps> = ({
             </tr>
           </thead>
           <tbody>
-            {(rows || []).map((row, idx) => (
-              <tr
-                key={idx}
-                className="text-[12px] text-[#212121] border-b border-slate-50 font-lexend"
-                style={{
-                  backgroundColor: idx % 2 === 1 ? "#FBFBFB" : "#fff",
-                }}
-              >
-                {(data.table.columns || []).map((col: any) => {
-                  if (col.type === "index") {
-                    return (
-                      <td
-                        key={col.id}
-                        className="p-3 text-center border-r border-slate-100 relative group"
-                        style={{ width: col.width }}
-                      >
-                        {startIndex + idx + 1}
-                        {!isPreview && (
-                          <div className="absolute left-[-24px] top-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
-                            <button
-                              onClick={() => onRemoveRow(startIndex + idx)}
-                              className="text-red-400 hover:text-red-500"
-                            >
-                              <Plus className="rotate-45" size={14} />
-                            </button>
-                            <button
-                              onClick={() => onAddRowBelow(startIndex + idx)}
-                              className="text-blue-400 hover:text-blue-500"
-                            >
-                              <Plus size={14} />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    );
-                  }
-
-                  const cellValue =
-                    col.type === "formula"
-                      ? resolveFormula(row, col.formula)
-                      : row[col.id];
-
-                  return (
-                    <td
-                      key={col.id}
-                      className="p-3 border-r border-slate-100 last:border-r-0"
-                    >
-                      <Editable
-                        value={cellValue}
-                        numeric={col.type === "number"}
-                        readOnly={isPreview || col.type === "formula"}
-                        onSave={(val) =>
-                          onUpdateCell(startIndex + idx, col.id, val)
-                        }
-                        className={col.type === "formula" ? "font-bold" : ""}
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+            <SortableContext 
+              items={rows.map(r => r.id as string)} 
+              strategy={verticalListSortingStrategy}
+            >
+              {(rows || []).map((row, idx) => (
+                <SortableRow
+                  key={row.id as string}
+                  id={row.id as string}
+                  row={row}
+                  idx={idx}
+                  startIndex={startIndex}
+                  data={data}
+                  isPreview={isPreview}
+                  onUpdateCell={onUpdateCell}
+                  onRemoveRow={onRemoveRow}
+                  resolveFormula={resolveFormula}
+                />
+              ))}
+            </SortableContext>
           </tbody>
         </table>
+        {isLastPage && !isPreview && (
+          <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
+            <button
+              onClick={() => onAddRowBelow(rows.length - 1)}
+              className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group"
+            >
+              <Plus size={14} className="group-hover:rotate-90 transition-transform duration-300" />
+              Add New Line Item
+            </button>
+          </div>
+        )}
       </div>
 
       {isLastPage && totalPrice && (

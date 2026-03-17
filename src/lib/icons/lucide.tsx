@@ -28,7 +28,10 @@ import {
   Type as LucideType,
   Settings2 as LucideSettings2,
   Table as LucideTable,
-  Upload as LucideUpload
+  Upload as LucideUpload,
+  Undo2 as LucideUndo2,
+  Redo2 as LucideRedo2,
+  GripVertical as LucideGripVertical
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -64,3 +67,6 @@ export const Type = wrapIcon(LucideType);
 export const Settings2 = wrapIcon(LucideSettings2);
 export const Table = wrapIcon(LucideTable);
 export const Upload = wrapIcon(LucideUpload);
+export const Undo2 = wrapIcon(LucideUndo2);
+export const Redo2 = wrapIcon(LucideRedo2);
+export const GripVertical = wrapIcon(LucideGripVertical);
