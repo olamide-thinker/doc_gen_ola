@@ -22,56 +22,72 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 const App = () => {
+  // --- Constants ---
+  const DEFAULT_DOC_DATA = {
+    contact: {
+      name: "OLUWAKEMI ISINKAYE",
+      address1: "Prime Waters Garden II",
+      address2: "Lekki Phase 1",
+    },
+    title: "PROPOSED For Maintenance of A 5 bedroom apartment at Prime Waters Garden II Lekki Phase 1.",
+    date: new Date().toLocaleDateString("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }),
+    table: {
+      columns: [
+        { id: "A", label: "S/N", type: "index", width: "60px" },
+        { id: "B", label: "Description of Service", type: "text" },
+        { id: "C", label: "Views", type: "number", width: "80px" },
+        { id: "D", label: "Unit Price", type: "number", format: "currency", width: "140px" },
+        { id: "E", label: "Total", type: "formula", formula: "C * D", format: "currency", width: "140px" },
+      ],
+      rows: [
+        { B: "Master Bedroom Closet Maintenance", C: 1, D: 260000 },
+        { B: "Glass Works (Change of Glass)", C: 1, D: 335000 },
+        { B: "Plumbing maintenance", C: 1, D: 165000 },
+        { B: "Bedframe Joinery Maintenance", C: 1, D: 110000 },
+        { B: "Tv Console Maintenance", C: 1, D: 200000 },
+        { B: "Door handles and Locks", C: 1, D: 78000 },
+        { B: "Switches & Socket", C: 1, D: 410000 },
+        { B: "Fix & Deep Wash Sofa", C: 1, D: 180000 },
+        { B: "Launder Rugs", C: 1, D: 50000 },
+        { B: "Kitchen Joinery & Other Kitchen Maintenance Works", C: 1, D: 270000 },
+        { B: "Arts in Rooms", C: 1, D: 200000 },
+        { B: "Dining Rug", C: 1, D: 200000 },
+      ],
+      summary: [
+        { id: "logistics", label: "Consultation & Logistics", type: "number", value: 300000 },
+        { id: "vat", label: "VAT (7.5%)", type: "formula", formula: "(subTotal + logistics) * 0.075" }
+      ]
+    },
+    footer: {
+      notes: `<p>This invoice relates to the approved design stage services...</p>`,
+      emphasis: [
+        { key: "Account Name", value: "SHAN INTERIORS LIMITED" },
+        { key: "Account Number", value: "1615822982" },
+        { key: "Bank", value: "ACCESS BANK" },
+      ],
+    },
+  };
+
   // --- State ---
-  const [letterContext, setLetterContext] = useState(`contact :
-OLUWAKEMI ISINKAYE 
-Prime Waters Garden II
-Lekki Phase 1
-
-Ttitle :
-PROPOSED For Maintenance of A 5 bedroom apartment at Prime Waters Garden II
-Lekki Phase 1.
-
-content:
-- Master Bedroom Closet Maintenance 260,000
-- Glass Works (Change of Glass) 335,000
-- Plumbing maintenance 165,000
-- Bedframe Joinery Maintenance 110,000
-- Tv Console Maintenance 200,000
-- Door handles and Locks 78,000
-- Switches & Socket 410,000
-- Fix & Deep Wash Sofa 180,000
-- Launder Rugs 50,000
-- Kitchen Joinery & Other Kitchen Maintenance Works 270,000
-- Arts in Rooms 200,000
-- Dining Rug 200,000
-- Apartment Deep Cleaning 100,000`);
+  const [docData, setDocData] = useState(() => {
+    const saved = localStorage.getItem("docData");
+    return saved ? JSON.parse(saved) : DEFAULT_DOC_DATA;
+  });
+  
+  const [jsonInput, setJsonInput] = useState(() => JSON.stringify(docData, null, 2));
 
   const [headerImage, setHeaderImage] = useState(
     () => localStorage.getItem("headerImage") || "/shan-letterhead.png",
   );
-  const [columns, setColumns] = useState({
-    views: true,
-    unitPrice: true,
-    total: true,
-  });
-
+  
   const [headerHeight, setHeaderHeight] = useState(
     () => Number(localStorage.getItem("headerHeight")) || 128,
   );
-
-  const [invoiceNotes, setInvoiceNotes] = useState(
-    `<p>This invoice relates to the approved design stage services, as outlined in our executed proposal and based on the scope discussed during our engagement. Once payment is received and confirmed, we will be delighted to proceed with this phase of the project and begin translating the agreed concepts into detailed design outputs.</p><p>We kindly ask that you review the invoice details at your convenience. Should you have any questions, require clarification, or notice any discrepancies, please let us know in writing within forty-eight (48) hours, and we will be happy to address them promptly. In the absence of any feedback within this period, the invoice will be deemed accepted as issued.</p><p>Please note that this invoice remains valid for seven (7) days from the date of issue. Upon commencement of the design stage, all payments made are non-refundable, irrespective of any subsequent project changes, scope adjustments, or project termination.</p><p>Our goal is to ensure a smooth, transparent, and enjoyable design process for you. If you need any further information or would like to discuss the next steps, please feel free to contact us at <a href="mailto:hello@shaninteriordesign.com">hello@shaninteriordesign.com</a> we are always happy to assist.</p><p>We truly appreciate your trust in Shan Interiors Limited and look forward to creating a space you will love.</p><p>For further information or clarification, contact us at <a href="mailto:hello@shaninteriordesign.com">hello@shaninteriordesign.com</a></p>`,
-  );
-
-  // Example editable key-value pairs for emphasis section
-  const [emphasisText, setEmphasisText] = useState([
-    { key: "Account Name", value: "SHAN INTERIORS LIMITED" },
-    { key: "Account Number", value: "1615822982" },
-    { key: "Bank", value: "ACCESS BANK" },
-  ]);
-
-  const [hoveredIndex, setHoveredIndex] = useState(null);
 
   const [isPreview, setIsPreview] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -89,14 +105,84 @@ content:
     localStorage.setItem("headerHeight", headerHeight.toString());
   }, [headerHeight]);
 
+  useEffect(() => {
+    // Migration: Ensure docData always has the required nested structure
+    let needsUpdate = false;
+    const stabilized = JSON.parse(JSON.stringify(docData)); // Deep clone for safety
+
+    if (!stabilized.table.summary) {
+      stabilized.table.summary = DEFAULT_DOC_DATA.table.summary;
+      needsUpdate = true;
+    }
+    if (!stabilized.footer.emphasis) {
+      stabilized.footer.emphasis = DEFAULT_DOC_DATA.footer.emphasis;
+      needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+      setDocData(stabilized);
+      return; // Let the next cycle handle persistence
+    }
+    
+    localStorage.setItem("docData", JSON.stringify(docData));
+    setJsonInput(JSON.stringify(docData, null, 2));
+  }, [docData]);
 
   const editor = useEditor({
     extensions: [StarterKit],
-    content: invoiceNotes,
+    content: docData.footer.notes,
     onUpdate: ({ editor }) => {
-      setInvoiceNotes(editor.getHTML());
+      setDocData(prev => ({
+        ...prev,
+        footer: { ...prev.footer, notes: editor.getHTML() }
+      }));
     },
   });
+
+  // Re-sync editor content if docData.footer.notes changes externally (e.g. from JSON import)
+  useEffect(() => {
+    if (editor && docData.footer.notes !== editor.getHTML()) {
+      editor.commands.setContent(docData.footer.notes);
+    }
+  }, [docData.footer.notes, editor]);
+
+  // --- Formula Logic ---
+  const resolveFormula = (data, formula, context = {}) => {
+    if (!formula) return 0;
+    try {
+      let expression = formula;
+      
+      // 1. Inject context variables (like subTotal)
+      Object.keys(context).forEach(key => {
+        const val = Number(context[key]) || 0;
+        const regex = new RegExp(`\\b${key}\\b`, 'g');
+        expression = expression.replace(regex, val);
+      });
+
+      // 2. Inject row/item variables (A, B, C...)
+      const matches = formula.match(/[A-Z]+/g) || [];
+      matches.forEach(id => {
+        const val = Number(data[id]) || 0;
+        const regex = new RegExp(`\\b${id}\\b`, 'g');
+        expression = expression.replace(regex, val);
+      });
+
+      // 3. Inject ID-based variables (like 'logistics' if data is a summary map)
+      const idMatches = formula.match(/[a-z][a-zA-Z0-9]+/g) || [];
+      idMatches.forEach(id => {
+        if (context[id] !== undefined) return; // Already handled by context
+        const val = Number(data[id]) || 0;
+        const regex = new RegExp(`\\b${id}\\b`, 'g');
+        expression = expression.replace(regex, val);
+      });
+
+      if (/[^0-9\s+\-*/().]/.test(expression)) return 0;
+      return eval(expression);
+    } catch (e) {
+      console.error("Formula error:", e);
+      return 0;
+    }
+  };
 
   const parseLetterContext = (text) => {
     if (!text.trim())
@@ -176,145 +262,128 @@ content:
     };
   };
 
-  const [parsedData, setParsedData] = useState(() =>
-    parseLetterContext(letterContext),
-  );
-
-  useEffect(() => {
-    if (isSharedView) {
-      const urlParams = new URLSearchParams(window.location.search);
-      const data = urlParams.get("data");
-      const pass = urlParams.get("pass");
-      if (data && pass) {
-        setPreviewPass(pass);
-        setParsedData(JSON.parse(atob(data)));
-        setIsPreview(true);
+  // --- Handlers ---
+  const handleJsonImport = (input) => {
+    try {
+      let data = JSON.parse(input || jsonInput);
+      
+      // Migration: Convert legacy 'items' to 'table.rows'
+      if (data.items && (!data.table || !data.table.rows)) {
+        const rows = data.items.map(item => ({
+          B: item.desc || "",
+          C: item.qty || 1,
+          D: item.price || 0
+        }));
+        data = {
+          ...data,
+          table: {
+            ...DEFAULT_DOC_DATA.table,
+            rows: rows
+          }
+        };
+        delete data.items;
       }
-    }
-  }, [isSharedView]);
 
-  const handlePasswordSubmit = (e) => {
-    e.preventDefault();
-    const entered = e.target.password.value;
-    if (entered === previewPass) {
-      setIsAuthenticated(true);
-    } else {
-      alert("Incorrect password");
-    }
-  };
+      // Ensure summary and emphasis exist
+      if (!data.table) data.table = { ...DEFAULT_DOC_DATA.table };
+      if (!data.table.summary) data.table.summary = DEFAULT_DOC_DATA.table.summary;
+      if (!data.footer) data.footer = { ...DEFAULT_DOC_DATA.footer };
+      if (!data.footer.emphasis) data.footer.emphasis = DEFAULT_DOC_DATA.footer.emphasis;
 
-  const handleSyncFromContext = () => {
-    setParsedData(parseLetterContext(letterContext));
+      setDocData(data);
+      setJsonInput(JSON.stringify(data, null, 2));
+      alert("Document updated successfully!");
+    } catch (e) {
+      console.error("Import error:", e);
+      alert("Invalid JSON format. Please check your data.");
+    }
   };
 
   const updateContactField = (field, value) => {
-    setParsedData((prev) => ({
+    setDocData((prev) => ({
       ...prev,
       contact: { ...prev.contact, [field]: value },
     }));
   };
 
   const updateTitle = (value) => {
-    setParsedData((prev) => ({ ...prev, title: value }));
+    setDocData((prev) => ({ ...prev, title: value }));
   };
 
-  const updateItem = (id, field, value) => {
-    setParsedData((prev) => ({
+  const updateCell = (rowIndex, colId, value) => {
+    setDocData((prev) => {
+      const newRows = [...prev.table.rows];
+      newRows[rowIndex] = { ...newRows[rowIndex], [colId]: value };
+      return { ...prev, table: { ...prev.table, rows: newRows } };
+    });
+  };
+
+  const removeTableRow = (index) => {
+    setDocData((prev) => ({
       ...prev,
-      items: prev.items.map((item) =>
-        item.id === id ? { ...item, [field]: value } : item,
-      ),
+      table: {
+        ...prev.table,
+        rows: prev.table.rows.filter((_, i) => i !== index),
+      },
     }));
   };
 
-  const removeItem = (id) => {
-    setParsedData((prev) => ({
+  const moveTableRow = (index, direction) => {
+    setDocData((prev) => {
+      const newRows = [...prev.table.rows];
+      const targetIndex = index + direction;
+      if (targetIndex >= 0 && targetIndex < newRows.length) {
+        [newRows[index], newRows[targetIndex]] = [newRows[targetIndex], newRows[index]];
+      }
+      return { ...prev, table: { ...prev.table, rows: newRows } };
+    });
+  };
+
+  const addTableRow = (index, offset = 0) => {
+    setDocData((prev) => {
+      const newRows = [...prev.table.rows];
+      const newRow = {};
+      prev.table.columns.forEach(col => {
+        if (col.type === 'number') newRow[col.id] = 0;
+        else if (col.type === 'text') newRow[col.id] = "";
+      });
+      newRows.splice(index + offset, 0, newRow);
+      return { ...prev, table: { ...prev.table, rows: newRows } };
+    });
+  };
+
+  const updateEmphasisKey = (index, newKey) => {
+    setDocData((prev) => {
+      const newEmphasis = [...prev.footer.emphasis];
+      newEmphasis[index].key = newKey;
+      return { ...prev, footer: { ...prev.footer, emphasis: newEmphasis } };
+    });
+  };
+
+  const updateEmphasisValue = (index, newValue) => {
+    setDocData((prev) => {
+      const newEmphasis = [...prev.footer.emphasis];
+      newEmphasis[index].value = newValue;
+      return { ...prev, footer: { ...prev.footer, emphasis: newEmphasis } };
+    });
+  };
+
+  const addEmphasisRow = (index, offset = 0) => {
+    setDocData((prev) => {
+      const newEmphasis = [...prev.footer.emphasis];
+      newEmphasis.splice(index + offset, 0, { key: "New Key", value: "New Value" });
+      return { ...prev, footer: { ...prev.footer, emphasis: newEmphasis } };
+    });
+  };
+
+  const removeEmphasisRow = (index) => {
+    setDocData((prev) => ({
       ...prev,
-      items: prev.items.filter((item) => item.id !== id),
+      footer: {
+        ...prev.footer,
+        emphasis: prev.footer.emphasis.filter((_, i) => i !== index),
+      },
     }));
-  };
-
-  const moveItemUp = (index) => {
-    setParsedData((prev) => {
-      const updated = [...prev.items];
-      if (index > 0) {
-        [updated[index - 1], updated[index]] = [
-          updated[index],
-          updated[index - 1],
-        ];
-      }
-      return { ...prev, items: updated };
-    });
-  };
-
-  const moveItemDown = (index) => {
-    setParsedData((prev) => {
-      const updated = [...prev.items];
-      if (index < updated.length - 1) {
-        [updated[index], updated[index + 1]] = [
-          updated[index + 1],
-          updated[index],
-        ];
-      }
-      return { ...prev, items: updated };
-    });
-  };
-
-  const addItemAbove = (index) => {
-    setParsedData((prev) => {
-      const updated = [...prev.items];
-      updated.splice(index, 0, {
-        id: Math.random().toString(36).substr(2, 9),
-        desc: "",
-        price: 0,
-        qty: 1,
-      });
-      return { ...prev, items: updated };
-    });
-  };
-
-  const addItemBelow = (index) => {
-    setParsedData((prev) => {
-      const updated = [...prev.items];
-      updated.splice(index + 1, 0, {
-        id: Math.random().toString(36).substr(2, 9),
-        desc: "",
-        price: 0,
-        qty: 1,
-      });
-      return { ...prev, items: updated };
-    });
-  };
-
-  const updateKey = (index, newKey) => {
-    const newEmphasis = [...emphasisText];
-    newEmphasis[index].key = newKey;
-    setEmphasisText(newEmphasis);
-  };
-
-  const updateValue = (index, newValue) => {
-    const newEmphasis = [...emphasisText];
-    newEmphasis[index].value = newValue;
-    setEmphasisText(newEmphasis);
-  };
-
-  const addRowAbove = (index) => {
-    const newEmphasis = [...emphasisText];
-    newEmphasis.splice(index, 0, { key: "New Key", value: "New Value" });
-    setEmphasisText(newEmphasis);
-  };
-
-  const addRowBelow = (index) => {
-    const newEmphasis = [...emphasisText];
-    newEmphasis.splice(index + 1, 0, { key: "New Key", value: "New Value" });
-    setEmphasisText(newEmphasis);
-  };
-
-  const removeRow = (index) => {
-    if (emphasisText.length > 1) {
-      const newEmphasis = emphasisText.filter((_, i) => i !== index);
-      setEmphasisText(newEmphasis);
-    }
   };
 
   const toggleColumn = (col) => {
@@ -325,13 +394,33 @@ content:
 
   const handleDownload = () => window.print(); // For now, same as print
 
-  const generatePreviewLink = () => {
+  const generatePreviewLink = async () => {
     const pass = prompt("Set a password for the preview:");
-    if (pass) {
-      const data = btoa(JSON.stringify(parsedData));
-      const url = `${window.location.origin}${window.location.pathname}?preview=true&data=${data}&pass=${pass}`;
-      navigator.clipboard.writeText(url);
-      alert("Preview link copied to clipboard!");
+    if (!pass) return;
+
+    const data = btoa(JSON.stringify(docData));
+    const longUrl = `${window.location.origin}${window.location.pathname}?preview=true&data=${data}&pass=${pass}`;
+
+    try {
+      const response = await fetch("https://spoo.me/", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ url: longUrl }),
+      });
+
+      const result = await response.json();
+      if (result.short_url) {
+        await navigator.clipboard.writeText(result.short_url);
+        alert("Professional short link copied to clipboard!");
+      } else {
+        throw new Error("Shortening service returned invalid response");
+      }
+    } catch (error) {
+      await navigator.clipboard.writeText(longUrl);
+      alert("Preview link copied to clipboard! (Note: Link is long because shortener service is currently unavailable)");
     }
   };
 
@@ -360,20 +449,37 @@ content:
     document.addEventListener("mouseup", handleMouseUp);
   };
 
-  const subTotal = (parsedData.items || []).reduce(
-    (acc, item) => acc + Number(item.price) * (Number(item.qty) || 0),
-    0,
-  );
-  const logistics = subTotal > 0 ? 300000 : 0;
-  const vatRate = 0.075;
-  const vat = (subTotal + logistics) * vatRate;
-  const grandTotal = subTotal + logistics + vat;
+  const subTotal = (docData.table.rows || []).reduce((acc, row) => {
+    const totalCol = docData.table.columns.find(c => c.type === 'formula' || c.id === 'E');
+    const rowTotal = totalCol?.type === 'formula' 
+      ? resolveFormula(row, totalCol.formula) 
+      : (Number(row[totalCol?.id]) || 0);
+    return acc + rowTotal;
+  }, 0);
 
-  // Reduced limits to ensure they actually fit on A4 pages without spilling out of the container
+  // Calculate dynamic summaries (Logistics, VAT, etc.)
+  const summaryCalculations = (docData.table.summary || []).reduce((acc, item) => {
+    const context = { subTotal, ...acc };
+    const value = item.type === 'formula' 
+      ? resolveFormula({}, item.formula, context) 
+      : (Number(item.value) || 0);
+    acc[item.id] = value;
+    return acc;
+  }, {});
+
+  const totalSummaryValue = Object.values(summaryCalculations).reduce((acc, val) => acc + val, 0);
+  const grandTotal = subTotal + totalSummaryValue;
+
+  const summaryForRender = (docData.table.summary || []).map(item => ({
+    ...item,
+    calculatedValue: summaryCalculations[item.id] || 0
+  }));
+
+  // Reduced limits to ensure they actually fit on A4 pages
   const firstPageLimit = 10;
   const otherPagesLimit = 18;
   const chunks = [];
-  const safeItems = parsedData.items || [];
+  const safeItems = docData.table.rows || [];
 
   if (safeItems.length > 0) {
     chunks.push(safeItems.slice(0, firstPageLimit));
@@ -463,47 +569,24 @@ content:
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend">
-                    Letter Context
+                    Data Import (JSON)
                   </label>
                   <button
-                    onClick={handleSyncFromContext}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold font-lexend transition-all border border-slate-200/60"
+                    onClick={() => handleJsonImport()}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 text-white rounded-full text-[10px] font-bold font-lexend transition-all shadow-md active:scale-95"
                   >
-                    <RefreshCw size={12} /> SYNC
+                    <RefreshCw size={12} /> SYNC DATA
                   </button>
                 </div>
                 <textarea
-                  className="w-full h-48 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-[11px] font-mono focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none resize-none scrollbar-thin text-slate-700 transition-all shadow-sm"
-                  value={letterContext}
-                  onChange={(e) => setLetterContext(e.target.value)}
-                  placeholder="Paste content..."
+                  className="w-full h-80 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-[10px] font-mono focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none resize-none scrollbar-thin text-slate-700 transition-all shadow-sm"
+                  value={jsonInput}
+                  onChange={(e) => setJsonInput(e.target.value)}
+                  placeholder="Paste JSON document structure here..."
                 />
-              </section>
-
-              <section className="bg-slate-50 p-6 rounded-2xl border border-slate-200/60 space-y-4">
-                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend mb-2 flex items-center gap-2">
-                  <Settings2 size={14} /> Columns
-                </h3>
-                <div className="flex gap-2 flex-wrap">
-                  <ToggleButton
-                    active={columns.views}
-                    onClick={() => toggleColumn("views")}
-                    label="Views"
-                    icon={<Layout size={12} />}
-                  />
-                  <ToggleButton
-                    active={columns.unitPrice}
-                    onClick={() => toggleColumn("unitPrice")}
-                    label="Prices"
-                    icon={<TableIcon size={12} />}
-                  />
-                  <ToggleButton
-                    active={columns.total}
-                    onClick={() => toggleColumn("total")}
-                    label="Totals"
-                    icon={<Check size={12} />}
-                  />
-                </div>
+                <p className="text-[9px] text-slate-400 font-lexend italic px-2">
+                  Tip: Columns use IDs (A, B, C...) for formulas. Total column is typically "C * D".
+                </p>
               </section>
 
               <section className="space-y-4">
@@ -540,7 +623,7 @@ content:
 
               <section className="space-y-4">
                 <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Invoice Notes
+                  Document Notes
                 </label>
                 <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm min-h-[150px]">
                   <EditorContent
@@ -552,20 +635,11 @@ content:
 
               <section className="space-y-4">
                 <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Emphasis Key-Value Pairs
+                  Banking Details (Emphasis)
                 </label>
                 <div className="flex flex-col gap-3 relative">
-                  {emphasisText.map((item, idx) => (
+                  {(docData.footer.emphasis || []).map((item, idx) => (
                     <div key={idx} className="relative group/row">
-                      {hoveredIndex === idx && (
-                        <button
-                          className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-slate-800 z-10 shadow-lg border-2 border-white"
-                          onClick={() => addRowAbove(idx)}
-                          title="Add row above"
-                        >
-                          <Plus size={14} />
-                        </button>
-                      )}
                       <div
                         className="flex gap-3 items-center p-3 border border-slate-200/60 rounded-xl bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-sm transition-all"
                         onMouseEnter={() => setHoveredIndex(idx)}
@@ -574,32 +648,25 @@ content:
                         <input
                           className="w-32 bg-transparent border-b border-slate-200 text-[11px] font-lexend font-bold text-slate-500 hover:border-slate-400 focus:border-slate-900 outline-none transition-colors px-1"
                           value={item.key}
-                          onChange={(e) => updateKey(idx, e.target.value)}
-                          placeholder="Key"
+                          onChange={(e) => updateEmphasisKey(idx, e.target.value)}
                         />
                         <input
-                          className="flex-1 bg-transparent border-b border-slate-200 text-[11px] font-lexend text-slate-700 hover:border-slate-400 focus:border-slate-900 outline-none transition-colors px-1"
+                          className="flex-1 bg-transparent border-b border-slate-200 text-[11px] font-lexend font-medium text-slate-900 hover:border-slate-400 focus:border-slate-900 outline-none transition-colors px-1"
                           value={item.value}
-                          onChange={(e) => updateValue(idx, e.target.value)}
-                          placeholder="Value"
+                          onChange={(e) => updateEmphasisValue(idx, e.target.value)}
                         />
                         <button
-                          onClick={() => removeRow(idx)}
+                          onClick={() => removeEmphasisRow(idx)}
                           className="text-slate-300 hover:text-red-500 transition-colors"
                           title="Remove row"
                         >
                           <Trash2 size={14} />
                         </button>
                       </div>
-                      {hoveredIndex === idx && (
-                        <button
-                          className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-slate-800 z-10 shadow-lg border-2 border-white"
-                          onClick={() => addRowBelow(idx)}
-                          title="Add row below"
-                        >
-                          <Plus size={14} />
-                        </button>
-                      )}
+                      <div className="flex justify-center gap-2 mt-1 opacity-0 group-hover/row:opacity-100 transition-opacity no-print">
+                         <button onClick={() => addEmphasisRow(idx)} className="text-[8px] font-bold text-slate-400 hover:text-slate-900">+ ROW ABOVE</button>
+                         <button onClick={() => addEmphasisRow(idx, 1)} className="text-[8px] font-bold text-slate-400 hover:text-slate-900">+ ROW BELOW</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -641,20 +708,17 @@ content:
           {chunks.map((itemChunk, pageIndex) => (
             <A4Page
               key={pageIndex}
-              data={parsedData}
-              items={itemChunk}
+              data={docData}
+              rows={itemChunk}
               pageIndex={pageIndex}
               totalPrice={
                 pageIndex === chunks.length - 1
-                  ? { subTotal, logistics, vat, grandTotal }
+                  ? { subTotal, summaries: summaryForRender, grandTotal }
                   : null
               }
               headerImage={headerImage}
               headerHeight={headerHeight}
               onHeaderResize={handleHeaderResize}
-              invoiceNotes={invoiceNotes}
-              emphasisText={emphasisText}
-              columns={columns}
               isFirstPage={pageIndex === 0}
               isLastPage={pageIndex === chunks.length - 1}
               startIndex={
@@ -664,12 +728,12 @@ content:
               }
               onUpdateContact={updateContactField}
               onUpdateTitle={updateTitle}
-              onUpdateItem={updateItem}
-              onRemoveItem={removeItem}
-              onMoveItemUp={moveItemUp}
-              onMoveItemDown={moveItemDown}
-              onAddItemAbove={addItemAbove}
-              onAddItemBelow={addItemBelow}
+              onUpdateCell={updateCell}
+              onRemoveRow={removeTableRow}
+              onMoveRow={moveTableRow}
+              onAddRowAbove={addTableRow}
+              onAddRowBelow={addTableRow}
+              resolveFormula={resolveFormula}
               isPreview={isPreview}
             />
           ))}
@@ -841,26 +905,23 @@ const Editable = ({
 
 const A4Page = ({
   data,
-  items,
+  rows,
   pageIndex,
   totalPrice,
   headerImage,
   headerHeight,
   onHeaderResize,
-  invoiceNotes,
-  emphasisText,
-  columns,
   isFirstPage,
   isLastPage,
   startIndex,
   onUpdateContact,
   onUpdateTitle,
-  onUpdateItem,
-  onRemoveItem,
-  onMoveItemUp,
-  onMoveItemDown,
-  onAddItemAbove,
-  onAddItemBelow,
+  onUpdateCell,
+  onRemoveRow,
+  onMoveRow,
+  onAddRowAbove,
+  onAddRowBelow,
+  resolveFormula,
   isPreview,
 }) => {
   const PRIMARY_BROWN = "#8D6E63";
@@ -988,7 +1049,7 @@ const A4Page = ({
         </>
       )}
 
-      {/* Maintenance Table */}
+      {/* Dynamic Table */}
       <div className="overflow-hidden border border-slate-100">
         <table className="w-full border-collapse">
           <thead>
@@ -996,118 +1057,114 @@ const A4Page = ({
               className="text-white text-[11px] font-normal uppercase tracking-[0.2em] font-luzia"
               style={{ backgroundColor: HEADER_DARK_BROWN }}
             >
-              <th className="p-4 text-center w-14 border-r border-white/10 font-normal">
-                S/N
-              </th>
-              <th className="p-4 text-left border-r border-white/10 font-normal">
-                Description of Service
-              </th>
-              {columns.views && (
-                <th className="p-4 text-center w-20 border-r border-white/10 font-normal">
-                  Views
+              {(data.table.columns || []).map((col) => (
+                <th
+                  key={col.id}
+                  className={`p-4 font-normal border-r border-white/10 last:border-r-0 ${
+                    col.type === "index" ? "text-center" : "text-left"
+                  }`}
+                  style={{ width: col.width || "auto" }}
+                >
+                  <div className="flex flex-col">
+                    {!isPreview && (
+                      <span className="text-[7px] opacity-40 font-mono tracking-tighter mb-1">
+                        Column {col.id}
+                      </span>
+                    )}
+                    {col.label}
+                  </div>
                 </th>
-              )}
-              {columns.unitPrice && (
-                <th className="p-4 text-center w-36 border-r border-white/10 font-normal">
-                  Unit Price
-                </th>
-              )}
-              {columns.total && (
-                <th className="p-4 text-center w-36 font-normal">Total</th>
-              )}
+              ))}
             </tr>
           </thead>
           <tbody>
-            {(items || []).map((item, idx) => {
-              const rowTotal =
-                (Number(item.price) || 0) * (Number(item.qty) || 0);
-              return (
-                <tr
-                  key={item.id}
-                  className="text-[12px] text-[#212121] border-b border-slate-50 font-lexend"
-                  style={{
-                    backgroundColor: idx % 2 === 1 ? "#FBFBFB" : "#fff",
-                  }}
-                >
-                  <td className="p-3 text-center border-r border-slate-100 relative group">
-                    1.{startIndex + idx + 1}
-                    {!isPreview && (
-                      <div className="absolute left-1 top-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 no-print transition-all">
-                        <button
-                          onClick={() => onAddItemAbove(startIndex + idx)}
-                          className="text-green-500 hover:text-green-700"
-                          title="Add row above"
-                        >
-                          <Plus size={12} />
-                        </button>
-                        <button
-                          onClick={() => onMoveItemUp(startIndex + idx)}
-                          className="text-blue-500 hover:text-blue-700"
-                        >
-                          <ChevronUp size={12} />
-                        </button>
-                        <button
-                          onClick={() => onMoveItemDown(startIndex + idx)}
-                          className="text-blue-500 hover:text-blue-700"
-                        >
-                          <ChevronDown size={12} />
-                        </button>
-                        <button
-                          onClick={() => onRemoveItem(item.id)}
-                          className="text-red-500 hover:text-red-600"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                        <button
-                          onClick={() => onAddItemBelow(startIndex + idx)}
-                          className="text-green-500 hover:text-green-700"
-                          title="Add row below"
-                        >
-                          <Plus size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                  <td className="relative border-r border-slate-100 capitalize min-h-[40px]">
-                    <Editable
-                      value={item.desc}
-                      onSave={(val) => onUpdateItem(item.id, "desc", val)}
-                      containerPadding="px-3"
-                      readOnly={isPreview}
-                    />
-                  </td>
-                  {columns.views && (
-                    <td className="relative border-r border-slate-100 min-h-[40px] text-center">
+            {(rows || []).map((row, idx) => (
+              <tr
+                key={idx}
+                className="text-[12px] text-[#212121] border-b border-slate-50 font-lexend"
+                style={{
+                  backgroundColor: idx % 2 === 1 ? "#FBFBFB" : "#fff",
+                }}
+              >
+                {(data.table.columns || []).map((col) => {
+                  if (col.type === "index") {
+                    return (
+                      <td
+                        key={col.id}
+                        className="p-3 text-center border-r border-slate-100 relative group"
+                        style={{ width: col.width }}
+                      >
+                        {startIndex + idx + 1}
+                        {!isPreview && (
+                          <div className="absolute left-1 top-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
+                            <button
+                              onClick={() => onAddRowAbove(startIndex + idx)}
+                              className="text-green-500 hover:text-green-700"
+                              title="Add row above"
+                            >
+                              <Plus size={12} />
+                            </button>
+                            <button
+                              onClick={() => onMoveRow(startIndex + idx, -1)}
+                              className="text-blue-500 hover:text-blue-700"
+                            >
+                              <ChevronUp size={12} />
+                            </button>
+                            <button
+                              onClick={() => onMoveRow(startIndex + idx, 1)}
+                              className="text-blue-500 hover:text-blue-700"
+                            >
+                              <ChevronDown size={12} />
+                            </button>
+                            <button
+                              onClick={() => onRemoveRow(startIndex + idx)}
+                              className="text-red-500 hover:text-red-600"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                            <button
+                              onClick={() => onAddRowBelow(startIndex + idx)}
+                              className="text-green-500 hover:text-green-700"
+                              title="Add row below"
+                            >
+                              <Plus size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    );
+                  }
+
+                  const cellValue =
+                    col.type === "formula"
+                      ? resolveFormula(row, col.formula)
+                      : row[col.id];
+
+                  return (
+                    <td
+                      key={col.id}
+                      className={`p-3 border-r border-slate-100 last:border-r-0 ${
+                        col.type === "number" || col.type === "formula"
+                          ? "text-center font-medium"
+                          : "text-left"
+                      }`}
+                    >
                       <Editable
-                        numeric
-                        value={item.qty}
-                        onSave={(val) => onUpdateItem(item.id, "qty", val)}
-                        className="text-center"
-                        containerPadding="p-1"
-                        readOnly={isPreview}
+                        value={cellValue}
+                        numeric={col.type === "number"}
+                        readOnly={isPreview || col.type === "formula"}
+                        onSave={(val) =>
+                          onUpdateCell(startIndex + idx, col.id, val)
+                        }
+                        className={
+                          col.type === "formula" ? "text-slate-900 font-bold" : ""
+                        }
                       />
                     </td>
-                  )}
-                  {columns.unitPrice && (
-                    <td className="relative border-r border-slate-100 min-h-[40px]">
-                      <Editable
-                        numeric
-                        value={item.price}
-                        onSave={(val) => onUpdateItem(item.id, "price", val)}
-                        className="text-right pr-4"
-                        containerPadding="p-1"
-                        readOnly={isPreview}
-                      />
-                    </td>
-                  )}
-                  {columns.total && (
-                    <td className="p-3 text-right pr-6">
-                      {rowTotal > 0 ? rowTotal.toLocaleString() : "--"}
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1115,11 +1172,13 @@ const A4Page = ({
       {isLastPage && totalPrice && (
         <div className="mt-8 border-t border-slate-100">
           <TotalRow label="Sub Total" value={totalPrice.subTotal} />
-          <TotalRow
-            label="Consultation & Logistics"
-            value={totalPrice.logistics}
-          />
-          <TotalRow label="VAT (7.5%)" value={totalPrice.vat} />
+          {(totalPrice.summaries || []).map((item) => (
+            <TotalRow
+              key={item.id}
+              label={item.label}
+              value={item.calculatedValue}
+            />
+          ))}
           <div
             className="flex justify-between items-center p-6 text-white"
             style={{ backgroundColor: PRIMARY_BROWN }}
@@ -1134,27 +1193,27 @@ const A4Page = ({
         </div>
       )}
 
-      {isLastPage && invoiceNotes && (
+      {isLastPage && data.footer.notes && (
         <div className="mt-8 p-4 bg-slate-50 border border-slate-200 rounded">
           <h4 className="text-[12px] font-bold text-slate-700 mb-2">
-            Invoice Notes
+            Document Notes
           </h4>
           <div
             className="text-[12px] font-normal text-[#212121]"
-            dangerouslySetInnerHTML={{ __html: invoiceNotes }}
+            dangerouslySetInnerHTML={{ __html: data.footer.notes }}
           />
         </div>
       )}
 
       {isLastPage &&
-        emphasisText &&
-        Array.isArray(emphasisText) &&
-        emphasisText.length > 0 && (
+        data.footer.emphasis &&
+        Array.isArray(data.footer.emphasis) &&
+        data.footer.emphasis.length > 0 && (
           <div
             className="mt-4 bg-[#ededed] px-8 py-4 rounded-sm flex flex-col gap-1"
             style={{ maxWidth: "100%" }}
           >
-            {emphasisText.map((item, idx) => (
+            {data.footer.emphasis.map((item, idx) => (
               <div key={idx} className="flex gap-2 items-center">
                 <span className="uppercase text-[10px] tracking-widest text-[#7a7672] font-bold">
                   {item.key}:
