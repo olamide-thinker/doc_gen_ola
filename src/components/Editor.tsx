@@ -1516,7 +1516,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
                   {...attributes}
                   {...listeners}
                   className={cn(
-                    "cursor-grab active:cursor-grabbing flex items-center justify-center gap-1 hover:text-primary transition-colors",
+                    "cursor-grab active:cursor-grabbing flex items-center justify-center gap-1 hover:text-primary transition-colors w-full",
                     isPreview && "pointer-events-none",
                   )}
                 >
@@ -1524,7 +1524,9 @@ const SortableRow: React.FC<SortableRowProps> = ({
                     size={12}
                     className="transition-opacity text-slate-300 no-print"
                   />
-                  <span className="font-bold">{startIndex + idx + 1}</span>
+                  <span className="font-bold text-center">
+                    {String(startIndex + idx + 1).padStart(2, '0')}
+                  </span>
                 </div>
 
                   <div className="absolute left-[-14px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 no-print transition-all z-20">
