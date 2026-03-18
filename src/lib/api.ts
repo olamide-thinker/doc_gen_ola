@@ -60,7 +60,7 @@ const seedIfEmpty = () => {
             { id: "D", label: "Price", type: "number", width: "140px" },
             { id: "E", label: "Total", type: "formula", formula: "C * D", width: "140px" }
           ], 
-          rows: [{ B: "Introduction to your new DMS", C: 1, D: 0 }], 
+          rows: [{ id: "welcome-row-1", rowType: "row", B: "Introduction to your new DMS", C: 1, D: 0 }], 
           summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }] 
         },
         footer: { notes: "<p>Welcome! This is your first document. You can create folders and more documents from the dashboard.</p>", emphasis: [] }

@@ -15,7 +15,11 @@ export interface TableColumn {
 }
 
 export interface TableRow {
-  [key: string]: string | number;
+  id: string;
+  rowType?: "row" | "section-header" | "section-total";
+  sectionTitle?: string;
+  affectsNumbering?: boolean;
+  [key: string]: string | number | boolean | undefined;
 }
 
 export interface SummaryItem {
