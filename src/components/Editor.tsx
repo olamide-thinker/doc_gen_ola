@@ -630,65 +630,36 @@ const Editor: React.FC = () => {
   // --- Helpers ---
   const getRowNumbering = (rows: TableRow[]) => {
     const numbering: Record<string, string> = {};
-    let mainIndex = 0;
-    let currentSectionMain = 0;
-    let subIndex = 0;
-    let inNumberedSection = false;
-
-    // Stage-specific counters
     let globalIndex = 0;
-    let rowInStageIndex = 0;
+    let subIndex = 0;
     let inStage = false;
 
     rows.forEach((row) => {
-      if (useStages) {
-        if (row.rowType === "stage-header") {
-          globalIndex++;
-          rowInStageIndex = 0;
-          inStage = true;
-          numbering[row.id] = `${globalIndex}`;
-        } else if (row.rowType === "row" || !row.rowType) {
-          if (inStage) {
-            rowInStageIndex++;
-            numbering[row.id] = `${globalIndex}.${rowInStageIndex}`;
-          } else {
-            globalIndex++;
-            numbering[row.id] = `${globalIndex}`;
-          }
-        } else if (row.rowType === "section-total") {
-          inStage = false;
-          numbering[row.id] = "";
+      const type = row.rowType || "row";
+      
+      if (type === "stage-header") {
+        globalIndex++;
+        subIndex = 0;
+        inStage = true;
+        numbering[row.id as string] = `${globalIndex}`;
+      } else if (type === "section-total") {
+        inStage = false;
+        numbering[row.id as string] = "";
+      } else if (type === "section-header") {
+        numbering[row.id as string] = "";
+      } else if (type === "row") {
+        if (inStage) {
+          subIndex++;
+          numbering[row.id as string] = `${globalIndex}.${subIndex}`;
         } else {
-          // section-header (sub-group)
-          numbering[row.id] = "";
+          globalIndex++;
+          numbering[row.id as string] = `${globalIndex}`;
         }
       } else {
-        // Original numbering logic
-        if (row.rowType === "section-header") {
-          if (row.affectsNumbering) {
-            mainIndex++;
-            currentSectionMain = mainIndex;
-            subIndex = 0;
-            inNumberedSection = true;
-            numbering[row.id] = `${mainIndex}.0`;
-          } else {
-            inNumberedSection = false;
-            numbering[row.id] = "";
-          }
-        } else if (row.rowType === "section-total") {
-          inNumberedSection = false;
-          numbering[row.id] = "";
-        } else {
-          if (inNumberedSection) {
-            subIndex++;
-            numbering[row.id] = `${currentSectionMain}.${subIndex}`;
-          } else {
-            mainIndex++;
-            numbering[row.id] = `${mainIndex}.0`;
-          }
-        }
+        numbering[row.id as string] = "";
       }
     });
+
     return numbering;
   };
 
@@ -1442,66 +1413,71 @@ const Editor: React.FC = () => {
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            {pages.map((page, pageIndex) => (
-              <A4Page
-                key={pageIndex}
-                data={docData}
-                rows={page.rows}
-                pageIndex={pageIndex}
-                totalPrice={
-                  page.showTotals
-                    ? { subTotal, summaries: summaryForRender, grandTotal }
-                    : null
-                }
-                headerImage={headerImage}
-                headerHeight={headerHeight}
-                onHeaderResize={handleHeaderResize}
-                isFirstPage={pageIndex === 0}
-                isLastPage={pageIndex === pages.length - 1}
-                startIndex={page.startIndex}
-                isEndOfRows={page.isEndOfRows}
-                showRows={page.showRows}
-                showTotals={page.showTotals}
-                showFooter={page.showFooter}
-                rowNumbering={rowNumbering}
-                onUpdateContact={onUpdateContact}
-                onUpdateTitle={onUpdateTitle}
-                onUpdateCell={onUpdateCell}
-                onRemoveRow={onRemoveRow}
-                onAddRowBelow={onAddRowBelow}
-                onAddRowAbove={onAddRowAbove}
-                onAddSectionBelow={onAddSectionBelow}
-                onAddSectionAbove={onAddSectionAbove}
-                onAddStageBelow={onAddStageBelow}
-                onAddStageAbove={onAddStageAbove}
-                onMoveRow={onMoveRow}
-                useStages={useStages}
-                resolveFormula={resolveFormula}
-                resolveSectionTotal={resolveSectionTotal}
-                resolveStageTotal={resolveStageTotal}
-                onUpdateInvoiceCode={(updates) =>
-                  updateDocData((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          invoiceCode: {
-                            ...(prev.invoiceCode || {
-                              text: "",
-                              x: 0,
-                              y: 0,
-                              color: "",
-                            }),
-                            ...updates,
-                          },
-                        }
-                      : null,
-                  )
-                }
-                onUpdateSummaryItem={onUpdateSummaryItem}
-                onUpdateDate={onUpdateDate}
-                isPreview={isPreview}
-              />
-            ))}
+            <SortableContext
+              items={docData.table.rows.map((r) => r.id as string)}
+              strategy={verticalListSortingStrategy}
+            >
+              {pages.map((page, pageIndex) => (
+                <A4Page
+                  key={pageIndex}
+                  data={docData}
+                  rows={page.rows}
+                  pageIndex={pageIndex}
+                  totalPrice={
+                    page.showTotals
+                      ? { subTotal, summaries: summaryForRender, grandTotal }
+                      : null
+                  }
+                  headerImage={headerImage}
+                  headerHeight={headerHeight}
+                  onHeaderResize={handleHeaderResize}
+                  isFirstPage={pageIndex === 0}
+                  isLastPage={pageIndex === pages.length - 1}
+                  startIndex={page.startIndex}
+                  isEndOfRows={page.isEndOfRows}
+                  showRows={page.showRows}
+                  showTotals={page.showTotals}
+                  showFooter={page.showFooter}
+                  rowNumbering={rowNumbering}
+                  onUpdateContact={onUpdateContact}
+                  onUpdateTitle={onUpdateTitle}
+                  onUpdateCell={onUpdateCell}
+                  onRemoveRow={onRemoveRow}
+                  onAddRowBelow={onAddRowBelow}
+                  onAddRowAbove={onAddRowAbove}
+                  onAddSectionBelow={onAddSectionBelow}
+                  onAddSectionAbove={onAddSectionAbove}
+                  onAddStageBelow={onAddStageBelow}
+                  onAddStageAbove={onAddStageAbove}
+                  onMoveRow={onMoveRow}
+                  useStages={useStages}
+                  resolveFormula={resolveFormula}
+                  resolveSectionTotal={resolveSectionTotal}
+                  resolveStageTotal={resolveStageTotal}
+                  onUpdateInvoiceCode={(updates) =>
+                    updateDocData((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            invoiceCode: {
+                              ...(prev.invoiceCode || {
+                                text: "",
+                                x: 0,
+                                y: 0,
+                                color: "",
+                              }),
+                              ...updates,
+                            },
+                          }
+                        : null,
+                    )
+                  }
+                  onUpdateSummaryItem={onUpdateSummaryItem}
+                  onUpdateDate={onUpdateDate}
+                  isPreview={isPreview}
+                />
+              ))}
+            </SortableContext>
           </DndContext>
         </div>
       </div>
@@ -1793,9 +1769,7 @@ const RowActionsMenu: React.FC<{
       )}
     </div>
   );
-};
-
-const SortableRow: React.FC<SortableRowProps> = ({
+};const SortableRow: React.FC<SortableRowProps> = ({
   id,
   row,
   idx,
@@ -1829,9 +1803,8 @@ const SortableRow: React.FC<SortableRowProps> = ({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
-    backgroundColor: (startIndex + idx) % 2 === 1 ? "#FBFBFB" : "#fff",
-    zIndex: isDragging ? 100 : menuOpen ? 9999 : 1,
+    cursor: isDragging ? "grabbing" : "default",
+    zIndex: isDragging ? 2000 : menuOpen ? 9999 : 1,
     position: "relative" as const,
   };
   const rowNum = rowNumbering[id] || "";
@@ -1842,9 +1815,8 @@ const SortableRow: React.FC<SortableRowProps> = ({
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-100",
-          isDragging &&
-            "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
+          "text-[14px] font-lexend group transition-all bg-white border-b border-slate-100",
+          isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
         )}
       >
         <td
@@ -1854,15 +1826,16 @@ const SortableRow: React.FC<SortableRowProps> = ({
               data.table.columns.find((c) => c.type === "index")?.width || 50,
           }}
         >
-          <div className="flex items-center justify-center gap-1">
+          <div
+            {...attributes}
+            {...listeners}
+            className={cn(
+              "flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing hover:text-primary transition-colors no-print",
+              isPreview && "pointer-events-none",
+            )}
+          >
             {!isPreview && (
-              <div
-                {...attributes}
-                {...listeners}
-                className="cursor-grab active:cursor-grabbing hover:text-primary transition-colors no-print"
-              >
-                <GripVertical size={12} className="text-slate-300" />
-              </div>
+              <GripVertical size={12} className="text-slate-300" />
             )}
             <span className="font-bold text-center text-slate-800">{rowNum}</span>
           </div>
@@ -1906,9 +1879,8 @@ const SortableRow: React.FC<SortableRowProps> = ({
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-50",
-          isDragging &&
-            "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
+          "text-[14px] font-lexend group transition-all bg-white border-b border-slate-50",
+          isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
         )}
       >
         <td
@@ -1969,27 +1941,27 @@ const SortableRow: React.FC<SortableRowProps> = ({
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-colors bg-amber-100/40 border-b border-amber-200/50",
-          isDragging &&
-            "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
+          "text-[14px] font-lexend group transition-all bg-amber-50/80 border-b border-amber-200/40",
+          isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
         )}
       >
         <td
-          className="relative h-12 p-3 border-r border-amber-200/50"
+          className="relative h-12 p-3 border-r border-amber-200/30"
           style={{
             width:
               data.table.columns.find((c) => c.type === "index")?.width || 50,
           }}
         >
-          <div className="flex items-center justify-center gap-1">
+          <div
+            {...attributes}
+            {...listeners}
+            className={cn(
+              "flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing hover:text-amber-600 transition-colors no-print",
+              isPreview && "pointer-events-none",
+            )}
+          >
             {!isPreview && (
-              <div
-                {...attributes}
-                {...listeners}
-                className="cursor-grab active:cursor-grabbing hover:text-primary transition-colors no-print"
-              >
-                <GripVertical size={12} className="text-amber-300" />
-              </div>
+              <GripVertical size={12} className="text-amber-300" />
             )}
           </div>
           {!isPreview && (
@@ -2009,13 +1981,13 @@ const SortableRow: React.FC<SortableRowProps> = ({
         </td>
         <td
           colSpan={data.table.columns.filter((c) => !c.hidden).length - 2}
-          className="p-3 text-right"
+          className="p-3 text-left pl-6"
         >
-          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-900/60">
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-900/40">
             TOTAL
           </span>
         </td>
-        <td className="p-3 text-right font-bold text-slate-900 bg-amber-100/60">
+        <td className="p-3 text-left font-bold text-amber-950">
           ₦{Math.round(totalValue).toLocaleString()}
         </td>
       </tr>
@@ -2027,8 +1999,10 @@ const SortableRow: React.FC<SortableRowProps> = ({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "text-[14px] text-[#212121] border-b border-slate-50 font-lexend group transition-colors",
-        isDragging && "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
+        "text-[14px] text-[#212121] font-lexend group transition-all",
+        (startIndex + idx) % 2 === 1 ? "bg-slate-50/30" : "bg-white",
+        "border-b border-slate-50",
+        isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
       )}
     >
       {(data.table.columns || [])
@@ -2115,6 +2089,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
     </tr>
   );
 };
+
 
 const A4Page: React.FC<A4PageProps> = ({
   data,
@@ -2302,7 +2277,7 @@ const A4Page: React.FC<A4PageProps> = ({
       )}
 
       {showRows && (
-        <div className="overflow-hidden border border-slate-100">
+        <div className=" border border-slate-100">
           <table className="w-full border-collapse">
             <thead>
               <tr
@@ -2323,10 +2298,6 @@ const A4Page: React.FC<A4PageProps> = ({
               </tr>
             </thead>
             <tbody>
-              <SortableContext
-                items={rows.map((r) => r.id as string)}
-                strategy={verticalListSortingStrategy}
-              >
                 {(rows || []).map((row, idx) => (
                   <SortableRow
                     key={row.id as string}
@@ -2351,7 +2322,6 @@ const A4Page: React.FC<A4PageProps> = ({
                     resolveStageTotal={resolveStageTotal}
                   />
                 ))}
-              </SortableContext>
             </tbody>
           </table>
           {isEndOfRows && (
