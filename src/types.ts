@@ -16,7 +16,7 @@ export interface TableColumn {
 
 export interface TableRow {
   id: string;
-  rowType?: "row" | "section-header" | "section-total";
+  rowType?: "row" | "section-header" | "section-total" | "stage-header";
   sectionTitle?: string;
   affectsNumbering?: boolean;
   [key: string]: string | number | boolean | undefined;

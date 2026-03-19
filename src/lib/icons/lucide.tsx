@@ -4,6 +4,7 @@ import {
   Plus as LucidePlus, 
   Trash2 as LucideTrash2, 
   MoreHorizontal as LucideMoreHorizontal,
+  MoreVertical as LucideMoreVertical,
   Search as LucideSearch,
   ChevronRight as LucideChevronRight,
   Move as LucideMove,
@@ -41,6 +42,7 @@ export const Plus = wrapIcon(LucidePlus);
 export const Trash = wrapIcon(LucideTrash2);
 export const Trash2 = wrapIcon(LucideTrash2);
 export const MoreHorizontal = wrapIcon(LucideMoreHorizontal);
+export const MoreVertical = wrapIcon(LucideMoreVertical);
 export const Search = wrapIcon(LucideSearch);
 export const ChevronRight = wrapIcon(LucideChevronRight);
 export const Move = wrapIcon(LucideMove);
