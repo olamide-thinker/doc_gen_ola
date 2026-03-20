@@ -220,8 +220,13 @@ const Editor: React.FC = () => {
   useEffect(() => {
     if (docMetadata) {
       if (!docData) {
-        setDocData(docMetadata.content);
-        setJsonInput(JSON.stringify(docMetadata.content, null, 2));
+        const content = { ...docMetadata.content };
+        if (!content.contact) content.contact = { name: "", address1: "", address2: "" };
+        if (!content.footer) content.footer = { notes: "", emphasis: [] };
+        if (!content.table) content.table = { columns: [], rows: [], summary: [] };
+        
+        setDocData(content);
+        setJsonInput(JSON.stringify(content, null, 2));
       }
     }
   }, [docMetadata]);
@@ -292,7 +297,7 @@ const Editor: React.FC = () => {
 
   const editor = useEditor({
     extensions: [StarterKit],
-    content: docData?.footer.notes || "",
+    content: docData?.footer?.notes || "",
     onUpdate: ({ editor }) => {
       setDocData((prev: DocData | null) =>
         prev
@@ -305,12 +310,12 @@ const Editor: React.FC = () => {
   useEffect(() => {
     if (
       editor &&
-      docData?.footer.notes &&
+      docData?.footer?.notes &&
       docData.footer.notes !== editor.getHTML()
     ) {
       editor.commands.setContent(docData.footer.notes);
     }
-  }, [docData?.footer.notes, editor]);
+  }, [docData?.footer?.notes, editor]);
 
   useEffect(() => {
     localStorage.setItem("headerImage", headerImage || "");
@@ -357,7 +362,7 @@ const Editor: React.FC = () => {
     if (!rawInput.trim() || !docData) return;
 
     const sections = rawInput.split(/\n\s*\n/);
-    let newContact = { ...docData.contact };
+    let newContact = { ...(docData?.contact || { name: "", address1: "", address2: "" }) };
     let newTitle = docData.title;
     let newRows: TableRow[] = [];
 
@@ -401,7 +406,7 @@ const Editor: React.FC = () => {
     if (
       newRows.length > 0 ||
       newTitle !== docData.title ||
-      JSON.stringify(newContact) !== JSON.stringify(docData.contact)
+      JSON.stringify(newContact) !== JSON.stringify(docData?.contact || {})
     ) {
       const updated = {
         ...docData,
@@ -784,7 +789,7 @@ const Editor: React.FC = () => {
 
   const MM_TO_PX = 3.78;
   const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
-  const PADDING_V_PX = (14 + 20) * MM_TO_PX; // 14mm top, 20mm bottom
+  const PADDING_V_PX = (14 + 35) * MM_TO_PX; // 14mm top, 35mm bottom for better footer clearance
   const USABLE_HEIGHT = PAGE_HEIGHT_PX - PADDING_V_PX;
 
   const calculateChunks = () => {
@@ -792,8 +797,9 @@ const Editor: React.FC = () => {
     const TOTAL_ROW_HEIGHT = 48;
     const GRAND_TOTAL_HEIGHT = 70;
     const FOOTER_HEADER_HEIGHT = 40;
-    const EMPHASIS_SECTION_HEIGHT =
-      (docData.footer.emphasis?.length || 0) * 32 + 40;
+    const ADD_ITEM_BUTTON_HEIGHT = 80; // Account for "Add New Line Item" button
+     const EMPHASIS_SECTION_HEIGHT =
+      (docData?.footer?.emphasis?.length || 0) * 32 + 40;
     const estimateNotesHeight = (html: string) => {
       if (!html) return 0;
       const text = html.replace(/<[^>]*>/g, "");
@@ -803,7 +809,7 @@ const Editor: React.FC = () => {
       return lineCount * 22 + paragraphs * 24 + 60;
     };
 
-    const NOTES_ESTIMATE = estimateNotesHeight(docData.footer.notes);
+    const NOTES_ESTIMATE = estimateNotesHeight(docData?.footer?.notes || "");
     const FOOTER_PADDING_TOP = 40;
 
     const estimateRowHeight = (row: TableRow) => {
@@ -814,7 +820,7 @@ const Editor: React.FC = () => {
 
     const allRows = docData.table.rows || [];
     const hasFooterContent = !!(
-      docData.footer.notes || docData.footer.emphasis?.length
+      docData?.footer?.notes || docData?.footer?.emphasis?.length
     );
     let currentRowsProcessed = 0;
     const pages: any[] = [];
@@ -853,10 +859,11 @@ const Editor: React.FC = () => {
         const totalsHeight =
           (docData.table.summary.length + 1) * TOTAL_ROW_HEIGHT +
           GRAND_TOTAL_HEIGHT +
+          ADD_ITEM_BUTTON_HEIGHT + // Always reserve space for the button if it's the end
           FOOTER_PADDING_TOP;
         const footerHeight =
-          (docData.footer.notes ? NOTES_ESTIMATE : 0) +
-          (docData.footer.emphasis?.length ? EMPHASIS_SECTION_HEIGHT : 0);
+          (docData?.footer?.notes ? NOTES_ESTIMATE : 0) +
+          (docData?.footer?.emphasis?.length ? EMPHASIS_SECTION_HEIGHT : 0);
 
         if (h + totalsHeight <= USABLE_HEIGHT) {
           showTotals = true;
@@ -933,7 +940,7 @@ const Editor: React.FC = () => {
 
   const onUpdateContact = (field: keyof Contact, value: string) =>
     updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, contact: { ...prev.contact, [field]: value } } : null,
+      prev ? { ...prev, contact: { ...(prev.contact || { name: "", address1: "", address2: "" }), [field]: value } } : null,
     );
 
   const onUpdateTitle = (value: string) =>
@@ -1174,7 +1181,7 @@ const Editor: React.FC = () => {
                 </label>
                 <div className="p-3 border border-slate-200/60 rounded-xl">
                   <div className="flex flex-col gap-3">
-                    {(docData.footer.emphasis || []).map((item, idx) => (
+                    {(docData?.footer?.emphasis || []).map((item, idx) => (
                       <div
                         key={idx}
                         className="flex items-center gap-2 p-2 border bg-slate-50 rounded-xl border-slate-200/60"
@@ -2226,7 +2233,7 @@ const A4Page: React.FC<A4PageProps> = ({
               <div className="w-full relative h-[1.5em] mb-1 overflow-hidden">
                 <Editable
                   className="font-normal text-[#212121] text-[15px] uppercase"
-                  value={data.contact.name}
+                  value={data?.contact?.name || ""}
                   onSave={(val) => onUpdateContact("name", val as string)}
                   readOnly={isPreview}
                 />
@@ -2234,7 +2241,7 @@ const A4Page: React.FC<A4PageProps> = ({
               <div className="w-full relative h-[1.5em] overflow-hidden">
                 <Editable
                   className="font-normal text-[14px] opacity-90"
-                  value={data.contact.address1}
+                  value={data?.contact?.address1 || ""}
                   onSave={(val) => onUpdateContact("address1", val as string)}
                   readOnly={isPreview}
                 />
@@ -2242,7 +2249,7 @@ const A4Page: React.FC<A4PageProps> = ({
               <div className="w-full relative h-[1.5em] overflow-hidden">
                 <Editable
                   className="font-normal text-[14px] opacity-90"
-                  value={data.contact.address2}
+                  value={data?.contact?.address2 || ""}
                   onSave={(val) => onUpdateContact("address2", val as string)}
                   readOnly={isPreview}
                 />
@@ -2374,20 +2381,20 @@ const A4Page: React.FC<A4PageProps> = ({
 
       {showFooter && (
         <>
-          {data.footer.notes && (
+          {data?.footer?.notes && (
             <div className="p-4 mt-8 border rounded bg-slate-50 border-slate-200">
               <div
                 className="text-[14px] font-normal text-[#212121] font-lexend leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: data.footer.notes }}
+                dangerouslySetInnerHTML={{ __html: data?.footer?.notes || "" }}
               />
             </div>
           )}
 
-          {data.footer.emphasis &&
+          {data?.footer?.emphasis &&
             Array.isArray(data.footer.emphasis) &&
-            data.footer.emphasis.length > 0 && (
+            (data?.footer?.emphasis?.length || 0) > 0 && (
               <div className="mt-4 bg-[#EDEDED] px-8 py-5 flex flex-col gap-1.5">
-                {data.footer.emphasis.map((item: any, idx: number) => (
+                {(data?.footer?.emphasis || []).map((item: any, idx: number) => (
                   <div key={idx} className="flex items-center gap-3">
                     <span className="uppercase text-[12px] tracking-widest text-[#7A7672] font-black">
                       {item.key}:

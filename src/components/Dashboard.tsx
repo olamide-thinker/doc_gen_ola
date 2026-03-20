@@ -17,6 +17,7 @@ import {
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api, type Folder as FolderType, type Document as DocumentType } from "../lib/api";
+import { TEMPLATES, type TemplateDefinition } from "../lib/templates";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -86,25 +87,48 @@ const Dashboard: React.FC = () => {
   });
 
   const createDocMutation = useMutation({
-    mutationFn: ({ name, folderId }: { name: string, folderId: string | null }) => {
-      const emptyDoc: any = {
+    mutationFn: ({ name, folderId, template }: { name: string, folderId: string | null, template?: TemplateDefinition }) => {
+      const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+      
+      const defaultData: any = {
         contact: { name: "OLUWAKEMI ISINKAYE", address1: "Prime Waters Garden II", address2: "Lekki Phase 1" },
         title: name,
-        date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
+        date: now,
         table: { 
           columns: [
             { id: "A", label: "S/N", type: "index", width: "60px" },
             { id: "B", label: "Description", type: "text" },
-            { id: "C", label: "Qty", type: "number", width: "80px" },
-            { id: "D", label: "Price", type: "number", width: "140px" },
-            { id: "E", label: "Total", type: "formula", formula: "C * D", width: "140px" }
+            { id: "C", label: "Unit", type: "text", width: "80px" },
+            { id: "D", label: "Qty", type: "number", width: "80px" },
+            { id: "E", label: "Price", type: "number", width: "140px" },
+            { id: "F", label: "Total", type: "formula", formula: "D * E", width: "140px" }
           ], 
-          rows: [{ B: "New Item", C: 1, D: 0 }], 
+          rows: [{ B: "New Item", C: "pcs", D: 1, E: 0 }], 
           summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }] 
         },
         footer: { notes: "<p>Thank you for your business!</p>", emphasis: [] }
       };
-      return api.createDocument(name, emptyDoc as any, folderId);
+
+      const docContent: any = template 
+        ? { 
+            ...defaultData, 
+            ...template.content, 
+            table: { 
+              ...defaultData.table, 
+              ...(template.content?.table || {})
+            },
+            footer: { 
+              ...defaultData.footer, 
+              ...(template.content?.footer || {})
+            }
+          }
+        : defaultData;
+
+      // Ensure title/date are updated
+      docContent.title = name || template?.name || "Untitled";
+      docContent.date = now;
+
+      return api.createDocument(docContent.title, docContent as any, folderId);
     },
     onSuccess: (newDoc) => {
       queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
@@ -150,10 +174,11 @@ const Dashboard: React.FC = () => {
     createFolderMutation.mutate({ name, parentId: currentFolderId });
   };
 
-  const handleCreateDocument = () => {
-    const name = prompt("Document Name:");
-    if (!name) return;
-    createDocMutation.mutate({ name, folderId: currentFolderId });
+  const handleCreateDocument = (template?: TemplateDefinition) => {
+    const defaultName = template ? template.name : "New Document";
+    const name = prompt("Document Name:", defaultName);
+    if (name === null) return;
+    createDocMutation.mutate({ name: name || defaultName, folderId: currentFolderId, template });
   };
 
   const handleDelete = (item: any) => {
@@ -245,7 +270,7 @@ const Dashboard: React.FC = () => {
               ><List size={14} /></button>
             </div>
             <button 
-              onClick={handleCreateDocument} 
+              onClick={() => handleCreateDocument()} 
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md font-bold text-xs transition-all hover:bg-primary/90"
             >
               <Plus size={16} strokeWidth={2.5} />
@@ -258,7 +283,7 @@ const Dashboard: React.FC = () => {
         <section className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin">
           <div className="flex items-center justify-between mb-8">
             <div className="flex flex-col gap-0.5">
-               <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">{currentFolderId ? "Folder Explorer" : "Documents"}</h2>
+               <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">{currentFolderId ? "Folder Explorer" : "All Documents"}</h2>
                <p className="text-[10px] text-muted-foreground font-medium">Manage your workspace assets</p>
             </div>
             <button 
@@ -266,6 +291,36 @@ const Dashboard: React.FC = () => {
               className="px-3 py-1.5 border border-border bg-white text-[10px] font-bold tracking-widest text-foreground rounded-md transition-all hover:bg-muted"
             >+ NEW FOLDER</button>
           </div>
+
+          {!currentFolderId && (
+            <div className="mb-12">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex flex-col gap-0.5">
+                  <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">Start with a Template</h2>
+                  <p className="text-[10px] text-muted-foreground font-medium">Choose a preset structure for your invoice</p>
+                </div>
+              </div>
+              <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-thin">
+                {TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    onClick={() => handleCreateDocument(template)}
+                    className="flex-shrink-0 w-48 group text-left"
+                  >
+                    <div className="aspect-[3/4] rounded-lg border border-border bg-white p-5 shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md flex flex-col justify-between overflow-hidden">
+                      <div className="p-2.5 bg-primary/5 rounded-md w-fit text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:scale-110">
+                        <FileText size={20} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <h3 className="text-[11px] font-bold text-slate-800 line-clamp-1">{template.name}</h3>
+                        <p className="text-[9px] text-muted-foreground leading-relaxed line-clamp-2 opacity-80">{template.description}</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
