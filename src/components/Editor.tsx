@@ -667,6 +667,23 @@ const Editor: React.FC = () => {
 
     return numbering;
   };
+  
+  const findTotalColumn = () => {
+    if (!docData) return null;
+    // 1. First priority: Column with "Total" in the label (case insensitive)
+    const explicitTotal = docData.table.columns.find(
+      (c) => c.label.toLowerCase().includes("total") || c.label.toLowerCase().includes("fee")
+    );
+    if (explicitTotal) return explicitTotal;
+
+    // 2. Second priority: Formula column
+    const formulaCol = docData.table.columns.find((c) => c.type === "formula");
+    if (formulaCol) return formulaCol;
+
+    // 3. Last priority: Last numeric column
+    const numericCols = docData.table.columns.filter((c) => c.type === "number");
+    return numericCols.length > 0 ? numericCols[numericCols.length - 1] : null;
+  };
 
   const resolveStageTotal = (rows: TableRow[], totalIdx: number) => {
     if (!docData) return 0;
@@ -686,9 +703,7 @@ const Editor: React.FC = () => {
     for (let i = startIdx + 1; i < totalIdx; i++) {
       const row = rows[i];
       if (row.rowType === "row" || !row.rowType) {
-        const totalCol = docData.table.columns.find(
-          (c) => c.type === "formula" || c.id === "E",
-        );
+        const totalCol = findTotalColumn();
         const val =
           totalCol?.type === "formula"
             ? resolveFormula(row, totalCol.formula)
@@ -713,9 +728,7 @@ const Editor: React.FC = () => {
     for (let i = startIdx + 1; i < fromIdx; i++) {
       const row = rows[i];
       if (row.rowType === "row" || !row.rowType) {
-        const totalCol = docData?.table.columns.find(
-          (c) => c.type === "formula" || c.id === "E",
-        );
+        const totalCol = findTotalColumn();
         const val =
           totalCol?.type === "formula"
             ? resolveFormula(row, totalCol.formula)
@@ -733,19 +746,32 @@ const Editor: React.FC = () => {
   const calculateSubTotal = () => {
     if (!docData) return 0;
     let total = 0;
-    let inStageSub = false;
+    const rows = docData.table.rows || [];
     
-    (docData.table.rows || []).forEach((row, idx) => {
-      if (row.rowType === "stage-header") {
-        inStageSub = true;
+    // Check which stages have totals defined later in the document
+    const stageHasTotal = new Set<number>(); // Store index of stage headers that are "closed"
+    let currentStageIdx = -1;
+    
+    rows.forEach((row, idx) => {
+      if (row.rowType === "stage-header" || row.rowType === "section-header") {
+        currentStageIdx = idx;
       } else if (row.rowType === "section-total") {
-        total += resolveStageTotal(docData.table.rows, idx);
-        inStageSub = false;
+        if (currentStageIdx !== -1) stageHasTotal.add(currentStageIdx);
+        currentStageIdx = -1;
+      }
+    });
+
+    let activeStageIdx = -1;
+    rows.forEach((row, idx) => {
+      if (row.rowType === "stage-header" || row.rowType === "section-header") {
+        activeStageIdx = idx;
+      } else if (row.rowType === "section-total") {
+        total += resolveStageTotal(rows, idx);
+        activeStageIdx = -1;
       } else if (row.rowType === "row" || !row.rowType) {
-        if (!inStageSub || !hasStageTotals) {
-          const totalCol = docData.table.columns.find(
-            (c) => c.type === "formula" || c.id === "E",
-          );
+        // Only sum rows that are NOT in a closed stage (because those are summed by section-total)
+        if (activeStageIdx === -1 || !stageHasTotal.has(activeStageIdx)) {
+          const totalCol = findTotalColumn();
           const val =
             totalCol?.type === "formula"
               ? resolveFormula(row, totalCol.formula)

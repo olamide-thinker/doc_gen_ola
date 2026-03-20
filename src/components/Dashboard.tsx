@@ -17,10 +17,12 @@ import {
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api, type Folder as FolderType, type Document as DocumentType } from "../lib/api";
-import { TEMPLATES, type TemplateDefinition } from "../lib/templates";
+import { type TemplateDefinition } from "../lib/templates";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { EditTemplateModal } from "./EditTemplateModal";
+import { Pin, PinOff } from "lucide-react";
 import {
   DndContext, 
   closestCenter,
@@ -47,6 +49,7 @@ const Dashboard: React.FC = () => {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<TemplateDefinition | null>(null);
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -71,6 +74,12 @@ const Dashboard: React.FC = () => {
   const { data: docItems = [], isLoading: isLoadingDocs } = useQuery({
     queryKey: ["documents", currentFolderId],
     queryFn: () => api.getDocuments(currentFolderId),
+  });
+
+  const { data: templates = [], isLoading: isLoadingTemplates } = useQuery({
+    queryKey: ["templates"],
+    queryFn: () => api.getTemplates(),
+    enabled: !currentFolderId
   });
 
   const items = [
@@ -165,6 +174,24 @@ const Dashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
       queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
     },
+  });
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: (template: TemplateDefinition) => api.saveTemplate(template),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
+      setEditingTemplate(null);
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (id: string) => api.deleteTemplate(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["templates"] }),
+  });
+
+  const pinTemplateMutation = useMutation({
+    mutationFn: (id: string) => api.togglePinTemplate(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["templates"] }),
   });
 
   // --- Handlers ---
@@ -281,6 +308,38 @@ const Dashboard: React.FC = () => {
 
         {/* Browser Area */}
         <section className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin">
+
+          {!currentFolderId && (
+            <div className="mb-12">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex flex-col gap-0.5">
+                  <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">Start with a Template</h2>
+                  <p className="text-[10px] text-muted-foreground font-medium">Choose a preset structure for your invoice</p>
+                </div>
+              </div>
+              <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-thin">
+                {isLoadingTemplates ? (
+                  <div className="flex gap-4">
+                    {[1, 2, 3, 4].map(i => (
+                      <TemplateSkeleton key={i} />
+                    ))}
+                  </div>
+                ) : (
+                  templates.map((template: TemplateDefinition) => (
+                    <TemplateCard 
+                      key={template.id} 
+                      template={template} 
+                      onClick={() => handleCreateDocument(template)}
+                      onEdit={() => setEditingTemplate(template)}
+                      onDelete={() => deleteTemplateMutation.mutate(template.id)}
+                      onPin={() => pinTemplateMutation.mutate(template.id)}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-8">
             <div className="flex flex-col gap-0.5">
                <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">{currentFolderId ? "Folder Explorer" : "All Documents"}</h2>
@@ -292,39 +351,11 @@ const Dashboard: React.FC = () => {
             >+ NEW FOLDER</button>
           </div>
 
-          {!currentFolderId && (
-            <div className="mb-12">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex flex-col gap-0.5">
-                  <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">Start with a Template</h2>
-                  <p className="text-[10px] text-muted-foreground font-medium">Choose a preset structure for your invoice</p>
-                </div>
-              </div>
-              <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-thin">
-                {TEMPLATES.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => handleCreateDocument(template)}
-                    className="flex-shrink-0 w-48 group text-left"
-                  >
-                    <div className="aspect-[3/4] rounded-lg border border-border bg-white p-5 shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md flex flex-col justify-between overflow-hidden">
-                      <div className="p-2.5 bg-primary/5 rounded-md w-fit text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:scale-110">
-                        <FileText size={20} />
-                      </div>
-                      <div className="space-y-1.5">
-                        <h3 className="text-[11px] font-bold text-slate-800 line-clamp-1">{template.name}</h3>
-                        <p className="text-[9px] text-muted-foreground leading-relaxed line-clamp-2 opacity-80">{template.description}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className={cn("gap-6", viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "flex flex-col gap-2")}>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+                <ItemSkeleton key={i} mode={viewMode} />
+              ))}
             </div>
           ) : (
             <DndContext 
@@ -362,6 +393,15 @@ const Dashboard: React.FC = () => {
           )}
         </section>
       </main>
+
+      {/* Edit Template Modal */}
+      {editingTemplate && (
+        <EditTemplateModal 
+          template={editingTemplate}
+          onClose={() => setEditingTemplate(null)}
+          onSave={(updated) => saveTemplateMutation.mutate(updated)}
+        />
+      )}
     </div>
   );
 };
@@ -478,5 +518,139 @@ const MenuContent = ({ onRename, onDuplicate, onDelete }: any) => (
     <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold text-destructive hover:bg-destructive/5 rounded transition-all"><Trash size={14} /> Delete</button>
   </div>
 );
+
+const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="flex-shrink-0 w-48 group text-left relative" ref={menuRef}>
+      <button
+        onClick={onClick}
+        className="w-full aspect-[3/4] rounded-lg border border-border bg-white p-5 shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md flex flex-col justify-between overflow-hidden relative"
+      >
+        <div className="p-2.5 bg-primary/5 rounded-md w-fit text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:scale-110">
+          <FileText size={20} />
+        </div>
+        <div className="space-y-1.5">
+          <h3 className="text-[11px] font-bold text-slate-800 line-clamp-1 flex items-center gap-1.5">
+            {template.name}
+            {template.isPinned && <Pin size={10} className="text-primary fill-primary" />}
+          </h3>
+          <p className="text-[9px] text-muted-foreground leading-relaxed line-clamp-2 opacity-80">{template.description}</p>
+        </div>
+      </button>
+
+      {/* More Button */}
+      <button 
+        onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+        className="absolute top-3 right-3 p-1.5 bg-white shadow-sm border border-border rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-50"
+      >
+        <MoreHorizontal size={14} />
+      </button>
+
+      {/* Dropdown Menu */}
+      {showMenu && (
+        <div className="absolute right-0 top-12 w-40 bg-white border border-border shadow-xl rounded-xl p-1 z-[60] origin-top-right animate-in fade-in zoom-in duration-150">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onEdit(); setShowMenu(false); }}
+            className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50 rounded-lg transition-all"
+          >
+            <Edit size={12} /> Edit Data
+          </button>
+          <button 
+            onClick={(e) => { e.stopPropagation(); onPin(); setShowMenu(false); }}
+            className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50 rounded-lg transition-all"
+          >
+            {template.isPinned ? <PinOff size={12} /> : <Pin size={12} />} 
+            {template.isPinned ? 'Unpin' : 'Pin Template'}
+          </button>
+          <div className="my-1 border-t border-slate-100 mx-1" />
+          <button 
+            onClick={(e) => { e.stopPropagation(); if (confirm('Delete this template?')) onDelete(); setShowMenu(false); }}
+            className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-red-500 hover:bg-red-50 rounded-lg transition-all"
+          >
+            <Trash size={12} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TemplateSkeleton = () => (
+  <div className="flex-shrink-0 w-48 aspect-[3/4] rounded-lg border border-border bg-white p-5 flex flex-col justify-between overflow-hidden animate-pulse">
+    <div className="p-2.5 bg-muted/40 rounded-md w-10 h-10" />
+    <div className="space-y-3">
+      <div className="h-3 bg-muted/40 rounded-full w-3/4" />
+      <div className="space-y-1.5">
+        <div className="h-2 bg-muted/20 rounded-full w-full" />
+        <div className="h-2 bg-muted/20 rounded-full w-2/3" />
+      </div>
+    </div>
+  </div>
+);
+
+const ItemSkeleton = ({ mode }: { mode: "grid" | "list" }) => {
+  if (mode === "list") {
+    return (
+      <div className="flex items-center justify-between p-3 bg-white border border-border rounded-lg animate-pulse">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-muted/40 rounded-md" />
+          <div className="flex flex-col gap-1.5">
+            <div className="w-32 h-2.5 bg-muted/40 rounded-full" />
+            <div className="w-20 h-2 bg-muted/20 rounded-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 group animate-pulse">
+      <div className="aspect-[3/4] rounded-lg border border-border bg-white p-4 flex flex-col gap-3 overflow-hidden shadow-sm">
+        <div className="flex justify-center mb-2">
+          <div className="w-12 h-4 bg-muted/40 rounded-sm" />
+        </div>
+        <div className="flex justify-between mb-4">
+          <div className="space-y-1.5">
+            <div className="w-16 h-1.5 bg-muted/40 rounded-full" />
+            <div className="w-20 h-1 bg-muted/20 rounded-full" />
+            <div className="w-12 h-1 bg-muted/20 rounded-full" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="w-16 h-1.5 bg-muted/40 rounded-full" />
+            <div className="w-10 h-1 bg-muted/20 rounded-full" />
+          </div>
+        </div>
+        <div className="self-center w-3/4 h-2 bg-muted/40 rounded-full mb-4" />
+        <div className="border border-muted/20 rounded-sm overflow-hidden flex-1">
+          <div className="bg-muted/10 h-3 w-full" />
+          <div className="p-2 space-y-1.5">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="flex justify-between gap-2">
+                <div className="w-4 h-1 bg-muted/40 rounded-full" />
+                <div className="flex-1 h-1 bg-muted/20 rounded-full" />
+                <div className="w-6 h-1 bg-muted/40 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="px-1 space-y-1.5">
+        <div className="h-2.5 bg-muted/40 rounded-full w-2/3" />
+        <div className="h-2 bg-muted/20 rounded-full w-1/4" />
+      </div>
+    </div>
+  );
+};
 
 export default Dashboard;

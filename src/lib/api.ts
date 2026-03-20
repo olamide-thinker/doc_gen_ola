@@ -1,4 +1,5 @@
 import { DocData } from "../types";
+import { TEMPLATES, TemplateDefinition } from "./templates";
 
 export interface Folder {
   id: string;
@@ -43,6 +44,7 @@ const saveToStorage = <T>(key: string, data: T[]) => {
 const seedIfEmpty = () => {
   const folders = getFromStorage<Folder>("folders");
   const documents = getFromStorage<Document>("documents");
+  const templates = getFromStorage<TemplateDefinition>("templates");
   
   if (folders.length === 0 && documents.length === 0) {
     const welcomeDoc: Document = {
@@ -70,6 +72,10 @@ const seedIfEmpty = () => {
       updatedAt: new Date().toISOString(),
     };
     saveToStorage("documents", [welcomeDoc]);
+  }
+
+  if (templates.length === 0) {
+    saveToStorage("templates", TEMPLATES);
   }
 };
 
@@ -193,5 +199,42 @@ export const api = {
     documents[index] = { ...documents[index], folderId: newFolderId, updatedAt: new Date().toISOString() };
     saveToStorage("documents", documents);
     return documents[index];
+  },
+
+  // --- Templates ---
+  getTemplates: async (): Promise<TemplateDefinition[]> => {
+    await delay(300);
+    const templates = getFromStorage<TemplateDefinition>("templates");
+    // Sort pinned templates to the front
+    return templates.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+  },
+
+  saveTemplate: async (template: TemplateDefinition): Promise<TemplateDefinition> => {
+    await delay(300);
+    const templates = getFromStorage<TemplateDefinition>("templates");
+    const index = templates.findIndex(t => t.id === template.id);
+    if (index === -1) {
+      templates.push(template);
+    } else {
+      templates[index] = template;
+    }
+    saveToStorage("templates", templates);
+    return template;
+  },
+
+  deleteTemplate: async (id: string): Promise<void> => {
+    await delay(300);
+    const templates = getFromStorage<TemplateDefinition>("templates").filter(t => t.id !== id);
+    saveToStorage("templates", templates);
+  },
+
+  togglePinTemplate: async (id: string): Promise<TemplateDefinition> => {
+    await delay(300);
+    const templates = getFromStorage<TemplateDefinition>("templates");
+    const index = templates.findIndex(t => t.id === id);
+    if (index === -1) throw new Error("Template not found");
+    templates[index] = { ...templates[index], isPinned: !templates[index].isPinned };
+    saveToStorage("templates", templates);
+    return templates[index];
   }
 };

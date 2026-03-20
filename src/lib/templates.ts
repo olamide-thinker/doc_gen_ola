@@ -5,6 +5,7 @@ export interface TemplateDefinition {
   name: string;
   description: string;
   content: Partial<DocData>;
+  isPinned?: boolean;
 }
 
 export const TEMPLATES: TemplateDefinition[] = [
@@ -19,7 +20,7 @@ export const TEMPLATES: TemplateDefinition[] = [
           { id: "A", label: "S/N", type: "index", width: "60px" },
           { id: "B", label: "Stage Description", type: "text" },
           { id: "C", label: "% Completion", type: "text", width: "120px" },
-          { id: "D", label: "Fee (₦)", type: "number", width: "160px" }
+          { id: "D", label: "Total (₦)", type: "number", width: "160px" }
         ],
         rows: [
           { id: "row-1", rowType: "stage-header", sectionTitle: "Concept Design" },
@@ -122,7 +123,7 @@ export const TEMPLATES: TemplateDefinition[] = [
         columns: [
           { id: "A", label: "S/N", type: "index", width: "60px" },
           { id: "B", label: "Description", type: "text" },
-          { id: "C", label: "Amount (₦)", type: "number", width: "160px" }
+          { id: "C", label: "Total (₦)", type: "number", width: "160px" }
         ],
         rows: [
           { id: "row-1", B: "70% Mobilization for Project Start", C: 1500000 }
@@ -144,7 +145,7 @@ export const TEMPLATES: TemplateDefinition[] = [
           { id: "A", label: "S/N", type: "index", width: "60px" },
           { id: "B", label: "Description", type: "text" },
           { id: "C", label: "Completion %", type: "text", width: "120px" },
-          { id: "D", label: "Amount Due (₦)", type: "number", width: "160px" }
+          { id: "D", label: "Total (₦)", type: "number", width: "160px" }
         ],
         rows: [
           { id: "row-1", B: "Second Tranche (Tiling & Electrical)", C: "65%", D: 850000 }
@@ -192,7 +193,7 @@ export const TEMPLATES: TemplateDefinition[] = [
         columns: [
           { id: "A", label: "S/N", type: "index", width: "60px" },
           { id: "B", label: "Project Summary", type: "text" },
-          { id: "C", label: "Total Cost (₦)", type: "number", width: "160px" }
+          { id: "C", label: "Total (₦)", type: "number", width: "160px" }
         ],
         rows: [
           { id: "row-1", B: "Total Project Execution Cost", C: 4500000 }
@@ -251,3 +252,10 @@ export const TEMPLATES: TemplateDefinition[] = [
     }
   }
 ];
+
+/**
+ * MANDATORY RULE: Every template MUST have a final "Total" column.
+ * This column is the single source of truth for row calculations.
+ * All intermediate math (e.g. Qty * Rate) must output to this column.
+ * For simple rows, this is a 'number' type; for complex ones, it's a 'formula'.
+ */
