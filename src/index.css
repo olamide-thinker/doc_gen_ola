@@ -26,6 +26,15 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.75rem;
+    /* Template Accents (Pastels) */
+    --t-blue: 214 95% 93%;
+    --t-green: 142 70% 92%;
+    --t-purple: 262 80% 93%;
+    --t-amber: 38 90% 92%;
+    --t-rose: 350 80% 93%;
+    --t-cyan: 187 75% 92%;
+    --t-indigo: 239 84% 94%;
+    --t-slate: 210 40% 94%;
   }
 
   .dark {
@@ -48,6 +57,15 @@
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 48%;
+    /* Template Accents (Muted Dark) */
+    --t-blue: 214 30% 14%;
+    --t-green: 142 30% 12%;
+    --t-purple: 262 30% 15%;
+    --t-amber: 38 30% 12%;
+    --t-rose: 350 30% 14%;
+    --t-cyan: 187 30% 13%;
+    --t-indigo: 239 30% 16%;
+    --t-slate: 210 20% 15%;
   }
 }
 

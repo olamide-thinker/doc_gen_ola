@@ -535,7 +535,18 @@ const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {
     <div className="flex-shrink-0 w-48 group text-left relative" ref={menuRef}>
       <button
         onClick={onClick}
-        className="w-full aspect-[3/4] rounded-lg border border-border bg-white p-5 shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md flex flex-col justify-between overflow-hidden relative"
+        className={cn(
+          "w-full aspect-[3/4] rounded-lg border border-border p-5 shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md flex flex-col justify-between overflow-hidden relative",
+          template.color === "blue" && "bg-t-blue",
+          template.color === "green" && "bg-t-green",
+          template.color === "purple" && "bg-t-purple",
+          template.color === "amber" && "bg-t-amber",
+          template.color === "rose" && "bg-t-rose",
+          template.color === "cyan" && "bg-t-cyan",
+          template.color === "indigo" && "bg-t-indigo",
+          template.color === "slate" && "bg-t-slate",
+          !template.color && "bg-white"
+        )}
       >
         <div className="p-2.5 bg-primary/5 rounded-md w-fit text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:scale-110">
           <FileText size={20} />
@@ -590,10 +601,10 @@ const TemplateSkeleton = () => (
   <div className="flex-shrink-0 w-48 aspect-[3/4] rounded-lg border border-border bg-white p-5 flex flex-col justify-between overflow-hidden animate-pulse">
     <div className="p-2.5 bg-muted/40 rounded-md w-10 h-10" />
     <div className="space-y-3">
-      <div className="h-3 bg-muted/40 rounded-full w-3/4" />
+      <div className="h-3 bg-muted/20 rounded-full w-3/4" />
       <div className="space-y-1.5">
-        <div className="h-2 bg-muted/20 rounded-full w-full" />
-        <div className="h-2 bg-muted/20 rounded-full w-2/3" />
+        <div className="h-2 bg-muted/10 rounded-full w-full" />
+        <div className="h-2 bg-muted/10 rounded-full w-2/3" />
       </div>
     </div>
   </div>

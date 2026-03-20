@@ -6,6 +6,7 @@ export interface TemplateDefinition {
   description: string;
   content: Partial<DocData>;
   isPinned?: boolean;
+  color?: "blue" | "green" | "purple" | "amber" | "rose" | "cyan" | "indigo" | "slate";
 }
 
 export const TEMPLATES: TemplateDefinition[] = [
@@ -13,6 +14,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "design-fee",
     name: "Design Fee",
     description: "Initial consultation and concept design stages",
+    color: "blue",
     content: {
       title: "Design Fee Invoice",
       table: {
@@ -39,6 +41,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "boq",
     name: "BOQ Invoice",
     description: "Bill of Quantities for site execution",
+    color: "green",
     content: {
       title: "Bill of Quantities (BOQ)",
       table: {
@@ -66,6 +69,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "procurement",
     name: "Procurement",
     description: "Material sourcing and logistics",
+    color: "amber",
     content: {
       title: "Procurement Invoice",
       table: {
@@ -92,6 +96,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "labour",
     name: "Labour",
     description: "Execution and artisanal work",
+    color: "purple",
     content: {
       title: "Labour / Execution Invoice",
       table: {
@@ -117,6 +122,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "mobilization",
     name: "Mobilization",
     description: "Upfront project funding",
+    color: "rose",
     content: {
       title: "Mobilization Invoice",
       table: {
@@ -138,6 +144,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "progress",
     name: "Progress",
     description: "Phased payments during work",
+    color: "cyan",
     content: {
       title: "Progress Invoice",
       table: {
@@ -162,6 +169,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "variation",
     name: "Variation",
     description: "Change orders and new additions",
+    color: "indigo",
     content: {
       title: "Variation / Change Order",
       table: {
@@ -187,6 +195,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "final",
     name: "Final",
     description: "Completion and handover",
+    color: "slate",
     content: {
       title: "Final Project Invoice",
       table: {
@@ -209,6 +218,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "retainer",
     name: "Retainer",
     description: "Maintenance and recurring services",
+    color: "blue",
     content: {
       title: "Retainer / Maintenance Invoice",
       table: {
@@ -233,6 +243,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     id: "reimbursement",
     name: "Reimbursement",
     description: "Expenses paid for client",
+    color: "green",
     content: {
       title: "Reimbursement Invoice",
       table: {

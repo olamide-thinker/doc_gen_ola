@@ -202,6 +202,26 @@ const Editor: React.FC = () => {
   const [future, setFuture] = useState<DocData[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [useStages, setUseStages] = useState(false);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const containerWidth = window.innerWidth - (showAdvanced ? 380 : 80); // Sidebar + Padding
+      const padding = window.innerWidth < 1024 ? 48 : 128;
+      const targetWidth = containerWidth - padding;
+      const a4WidthPx = 210 * 3.78; // A4 width in px
+      
+      if (targetWidth < a4WidthPx) {
+        setScale(targetWidth / a4WidthPx);
+      } else {
+        setScale(1);
+      }
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [showAdvanced, isPreview]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -821,11 +841,11 @@ const Editor: React.FC = () => {
   const calculateChunks = () => {
     const THEAD_HEIGHT = 42;
     const TOTAL_ROW_HEIGHT = 48;
-    const GRAND_TOTAL_HEIGHT = 70;
+    const GRAND_TOTAL_HEIGHT = 80; // More space for total
     const FOOTER_HEADER_HEIGHT = 40;
-    const ADD_ITEM_BUTTON_HEIGHT = 80; // Account for "Add New Line Item" button
-     const EMPHASIS_SECTION_HEIGHT =
-      (docData?.footer?.emphasis?.length || 0) * 32 + 40;
+    const ADD_ITEM_BUTTON_HEIGHT = 100; // More buffer for button
+    const EMPHASIS_SECTION_HEIGHT =
+      (docData?.footer?.emphasis?.length || 0) * 35 + 50; // Increased spacing
     const estimateNotesHeight = (html: string) => {
       if (!html) return 0;
       const text = html.replace(/<[^>]*>/g, "");
@@ -1426,10 +1446,10 @@ const Editor: React.FC = () => {
           className={`preview-container ${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin print:bg-white print:p-0 print:overflow-visible`}
         >
           {isPreview && (
-            <div className="fixed z-50 flex gap-2 top-6 right-6 no-print">
+            <div className="fixed z-[100] flex gap-2 top-6 right-6 no-print">
               <button
                 onClick={() => setIsPreview(false)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase"
+                className="px-4 py-2 bg-slate-900 text-white rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase border border-slate-700/50"
               >
                 <ArrowLeft size={16} /> Edit Mode
               </button>
@@ -1441,6 +1461,15 @@ const Editor: React.FC = () => {
               </button>
             </div>
           )}
+          
+          <div 
+            className="flex flex-col items-center origin-top transition-transform duration-300"
+            style={{ 
+              transform: `scale(${scale})`, 
+              width: `${210 * 3.78}px`,
+              marginBottom: `-${(1 - scale) * 100}%` 
+            }}
+          >
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -1512,6 +1541,7 @@ const Editor: React.FC = () => {
               ))}
             </SortableContext>
           </DndContext>
+          </div>
         </div>
       </div>
 
@@ -1547,9 +1577,7 @@ const Editor: React.FC = () => {
           .app-root, .app-main, .preview-container { 
             height: auto !important; 
             overflow: visible !important; 
-            display: grid !important;
-            place-items: center !important;
-            grid-template-columns: 100% !important;
+            display: block !important;
             position: static !important;
             background: white !important;
             padding: 0 !important;
@@ -1565,9 +1593,11 @@ const Editor: React.FC = () => {
             break-inside: avoid !important;
             display: block !important;
             width: 210mm !important;
-            height: 296mm !important; /* Slightly more under 297mm for extra safety */
+            height: 297mm !important;
             position: relative !important;
             background: white !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .a4-page:last-child {
             break-after: avoid !important;
@@ -2166,76 +2196,87 @@ const A4Page: React.FC<A4PageProps> = ({
 
   return (
     <div
-      className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative overflow-visible shrink-0"
+      className={cn(
+        "a4-page bg-white text-[#212121] shadow-[0_0_20px_rgba(0,0,0,0.1)] mb-12 relative shrink-0 transition-shadow hover:shadow-[0_0_30px_rgba(0,0,0,0.15)]",
+        "print:mb-0 print:shadow-none print:break-after-page",
+      )}
       style={{
         width: "210mm",
         height: "297mm",
         maxHeight: "297mm",
-        padding: "14mm 8mm 20mm 8mm",
         backgroundColor: "#FFFFFF",
+        padding: 0, // No padding on the page itself to allow edge-to-edge content
       }}
     >
-      {isFirstPage && (
-        <div
-          className="flex items-center justify-center overflow-hidden border-b border-slate-100"
-          style={{
-            margin: "-15mm -20mm 10mm -20mm",
-            width: "calc(100% + 40mm)",
-            height: `${headerHeight}px`,
-            position: "relative",
-          }}
-        >
-          <img
-            src={headerImage}
-            alt="Logo"
-            className="object-contain object-center w-full h-full"
-          />
+      {/* Page Content Clipping Wrapper */}
+      <div className="absolute inset-0 overflow-hidden print:overflow-hidden bg-white">
+        {/* Absolute elements relative to full page */}
+        {isFirstPage && data.invoiceCode && (
           <div
-            className="absolute bottom-0 left-0 right-0 z-10 h-2 bg-transparent cursor-ns-resize no-print"
-            onMouseDown={onHeaderResize}
-          />
-        </div>
-      )}
-
-      {/* Draggable Invoice Code */}
-      {isFirstPage && data.invoiceCode && (
-        <div
-          className={cn(
-            "absolute select-none z-30 group",
-            !isPreview ? "cursor-move" : "",
-          )}
-          style={{
-            left: `${data.invoiceCode.x}px`,
-            top: `${data.invoiceCode.y}px`,
-            color: data.invoiceCode.color,
-          }}
-          onMouseDown={(e) => {
-            if (isPreview) return;
-            e.preventDefault();
-            const startX = e.clientX - data.invoiceCode!.x;
-            const startY = e.clientY - data.invoiceCode!.y;
-            const handleMouseMove = (em: MouseEvent) => {
-              onUpdateInvoiceCode({
-                x: em.clientX - startX,
-                y: em.clientY - startY,
-              });
-            };
-            const handleMouseUp = () => {
-              document.removeEventListener("mousemove", handleMouseMove);
-              document.removeEventListener("mouseup", handleMouseUp);
-            };
-            document.addEventListener("mousemove", handleMouseMove);
-            document.addEventListener("mouseup", handleMouseUp);
-          }}
-        >
-          <div className="font-lexend font-bold text-[16px] whitespace-nowrap">
-            {data.invoiceCode.text}
+            className={cn(
+              "absolute select-none z-3 group",
+              !isPreview ? "cursor-move" : "",
+            )}
+            style={{
+              left: `${data.invoiceCode.x}px`,
+              top: `${data.invoiceCode.y}px`,
+              color: data.invoiceCode.color,
+            }}
+            onMouseDown={(e) => {
+              if (isPreview) return;
+              e.preventDefault();
+              const startX = e.clientX - data.invoiceCode!.x;
+              const startY = e.clientY - data.invoiceCode!.y;
+              const handleMouseMove = (em: MouseEvent) => {
+                onUpdateInvoiceCode({
+                  x: em.clientX - startX,
+                  y: em.clientY - startY,
+                });
+              };
+              const handleMouseUp = () => {
+                document.removeEventListener("mousemove", handleMouseMove);
+                document.removeEventListener("mouseup", handleMouseUp);
+              };
+              document.addEventListener("mousemove", handleMouseMove);
+              document.addEventListener("mouseup", handleMouseUp);
+            }}
+          >
+            <div className="font-lexend font-bold text-[16px] whitespace-nowrap">
+              {data.invoiceCode.text}
+            </div>
+            {!isPreview && (
+              <div className="absolute transition-opacity border-2 border-dashed rounded opacity-0 pointer-events-none -inset-2 border-primary/20 group-hover:opacity-100" />
+            )}
           </div>
-          {!isPreview && (
-            <div className="absolute transition-opacity border-2 border-dashed rounded opacity-0 pointer-events-none -inset-2 border-primary/20 group-hover:opacity-100" />
+        )}
+
+        <div className="flex flex-col h-full relative">
+          {isFirstPage && (
+            <div
+              className="flex-shrink-0 flex items-center justify-center overflow-hidden border-b border-slate-100"
+              style={{
+                width: "210mm",
+                height: `${headerHeight}px`,
+                position: "relative",
+              }}
+            >
+              <img
+                src={headerImage}
+                alt="Logo"
+                className="w-full h-full object-cover shadow-sm bg-slate-50"
+              />
+              <div
+                className="absolute bottom-0 left-0 right-0 z-10 h-3 bg-primary/0 hover:bg-primary/20 cursor-ns-resize no-print transition-colors"
+                onMouseDown={onHeaderResize}
+              />
+            </div>
           )}
-        </div>
-      )}
+
+          {/* Internal Content with Padding */}
+          <div 
+            className="flex-1 overflow-visible"
+            style={{ padding: isFirstPage ? "10mm 12mm 24mm 12mm" : "20mm 12mm 24mm 12mm" }}
+          >
 
       {isFirstPage && (
         <>
@@ -2435,13 +2476,16 @@ const A4Page: React.FC<A4PageProps> = ({
         </>
       )}
 
-      <div className="absolute left-0 w-full px-16 text-center bottom-10">
-        <div className="border-t border-slate-100 pt-6 flex justify-between items-center text-[11px] text-slate-300 uppercase font-bold tracking-widest opacity-60 font-lexend">
-          <span>Maintenance Proposal 2026</span>
-          <span>Page {pageIndex + 1}</span>
-          <span>Quality Works Guaranteed</span>
         </div>
       </div>
+    </div>
+
+      {/* Visual Page Number in Editor (Outside Clip) */}
+      {!isPreview && (
+        <div className="absolute -left-16 top-0 h-8 w-12 flex items-center justify-center bg-slate-100 text-[10px] font-black text-slate-400 rounded-l-md border-y border-l border-slate-200 no-print shadow-sm">
+          #{pageIndex + 1}
+        </div>
+      )}
     </div>
   );
 };
