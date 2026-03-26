@@ -57,6 +57,10 @@ export interface DocData {
   };
   footer: Footer;
   invoiceCode?: InvoiceCode;
+  isReceipt?: boolean;
+  paymentMethod?: string;
+  signature?: string;
+  receiptMessage?: string;
 }
 
 export interface TotalPrice {

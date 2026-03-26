@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Printer,
@@ -99,6 +99,9 @@ interface A4PageProps {
   rowNumbering: Record<string, string>;
   resolveSectionTotal: (rows: TableRow[], fromIdx: number) => number;
   resolveStageTotal: (rows: TableRow[], fromIdx: number) => number;
+  onUpdatePaymentMethod: (val: string) => void;
+  onUpdateSignature: (val: string) => void;
+  onUpdateReceiptMessage: (val: string) => void;
 }
 
 const SortableSummaryItem = ({
@@ -202,26 +205,6 @@ const Editor: React.FC = () => {
   const [future, setFuture] = useState<DocData[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [useStages, setUseStages] = useState(false);
-  const [scale, setScale] = useState(1);
-
-  useEffect(() => {
-    const handleResize = () => {
-      const containerWidth = window.innerWidth - (showAdvanced ? 380 : 80); // Sidebar + Padding
-      const padding = window.innerWidth < 1024 ? 48 : 128;
-      const targetWidth = containerWidth - padding;
-      const a4WidthPx = 210 * 3.78; // A4 width in px
-      
-      if (targetWidth < a4WidthPx) {
-        setScale(targetWidth / a4WidthPx);
-      } else {
-        setScale(1);
-      }
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [showAdvanced, isPreview]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -240,13 +223,8 @@ const Editor: React.FC = () => {
   useEffect(() => {
     if (docMetadata) {
       if (!docData) {
-        const content = { ...docMetadata.content };
-        if (!content.contact) content.contact = { name: "", address1: "", address2: "" };
-        if (!content.footer) content.footer = { notes: "", emphasis: [] };
-        if (!content.table) content.table = { columns: [], rows: [], summary: [] };
-        
-        setDocData(content);
-        setJsonInput(JSON.stringify(content, null, 2));
+        setDocData(docMetadata.content);
+        setJsonInput(JSON.stringify(docMetadata.content, null, 2));
       }
     }
   }, [docMetadata]);
@@ -317,7 +295,7 @@ const Editor: React.FC = () => {
 
   const editor = useEditor({
     extensions: [StarterKit],
-    content: docData?.footer?.notes || "",
+    content: docData?.footer.notes || "",
     onUpdate: ({ editor }) => {
       setDocData((prev: DocData | null) =>
         prev
@@ -330,12 +308,12 @@ const Editor: React.FC = () => {
   useEffect(() => {
     if (
       editor &&
-      docData?.footer?.notes &&
+      docData?.footer.notes &&
       docData.footer.notes !== editor.getHTML()
     ) {
       editor.commands.setContent(docData.footer.notes);
     }
-  }, [docData?.footer?.notes, editor]);
+  }, [docData?.footer.notes, editor]);
 
   useEffect(() => {
     localStorage.setItem("headerImage", headerImage || "");
@@ -382,7 +360,7 @@ const Editor: React.FC = () => {
     if (!rawInput.trim() || !docData) return;
 
     const sections = rawInput.split(/\n\s*\n/);
-    let newContact = { ...(docData?.contact || { name: "", address1: "", address2: "" }) };
+    let newContact = { ...docData.contact };
     let newTitle = docData.title;
     let newRows: TableRow[] = [];
 
@@ -426,7 +404,7 @@ const Editor: React.FC = () => {
     if (
       newRows.length > 0 ||
       newTitle !== docData.title ||
-      JSON.stringify(newContact) !== JSON.stringify(docData?.contact || {})
+      JSON.stringify(newContact) !== JSON.stringify(docData.contact)
     ) {
       const updated = {
         ...docData,
@@ -652,158 +630,30 @@ const Editor: React.FC = () => {
       </div>
     );
 
-  // --- Helpers ---
-  const getRowNumbering = (rows: TableRow[]) => {
-    const numbering: Record<string, string> = {};
-    let globalIndex = 0;
-    let subIndex = 0;
-    let inStage = false;
-
-    rows.forEach((row) => {
-      const type = row.rowType || "row";
-      
-      if (type === "stage-header") {
-        globalIndex++;
-        subIndex = 0;
-        inStage = true;
-        numbering[row.id as string] = `${globalIndex}`;
-      } else if (type === "section-total") {
-        inStage = false;
-        numbering[row.id as string] = "";
-      } else if (type === "section-header") {
-        numbering[row.id as string] = "";
-      } else if (type === "row") {
-        if (inStage) {
-          subIndex++;
-          numbering[row.id as string] = `${globalIndex}.${subIndex}`;
-        } else {
-          globalIndex++;
-          numbering[row.id as string] = `${globalIndex}`;
-        }
-      } else {
-        numbering[row.id as string] = "";
-      }
-    });
-
-    return numbering;
-  };
-  
-  const findTotalColumn = () => {
-    if (!docData) return null;
-    // 1. First priority: Column with "Total" in the label (case insensitive)
-    const explicitTotal = docData.table.columns.find(
-      (c) => c.label.toLowerCase().includes("total") || c.label.toLowerCase().includes("fee")
-    );
-    if (explicitTotal) return explicitTotal;
-
-    // 2. Second priority: Formula column
-    const formulaCol = docData.table.columns.find((c) => c.type === "formula");
-    if (formulaCol) return formulaCol;
-
-    // 3. Last priority: Last numeric column
-    const numericCols = docData.table.columns.filter((c) => c.type === "number");
-    return numericCols.length > 0 ? numericCols[numericCols.length - 1] : null;
-  };
-
-  const resolveStageTotal = (rows: TableRow[], totalIdx: number) => {
-    if (!docData) return 0;
-    let total = 0;
-    // Find the previous stage header start
-    let startIdx = -1;
-    for (let i = totalIdx - 1; i >= 0; i--) {
-      if (rows[i].rowType === "stage-header") {
-        startIdx = i;
-        break;
-      }
-    }
-    // If no stage header found, we sum from the beginning (or from the previous stage end)
-    // but in refined BOQ, we usually sum from the stage header.
-    
-    // Sum rows between the stage header and this total row
-    for (let i = startIdx + 1; i < totalIdx; i++) {
-      const row = rows[i];
-      if (row.rowType === "row" || !row.rowType) {
-        const totalCol = findTotalColumn();
-        const val =
-          totalCol?.type === "formula"
-            ? resolveFormula(row, totalCol.formula)
-            : Number(row[totalCol?.id || ""]) || 0;
-        total += val;
-      }
-    }
-    return total;
-  };
-
-  const resolveSectionTotal = (rows: TableRow[], fromIdx: number) => {
-    let total = 0;
-    let startIdx = -1;
-    for (let i = fromIdx; i >= 0; i--) {
-      if (rows[i].rowType === "section-header") {
-        startIdx = i;
-        break;
-      }
-    }
-    if (startIdx === -1) return 0;
-
-    for (let i = startIdx + 1; i < fromIdx; i++) {
-      const row = rows[i];
-      if (row.rowType === "row" || !row.rowType) {
-        const totalCol = findTotalColumn();
-        const val =
-          totalCol?.type === "formula"
-            ? resolveFormula(row, totalCol.formula)
-            : Number(row[totalCol?.id || ""]) || 0;
-        total += val;
-      }
-    }
-    return total;
-  };
-
   const hasStageTotals = docData?.table.rows?.some(
     (r) => r.rowType === "section-total",
   ) || false;
 
-  const calculateSubTotal = () => {
-    if (!docData) return 0;
-    let total = 0;
-    const rows = docData.table.rows || [];
-    
-    // Check which stages have totals defined later in the document
-    const stageHasTotal = new Set<number>(); // Store index of stage headers that are "closed"
-    let currentStageIdx = -1;
-    
-    rows.forEach((row, idx) => {
-      if (row.rowType === "stage-header" || row.rowType === "section-header") {
-        currentStageIdx = idx;
-      } else if (row.rowType === "section-total") {
-        if (currentStageIdx !== -1) stageHasTotal.add(currentStageIdx);
-        currentStageIdx = -1;
-      }
-    });
-
-    let activeStageIdx = -1;
-    rows.forEach((row, idx) => {
-      if (row.rowType === "stage-header" || row.rowType === "section-header") {
-        activeStageIdx = idx;
-      } else if (row.rowType === "section-total") {
-        total += resolveStageTotal(rows, idx);
-        activeStageIdx = -1;
-      } else if (row.rowType === "row" || !row.rowType) {
-        // Only sum rows that are NOT in a closed stage (because those are summed by section-total)
-        if (activeStageIdx === -1 || !stageHasTotal.has(activeStageIdx)) {
-          const totalCol = findTotalColumn();
-          const val =
-            totalCol?.type === "formula"
-              ? resolveFormula(row, totalCol.formula)
-              : Number(row[totalCol?.id || ""]) || 0;
-          total += val;
+  const subTotal = hasStageTotals
+    ? (docData?.table.rows || []).reduce((acc: number, row: TableRow, idx: number) => {
+        if (row.rowType === "section-total") {
+          return acc + resolveStageTotal(docData?.table.rows || [], idx);
         }
-      }
-    });
-    return total;
-  };
-
-  const subTotal = calculateSubTotal();
+        return acc;
+      }, 0)
+    : (docData?.table.rows || []).reduce((acc: number, row: TableRow) => {
+        // Skip header/total rows if summing everything
+        if (row.rowType === "stage-header" || row.rowType === "section-header" || row.rowType === "section-total") return acc;
+        
+        const totalCol = docData.table.columns.find(
+          (c: any) => c.type === "formula" || c.id === "E",
+        );
+        const rowTotal =
+          totalCol?.type === "formula"
+            ? resolveFormula(row, totalCol.formula)
+            : Number(row[totalCol?.id || ""]) || 0;
+        return acc + rowTotal;
+      }, 0);
 
   const summaryResults: any[] = [];
   let currentRunningTotal = subTotal;
@@ -831,21 +681,133 @@ const Editor: React.FC = () => {
 
   const grandTotal = currentRunningTotal;
   const summaryForRender = summaryResults;
+
+  const getRowNumbering = (rows: TableRow[]) => {
+    const numbering: Record<string, string> = {};
+    let mainIndex = 0;
+    let currentSectionMain = 0;
+    let subIndex = 0;
+    let inNumberedSection = false;
+
+    // Stage-specific counters
+    let stageIndex = 0;
+    let rowInStageIndex = 0;
+    let inStage = false;
+
+    rows.forEach((row) => {
+      if (useStages) {
+        if (row.rowType === "stage-header") {
+          stageIndex++;
+          rowInStageIndex = 0;
+          inStage = true;
+          numbering[row.id] = `${stageIndex}`;
+        } else if (row.rowType === "row" || !row.rowType) {
+          if (inStage) {
+            rowInStageIndex++;
+            numbering[row.id] = `${stageIndex}.${rowInStageIndex}`;
+          } else {
+            mainIndex++;
+            numbering[row.id] = `${mainIndex}`;
+          }
+        } else {
+          // section-header (sub-group) or section-total
+          numbering[row.id] = "";
+        }
+      } else {
+        // Original numbering logic
+        if (row.rowType === "section-header") {
+          if (row.affectsNumbering) {
+            mainIndex++;
+            currentSectionMain = mainIndex;
+            subIndex = 0;
+            inNumberedSection = true;
+            numbering[row.id] = `${mainIndex}.0`;
+          } else {
+            inNumberedSection = false;
+            numbering[row.id] = "";
+          }
+        } else if (row.rowType === "section-total") {
+          inNumberedSection = false;
+          numbering[row.id] = "";
+        } else {
+          if (inNumberedSection) {
+            subIndex++;
+            numbering[row.id] = `${currentSectionMain}.${subIndex}`;
+          } else {
+            mainIndex++;
+            numbering[row.id] = `${mainIndex}.0`;
+          }
+        }
+      }
+    });
+    return numbering;
+  };
+
   const rowNumbering = docData ? getRowNumbering(docData.table.rows) : {};
+
+  // Resolve stage totals
+  const resolveStageTotal = (rows: TableRow[], stageIdx: number) => {
+    if (!docData) return 0;
+    let total = 0;
+    // Sum rows from the stage header until the next stage header or end of table
+    for (let i = stageIdx + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.rowType === "stage-header") break;
+      if (row.rowType === "row" || !row.rowType) {
+        const totalCol = docData.table.columns.find(
+          (c) => c.type === "formula" || c.id === "E",
+        );
+        const val =
+          totalCol?.type === "formula"
+            ? resolveFormula(row, totalCol.formula)
+            : Number(row[totalCol?.id || ""]) || 0;
+        total += val;
+      }
+    }
+    return total;
+  };
+
+  const resolveSectionTotal = (rows: TableRow[], fromIdx: number) => {
+    let total = 0;
+    // Find the current section header start
+    let startIdx = -1;
+    for (let i = fromIdx; i >= 0; i--) {
+      if (rows[i].rowType === "section-header") {
+        startIdx = i;
+        break;
+      }
+    }
+    if (startIdx === -1) return 0;
+
+    // Sum all rows until the next section total or end of section
+    for (let i = startIdx + 1; i < fromIdx; i++) {
+      const row = rows[i];
+      if (row.rowType === "row" || !row.rowType) {
+        const totalCol = docData?.table.columns.find(
+          (c) => c.type === "formula" || c.id === "E",
+        );
+        const val =
+          totalCol?.type === "formula"
+            ? resolveFormula(row, totalCol.formula)
+            : Number(row[totalCol?.id || ""]) || 0;
+        total += val;
+      }
+    }
+    return total;
+  };
 
   const MM_TO_PX = 3.78;
   const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
-  const PADDING_V_PX = (14 + 35) * MM_TO_PX; // 14mm top, 35mm bottom for better footer clearance
+  const PADDING_V_PX = (14 + 20) * MM_TO_PX; // 14mm top, 20mm bottom
   const USABLE_HEIGHT = PAGE_HEIGHT_PX - PADDING_V_PX;
 
   const calculateChunks = () => {
     const THEAD_HEIGHT = 42;
     const TOTAL_ROW_HEIGHT = 48;
-    const GRAND_TOTAL_HEIGHT = 80; // More space for total
+    const GRAND_TOTAL_HEIGHT = 70;
     const FOOTER_HEADER_HEIGHT = 40;
-    const ADD_ITEM_BUTTON_HEIGHT = 100; // More buffer for button
     const EMPHASIS_SECTION_HEIGHT =
-      (docData?.footer?.emphasis?.length || 0) * 35 + 50; // Increased spacing
+      (docData.footer.emphasis?.length || 0) * 32 + 40;
     const estimateNotesHeight = (html: string) => {
       if (!html) return 0;
       const text = html.replace(/<[^>]*>/g, "");
@@ -855,7 +817,7 @@ const Editor: React.FC = () => {
       return lineCount * 22 + paragraphs * 24 + 60;
     };
 
-    const NOTES_ESTIMATE = estimateNotesHeight(docData?.footer?.notes || "");
+    const NOTES_ESTIMATE = estimateNotesHeight(docData.footer.notes);
     const FOOTER_PADDING_TOP = 40;
 
     const estimateRowHeight = (row: TableRow) => {
@@ -866,7 +828,7 @@ const Editor: React.FC = () => {
 
     const allRows = docData.table.rows || [];
     const hasFooterContent = !!(
-      docData?.footer?.notes || docData?.footer?.emphasis?.length
+      docData.footer.notes || docData.footer.emphasis?.length
     );
     let currentRowsProcessed = 0;
     const pages: any[] = [];
@@ -905,11 +867,13 @@ const Editor: React.FC = () => {
         const totalsHeight =
           (docData.table.summary.length + 1) * TOTAL_ROW_HEIGHT +
           GRAND_TOTAL_HEIGHT +
-          ADD_ITEM_BUTTON_HEIGHT + // Always reserve space for the button if it's the end
           FOOTER_PADDING_TOP;
-        const footerHeight =
-          (docData?.footer?.notes ? NOTES_ESTIMATE : 0) +
-          (docData?.footer?.emphasis?.length ? EMPHASIS_SECTION_HEIGHT : 0);
+        
+        const RECEIPT_FOOTER_HEIGHT = 180; // Estimated height for receipt signature/payment section
+        const footerHeight = docData.isReceipt 
+          ? RECEIPT_FOOTER_HEIGHT 
+          : (docData.footer.notes ? NOTES_ESTIMATE : 0) +
+            (docData.footer.emphasis?.length ? EMPHASIS_SECTION_HEIGHT : 0);
 
         if (h + totalsHeight <= USABLE_HEIGHT) {
           showTotals = true;
@@ -986,7 +950,7 @@ const Editor: React.FC = () => {
 
   const onUpdateContact = (field: keyof Contact, value: string) =>
     updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, contact: { ...(prev.contact || { name: "", address1: "", address2: "" }), [field]: value } } : null,
+      prev ? { ...prev, contact: { ...prev.contact, [field]: value } } : null,
     );
 
   const onUpdateTitle = (value: string) =>
@@ -1017,6 +981,21 @@ const Editor: React.FC = () => {
 
   const onUpdateDate = (v: string) =>
     updateDocData((prev: DocData | null) => (prev ? { ...prev, date: v } : null));
+
+  const onUpdatePaymentMethod = (v: string) =>
+    updateDocData((prev: DocData | null) =>
+      prev ? { ...prev, paymentMethod: v } : null,
+    );
+
+  const onUpdateSignature = (v: string) =>
+    updateDocData((prev: DocData | null) =>
+      prev ? { ...prev, signature: v } : null,
+    );
+
+  const onUpdateReceiptMessage = (v: string) =>
+    updateDocData((prev: DocData | null) =>
+      prev ? { ...prev, receiptMessage: v } : null,
+    );
 
   const pages = calculateChunks();
 
@@ -1227,7 +1206,7 @@ const Editor: React.FC = () => {
                 </label>
                 <div className="p-3 border border-slate-200/60 rounded-xl">
                   <div className="flex flex-col gap-3">
-                    {(docData?.footer?.emphasis || []).map((item, idx) => (
+                    {(docData.footer.emphasis || []).map((item, idx) => (
                       <div
                         key={idx}
                         className="flex items-center gap-2 p-2 border bg-slate-50 rounded-xl border-slate-200/60"
@@ -1446,10 +1425,10 @@ const Editor: React.FC = () => {
           className={`preview-container ${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin print:bg-white print:p-0 print:overflow-visible`}
         >
           {isPreview && (
-            <div className="fixed z-[100] flex gap-2 top-6 right-6 no-print">
+            <div className="fixed z-50 flex gap-2 top-6 right-6 no-print">
               <button
                 onClick={() => setIsPreview(false)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase border border-slate-700/50"
+                className="px-4 py-2 bg-slate-900 text-white rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase"
               >
                 <ArrowLeft size={16} /> Edit Mode
               </button>
@@ -1461,87 +1440,75 @@ const Editor: React.FC = () => {
               </button>
             </div>
           )}
-          
-          <div 
-            className="flex flex-col items-center origin-top transition-transform duration-300"
-            style={{ 
-              transform: `scale(${scale})`, 
-              width: `${210 * 3.78}px`,
-              marginBottom: `-${(1 - scale) * 100}%` 
-            }}
-          >
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <SortableContext
-              items={docData.table.rows.map((r) => r.id as string)}
-              strategy={verticalListSortingStrategy}
-            >
-              {pages.map((page, pageIndex) => (
-                <A4Page
-                  key={pageIndex}
-                  data={docData}
-                  rows={page.rows}
-                  pageIndex={pageIndex}
-                  totalPrice={
-                    page.showTotals
-                      ? { subTotal, summaries: summaryForRender, grandTotal }
-                      : null
-                  }
-                  headerImage={headerImage}
-                  headerHeight={headerHeight}
-                  onHeaderResize={handleHeaderResize}
-                  isFirstPage={pageIndex === 0}
-                  isLastPage={pageIndex === pages.length - 1}
-                  startIndex={page.startIndex}
-                  isEndOfRows={page.isEndOfRows}
-                  showRows={page.showRows}
-                  showTotals={page.showTotals}
-                  showFooter={page.showFooter}
-                  rowNumbering={rowNumbering}
-                  onUpdateContact={onUpdateContact}
-                  onUpdateTitle={onUpdateTitle}
-                  onUpdateCell={onUpdateCell}
-                  onRemoveRow={onRemoveRow}
-                  onAddRowBelow={onAddRowBelow}
-                  onAddRowAbove={onAddRowAbove}
-                  onAddSectionBelow={onAddSectionBelow}
-                  onAddSectionAbove={onAddSectionAbove}
-                  onAddStageBelow={onAddStageBelow}
-                  onAddStageAbove={onAddStageAbove}
-                  onMoveRow={onMoveRow}
-                  useStages={useStages}
-                  resolveFormula={resolveFormula}
-                  resolveSectionTotal={resolveSectionTotal}
-                  resolveStageTotal={resolveStageTotal}
-                  onUpdateInvoiceCode={(updates) =>
-                    updateDocData((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            invoiceCode: {
-                              ...(prev.invoiceCode || {
-                                text: "",
-                                x: 0,
-                                y: 0,
-                                color: "",
-                              }),
-                              ...updates,
-                            },
-                          }
-                        : null,
-                    )
-                  }
-                  onUpdateSummaryItem={onUpdateSummaryItem}
-                  onUpdateDate={onUpdateDate}
-                  isPreview={isPreview}
-                />
-              ))}
-            </SortableContext>
+            {pages.map((page, pageIndex) => (
+              <A4Page
+                key={pageIndex}
+                data={docData}
+                rows={page.rows}
+                pageIndex={pageIndex}
+                totalPrice={
+                  page.showTotals
+                    ? { subTotal, summaries: summaryForRender, grandTotal }
+                    : null
+                }
+                headerImage={headerImage}
+                headerHeight={headerHeight}
+                onHeaderResize={handleHeaderResize}
+                isFirstPage={pageIndex === 0}
+                isLastPage={pageIndex === pages.length - 1}
+                startIndex={page.startIndex}
+                isEndOfRows={page.isEndOfRows}
+                showRows={page.showRows}
+                showTotals={page.showTotals}
+                showFooter={page.showFooter}
+                rowNumbering={rowNumbering}
+                onUpdateContact={onUpdateContact}
+                onUpdateTitle={onUpdateTitle}
+                onUpdateCell={onUpdateCell}
+                onRemoveRow={onRemoveRow}
+                onAddRowBelow={onAddRowBelow}
+                onAddRowAbove={onAddRowAbove}
+                onAddSectionBelow={onAddSectionBelow}
+                onAddSectionAbove={onAddSectionAbove}
+                onAddStageBelow={onAddStageBelow}
+                onAddStageAbove={onAddStageAbove}
+                onMoveRow={onMoveRow}
+                onUpdatePaymentMethod={onUpdatePaymentMethod}
+                onUpdateSignature={onUpdateSignature}
+                useStages={useStages}
+                resolveFormula={resolveFormula}
+                resolveSectionTotal={resolveSectionTotal}
+                resolveStageTotal={resolveStageTotal}
+                onUpdateInvoiceCode={(updates) =>
+                  updateDocData((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          invoiceCode: {
+                            ...(prev.invoiceCode || {
+                              text: "",
+                              x: 0,
+                              y: 0,
+                              color: "",
+                            }),
+                            ...updates,
+                          },
+                        }
+                      : null,
+                  )
+                }
+                onUpdateSummaryItem={onUpdateSummaryItem}
+                onUpdateDate={onUpdateDate}
+                onUpdateReceiptMessage={onUpdateReceiptMessage}
+                isPreview={isPreview}
+              />
+            ))}
           </DndContext>
-          </div>
         </div>
       </div>
 
@@ -1577,7 +1544,9 @@ const Editor: React.FC = () => {
           .app-root, .app-main, .preview-container { 
             height: auto !important; 
             overflow: visible !important; 
-            display: block !important;
+            display: grid !important;
+            place-items: center !important;
+            grid-template-columns: 100% !important;
             position: static !important;
             background: white !important;
             padding: 0 !important;
@@ -1593,11 +1562,9 @@ const Editor: React.FC = () => {
             break-inside: avoid !important;
             display: block !important;
             width: 210mm !important;
-            height: 297mm !important;
+            height: 296mm !important; /* Slightly more under 297mm for extra safety */
             position: relative !important;
             background: white !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
           }
           .a4-page:last-child {
             break-after: avoid !important;
@@ -1620,6 +1587,15 @@ const Editable: React.FC<EditableProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentValue, setCurrentValue] = useState(value);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (isEditing && multiline && textareaRef.current) {
+      const textarea = textareaRef.current;
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [isEditing, currentValue, multiline]);
 
   const handleBlur = () => {
     setIsEditing(false);
@@ -1635,13 +1611,14 @@ const Editable: React.FC<EditableProps> = ({
   };
 
   if (isEditing) {
-    const commonClasses = `w-full h-full box-border bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-1 overflow-hidden ${className}`;
+    const commonClasses = `w-full box-border bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-1 ${className}`;
     return (
-      <div className="absolute inset-0 z-10 overflow-hidden">
+      <div className={cn(multiline ? "relative w-full" : "absolute inset-0 z-10 overflow-hidden")}>
         {multiline ? (
           <textarea
+            ref={textareaRef}
             autoFocus
-            className={cn(commonClasses, "resize-none")}
+            className={cn(commonClasses, "resize-none overflow-hidden block")}
             value={currentValue as string}
             onChange={(e) => setCurrentValue(e.target.value)}
             onBlur={handleBlur}
@@ -1693,7 +1670,9 @@ const Editable: React.FC<EditableProps> = ({
         className,
       )}
     >
-      <span className="block w-full ">{displayValue}</span>
+      <span className={cn("block w-full", multiline && "whitespace-pre-wrap text-center")}>
+        {displayValue}
+      </span>
     </div>
   );
 };
@@ -1737,8 +1716,6 @@ interface SortableRowProps {
 }
 
 const RowActionsMenu: React.FC<{
-  isOpen: boolean;
-  setIsOpen: (open: boolean) => void;
   onRemove: () => void;
   onAddRowBelow: () => void;
   onAddStageBelow: () => void;
@@ -1746,8 +1723,6 @@ const RowActionsMenu: React.FC<{
   onAddTotalBelow: () => void;
   useStages: boolean;
 }> = ({
-  isOpen,
-  setIsOpen,
   onRemove,
   onAddRowBelow,
   onAddStageBelow,
@@ -1755,6 +1730,7 @@ const RowActionsMenu: React.FC<{
   onAddTotalBelow,
   useStages,
 }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -1832,7 +1808,9 @@ const RowActionsMenu: React.FC<{
       )}
     </div>
   );
-};const SortableRow: React.FC<SortableRowProps> = ({
+};
+
+const SortableRow: React.FC<SortableRowProps> = ({
   id,
   row,
   idx,
@@ -1853,7 +1831,6 @@ const RowActionsMenu: React.FC<{
   resolveSectionTotal,
   resolveStageTotal,
 }) => {
-  const [menuOpen, setMenuOpen] = React.useState(false);
   const {
     attributes,
     listeners,
@@ -1866,8 +1843,9 @@ const RowActionsMenu: React.FC<{
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    cursor: isDragging ? "grabbing" : "default",
-    zIndex: isDragging ? 2000 : menuOpen ? 9999 : 1,
+    opacity: isDragging ? 0.5 : 1,
+    backgroundColor: (startIndex + idx) % 2 === 1 ? "#FBFBFB" : "#fff",
+    zIndex: isDragging ? 100 : 1,
     position: "relative" as const,
   };
   const rowNum = rowNumbering[id] || "";
@@ -1878,8 +1856,9 @@ const RowActionsMenu: React.FC<{
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-all bg-white border-b border-slate-100",
-          isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
+          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-100",
+          isDragging &&
+            "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
         )}
       >
         <td
@@ -1889,24 +1868,21 @@ const RowActionsMenu: React.FC<{
               data.table.columns.find((c) => c.type === "index")?.width || 50,
           }}
         >
-          <div
-            {...attributes}
-            {...listeners}
-            className={cn(
-              "flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing hover:text-primary transition-colors no-print",
-              isPreview && "pointer-events-none",
-            )}
-          >
+          <div className="flex items-center justify-center gap-1">
             {!isPreview && (
-              <GripVertical size={12} className="text-slate-300" />
+              <div
+                {...attributes}
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing hover:text-primary transition-colors no-print"
+              >
+                <GripVertical size={12} className="text-slate-300" />
+              </div>
             )}
             <span className="font-bold text-center text-slate-800">{rowNum}</span>
           </div>
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
               <RowActionsMenu
-                isOpen={menuOpen}
-                setIsOpen={setMenuOpen}
                 onRemove={() => onRemoveRow(startIndex + idx)}
                 onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
                 onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
@@ -1921,16 +1897,14 @@ const RowActionsMenu: React.FC<{
           colSpan={data.table.columns.filter((c) => !c.hidden).length - 1}
           className="p-3"
         >
-          <label className="text-[14px] font-bold text-slate-900 block">
-            <Editable
-              value={row.sectionTitle || "New Stage"}
-              onSave={(val) =>
-                onUpdateCell(startIndex + idx, "sectionTitle", val as string)
-              }
-              className="w-full"
-              readOnly={isPreview}
-            />
-          </label>
+          <Editable
+            value={row.sectionTitle || "New Stage"}
+            onSave={(val) =>
+              onUpdateCell(startIndex + idx, "sectionTitle", val as string)
+            }
+            className="text-[14px] font-bold text-slate-900"
+            readOnly={isPreview}
+          />
         </td>
       </tr>
     );
@@ -1942,8 +1916,9 @@ const RowActionsMenu: React.FC<{
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-all bg-white border-b border-slate-50",
-          isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
+          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-50",
+          isDragging &&
+            "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
         )}
       >
         <td
@@ -1968,8 +1943,6 @@ const RowActionsMenu: React.FC<{
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
               <RowActionsMenu
-                isOpen={menuOpen}
-                setIsOpen={setMenuOpen}
                 onRemove={() => onRemoveRow(startIndex + idx)}
                 onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
                 onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
@@ -2004,34 +1977,32 @@ const RowActionsMenu: React.FC<{
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-all bg-amber-50/80 border-b border-amber-200/40",
-          isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
+          "text-[14px] font-lexend group transition-colors bg-amber-100/40 border-b border-amber-200/50",
+          isDragging &&
+            "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
         )}
       >
         <td
-          className="relative h-12 p-3 border-r border-amber-200/30"
+          className="relative h-12 p-3 border-r border-amber-200/50"
           style={{
             width:
               data.table.columns.find((c) => c.type === "index")?.width || 50,
           }}
         >
-          <div
-            {...attributes}
-            {...listeners}
-            className={cn(
-              "flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing hover:text-amber-600 transition-colors no-print",
-              isPreview && "pointer-events-none",
-            )}
-          >
+          <div className="flex items-center justify-center gap-1">
             {!isPreview && (
-              <GripVertical size={12} className="text-amber-300" />
+              <div
+                {...attributes}
+                {...listeners}
+                className="cursor-grab active:cursor-grabbing hover:text-primary transition-colors no-print"
+              >
+                <GripVertical size={12} className="text-amber-300" />
+              </div>
             )}
           </div>
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
               <RowActionsMenu
-                isOpen={menuOpen}
-                setIsOpen={setMenuOpen}
                 onRemove={() => onRemoveRow(startIndex + idx)}
                 onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
                 onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
@@ -2044,13 +2015,13 @@ const RowActionsMenu: React.FC<{
         </td>
         <td
           colSpan={data.table.columns.filter((c) => !c.hidden).length - 2}
-          className="p-3 text-left pl-6"
+          className="p-3 text-right"
         >
-          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-900/40">
+          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-900/60">
             TOTAL
           </span>
         </td>
-        <td className="p-3 text-left font-bold text-amber-950">
+        <td className="p-3 text-right font-bold text-slate-900 bg-amber-100/60">
           ₦{Math.round(totalValue).toLocaleString()}
         </td>
       </tr>
@@ -2062,10 +2033,8 @@ const RowActionsMenu: React.FC<{
       ref={setNodeRef}
       style={style}
       className={cn(
-        "text-[14px] text-[#212121] font-lexend group transition-all",
-        (startIndex + idx) % 2 === 1 ? "bg-slate-50/30" : "bg-white",
-        "border-b border-slate-50",
-        isDragging && "shadow-2xl border-primary/30 z-50 ring-2 ring-primary/20 bg-white scale-[1.02] opacity-80",
+        "text-[14px] text-[#212121] border-b border-slate-50 font-lexend group transition-colors",
+        isDragging && "shadow-xl border-primary/20 z-50 ring-1 ring-primary/10",
       )}
     >
       {(data.table.columns || [])
@@ -2096,8 +2065,6 @@ const RowActionsMenu: React.FC<{
                 {!isPreview && (
                   <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
                     <RowActionsMenu
-                      isOpen={menuOpen}
-                      setIsOpen={setMenuOpen}
                       onRemove={() => onRemoveRow(startIndex + idx)}
                       onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
                       onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
@@ -2124,7 +2091,7 @@ const RowActionsMenu: React.FC<{
             <td
               key={col.id}
               className={cn(
-                "p-3 border-r border-slate-50 last:border-r-0 relative h-10",
+                "p-3 border-r border-slate-50 last:border-r-0 relative h-10 overflow-hidden",
                 (isNumeric || isFormula) && "text-left font-lexend text-medium",
               )}
             >
@@ -2152,7 +2119,6 @@ const RowActionsMenu: React.FC<{
     </tr>
   );
 };
-
 
 const A4Page: React.FC<A4PageProps> = ({
   data,
@@ -2183,12 +2149,15 @@ const A4Page: React.FC<A4PageProps> = ({
   showFooter,
   isPreview,
   isEndOfRows,
-  rowNumbering,
+  rowNumbering: rowNumbering,
   resolveSectionTotal,
   onAddStageBelow,
   onAddStageAbove,
   useStages,
   resolveStageTotal,
+  onUpdatePaymentMethod,
+  onUpdateSignature,
+  onUpdateReceiptMessage,
 }) => {
   const HEADER_DARK_BROWN = "#503D36";
   const PRIMARY_BROWN = "#8D6E63";
@@ -2196,87 +2165,76 @@ const A4Page: React.FC<A4PageProps> = ({
 
   return (
     <div
-      className={cn(
-        "a4-page bg-white text-[#212121] shadow-[0_0_20px_rgba(0,0,0,0.1)] mb-12 relative shrink-0 transition-shadow hover:shadow-[0_0_30px_rgba(0,0,0,0.15)]",
-        "print:mb-0 print:shadow-none print:break-after-page",
-      )}
+      className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative overflow-hidden shrink-0"
       style={{
         width: "210mm",
         height: "297mm",
         maxHeight: "297mm",
+        padding: "14mm 8mm 20mm 8mm",
         backgroundColor: "#FFFFFF",
-        padding: 0, // No padding on the page itself to allow edge-to-edge content
       }}
     >
-      {/* Page Content Clipping Wrapper */}
-      <div className="absolute inset-0 overflow-hidden print:overflow-hidden bg-white">
-        {/* Absolute elements relative to full page */}
-        {isFirstPage && data.invoiceCode && (
+      {isFirstPage && (
+        <div
+          className="flex items-center justify-center overflow-hidden border-b border-slate-100"
+          style={{
+            margin: "-15mm -20mm 10mm -20mm",
+            width: "calc(100% + 40mm)",
+            height: `${headerHeight}px`,
+            position: "relative",
+          }}
+        >
+          <img
+            src={headerImage}
+            alt="Logo"
+            className="object-contain object-center w-full h-full"
+          />
           <div
-            className={cn(
-              "absolute select-none z-3 group",
-              !isPreview ? "cursor-move" : "",
-            )}
-            style={{
-              left: `${data.invoiceCode.x}px`,
-              top: `${data.invoiceCode.y}px`,
-              color: data.invoiceCode.color,
-            }}
-            onMouseDown={(e) => {
-              if (isPreview) return;
-              e.preventDefault();
-              const startX = e.clientX - data.invoiceCode!.x;
-              const startY = e.clientY - data.invoiceCode!.y;
-              const handleMouseMove = (em: MouseEvent) => {
-                onUpdateInvoiceCode({
-                  x: em.clientX - startX,
-                  y: em.clientY - startY,
-                });
-              };
-              const handleMouseUp = () => {
-                document.removeEventListener("mousemove", handleMouseMove);
-                document.removeEventListener("mouseup", handleMouseUp);
-              };
-              document.addEventListener("mousemove", handleMouseMove);
-              document.addEventListener("mouseup", handleMouseUp);
-            }}
-          >
-            <div className="font-lexend font-bold text-[16px] whitespace-nowrap">
-              {data.invoiceCode.text}
-            </div>
-            {!isPreview && (
-              <div className="absolute transition-opacity border-2 border-dashed rounded opacity-0 pointer-events-none -inset-2 border-primary/20 group-hover:opacity-100" />
-            )}
-          </div>
-        )}
+            className="absolute bottom-0 left-0 right-0 z-10 h-2 bg-transparent cursor-ns-resize no-print"
+            onMouseDown={onHeaderResize}
+          />
+        </div>
+      )}
 
-        <div className="flex flex-col h-full relative">
-          {isFirstPage && (
-            <div
-              className="flex-shrink-0 flex items-center justify-center overflow-hidden border-b border-slate-100"
-              style={{
-                width: "210mm",
-                height: `${headerHeight}px`,
-                position: "relative",
-              }}
-            >
-              <img
-                src={headerImage}
-                alt="Logo"
-                className="w-full h-full object-cover shadow-sm bg-slate-50"
-              />
-              <div
-                className="absolute bottom-0 left-0 right-0 z-10 h-3 bg-primary/0 hover:bg-primary/20 cursor-ns-resize no-print transition-colors"
-                onMouseDown={onHeaderResize}
-              />
-            </div>
+      {/* Draggable Invoice Code */}
+      {isFirstPage && data.invoiceCode && (
+        <div
+          className={cn(
+            "absolute select-none z-30 group",
+            !isPreview ? "cursor-move" : "",
           )}
-
-          {/* Internal Content with Padding */}
-          <div 
-            className="flex-1 overflow-visible"
-            style={{ padding: isFirstPage ? "10mm 12mm 24mm 12mm" : "20mm 12mm 24mm 12mm" }}
-          >
+          style={{
+            left: `${data.invoiceCode.x}px`,
+            top: `${data.invoiceCode.y}px`,
+            color: data.invoiceCode.color,
+          }}
+          onMouseDown={(e) => {
+            if (isPreview) return;
+            e.preventDefault();
+            const startX = e.clientX - data.invoiceCode!.x;
+            const startY = e.clientY - data.invoiceCode!.y;
+            const handleMouseMove = (em: MouseEvent) => {
+              onUpdateInvoiceCode({
+                x: em.clientX - startX,
+                y: em.clientY - startY,
+              });
+            };
+            const handleMouseUp = () => {
+              document.removeEventListener("mousemove", handleMouseMove);
+              document.removeEventListener("mouseup", handleMouseUp);
+            };
+            document.addEventListener("mousemove", handleMouseMove);
+            document.addEventListener("mouseup", handleMouseUp);
+          }}
+        >
+          <div className="font-lexend font-bold text-[16px] whitespace-nowrap">
+            {data.invoiceCode.text}
+          </div>
+          {!isPreview && (
+            <div className="absolute transition-opacity border-2 border-dashed rounded opacity-0 pointer-events-none -inset-2 border-primary/20 group-hover:opacity-100" />
+          )}
+        </div>
+      )}
 
       {isFirstPage && (
         <>
@@ -2300,7 +2258,7 @@ const A4Page: React.FC<A4PageProps> = ({
               <div className="w-full relative h-[1.5em] mb-1 overflow-hidden">
                 <Editable
                   className="font-normal text-[#212121] text-[15px] uppercase"
-                  value={data?.contact?.name || ""}
+                  value={data.contact.name}
                   onSave={(val) => onUpdateContact("name", val as string)}
                   readOnly={isPreview}
                 />
@@ -2308,7 +2266,7 @@ const A4Page: React.FC<A4PageProps> = ({
               <div className="w-full relative h-[1.5em] overflow-hidden">
                 <Editable
                   className="font-normal text-[14px] opacity-90"
-                  value={data?.contact?.address1 || ""}
+                  value={data.contact.address1}
                   onSave={(val) => onUpdateContact("address1", val as string)}
                   readOnly={isPreview}
                 />
@@ -2316,7 +2274,7 @@ const A4Page: React.FC<A4PageProps> = ({
               <div className="w-full relative h-[1.5em] overflow-hidden">
                 <Editable
                   className="font-normal text-[14px] opacity-90"
-                  value={data?.contact?.address2 || ""}
+                  value={data.contact.address2}
                   onSave={(val) => onUpdateContact("address2", val as string)}
                   readOnly={isPreview}
                 />
@@ -2337,12 +2295,12 @@ const A4Page: React.FC<A4PageProps> = ({
           </div>
 
           <div className="flex justify-center mb-10 text-center uppercase tracking-widest text-[18px] font-medium leading-[139.4%] text-[#212121]">
-            <div className="w-[500px] relative h-20 overflow-hidden">
+            <div className="w-[500px] relative min-h-[1.5em] max-h-20 overflow-y-auto custom-scrollbar">
               <Editable
-                className="w-full"
+                className="w-full h-full"
+                multiline={true}
                 value={data.title}
                 onSave={(val) => onUpdateTitle(val as string)}
-                multiline
                 readOnly={isPreview}
               />
             </div>
@@ -2351,7 +2309,7 @@ const A4Page: React.FC<A4PageProps> = ({
       )}
 
       {showRows && (
-        <div className=" border border-slate-100">
+        <div className="overflow-hidden border border-slate-100">
           <table className="w-full border-collapse">
             <thead>
               <tr
@@ -2372,6 +2330,10 @@ const A4Page: React.FC<A4PageProps> = ({
               </tr>
             </thead>
             <tbody>
+              <SortableContext
+                items={rows.map((r) => r.id as string)}
+                strategy={verticalListSortingStrategy}
+              >
                 {(rows || []).map((row, idx) => (
                   <SortableRow
                     key={row.id as string}
@@ -2396,6 +2358,7 @@ const A4Page: React.FC<A4PageProps> = ({
                     resolveStageTotal={resolveStageTotal}
                   />
                 ))}
+              </SortableContext>
             </tbody>
           </table>
           {isEndOfRows && (
@@ -2447,45 +2410,104 @@ const A4Page: React.FC<A4PageProps> = ({
       )}
 
       {showFooter && (
-        <>
-          {data?.footer?.notes && (
-            <div className="p-4 mt-8 border rounded bg-slate-50 border-slate-200">
-              <div
-                className="text-[14px] font-normal text-[#212121] font-lexend leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: data?.footer?.notes || "" }}
-              />
-            </div>
-          )}
-
-          {data?.footer?.emphasis &&
-            Array.isArray(data.footer.emphasis) &&
-            (data?.footer?.emphasis?.length || 0) > 0 && (
-              <div className="mt-4 bg-[#EDEDED] px-8 py-5 flex flex-col gap-1.5">
-                {(data?.footer?.emphasis || []).map((item: any, idx: number) => (
-                  <div key={idx} className="flex items-center gap-3">
-                    <span className="uppercase text-[12px] tracking-widest text-[#7A7672] font-black">
-                      {item.key}:
-                    </span>
-                    <span className="text-[17px] font-bold tracking-wide text-[#4B4032]">
-                      {item.value}
-                    </span>
+        <div className="mt-8">
+          {data.isReceipt ? (
+            <div className="flex justify-between items-end border-t border-slate-100 pt-8 px-4">
+               {/* Left: Thank You & Payment Method */}
+                <div className="flex flex-col gap-6 max-w-[50%]">
+                  <div className="text-[14px] font-medium text-slate-800 italic font-lexend min-h-[1.5em] max-h-16 overflow-y-auto relative custom-scrollbar">
+                    <Editable 
+                      value={data.receiptMessage || "Thank you for your patronage!"} 
+                      onSave={(val) => onUpdateReceiptMessage(val as string)}
+                      multiline={true}
+                      readOnly={isPreview}
+                    />
                   </div>
-                ))}
-              </div>
-            )}
-        </>
+                 <div className="flex flex-col gap-1">
+                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold font-lexend">Payment Method</span>
+                    <div className="text-[13px] font-lexend text-slate-700 h-[1.5em] overflow-hidden relative">
+                      <Editable 
+                        value={data.paymentMethod || "Transfer"} 
+                        onSave={(val) => onUpdatePaymentMethod(val as string)}
+                        readOnly={isPreview}
+                      />
+                    </div>
+                 </div>
+               </div>
+
+               {/* Right: Signature Area */}
+               <div className="flex flex-col items-center gap-3 min-w-[200px]">
+                  <div 
+                    className={cn(
+                      "w-48 h-20 border-b-2 border-slate-200 relative flex items-center justify-center group/sign cursor-pointer overflow-hidden transition-all",
+                      !data.signature && !isPreview && "hover:bg-slate-50 border-dashed"
+                    )}
+                    onClick={() => {
+                      if (isPreview) return;
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'image/*';
+                      input.onchange = (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (re) => {
+                            onUpdateSignature(re.target?.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    {data.signature ? (
+                      <img src={data.signature} alt="Authorized Signature" className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                    ) : (
+                      !isPreview && <div className="text-[9px] text-slate-300 font-bold uppercase tracking-widest group-hover/sign:text-primary transition-colors text-center px-4">Click to Upload Signature</div>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-black uppercase tracking-[0.2em] text-[#503D36] font-lexend">Authorized Signature</span>
+               </div>
+            </div>
+          ) : (
+            <>
+              {data.footer.notes && (
+                <div className="p-4 border rounded bg-slate-50 border-slate-200">
+                  <div
+                    className="text-[14px] font-normal text-[#212121] font-lexend leading-relaxed"
+                    dangerouslySetInnerHTML={{ __html: data.footer.notes }}
+                  />
+                </div>
+              )}
+
+              {data.footer.emphasis &&
+                Array.isArray(data.footer.emphasis) &&
+                data.footer.emphasis.length > 0 && (
+                  <div className="mt-4 bg-[#EDEDED] px-8 py-5 flex flex-col gap-1.5">
+                    {data.footer.emphasis.map((item: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-3">
+                        <span className="uppercase text-[12px] tracking-widest text-[#7A7672] font-black">
+                          {item.key}:
+                        </span>
+                        <span className="text-[17px] font-bold tracking-wide text-[#4B4032]">
+                          {item.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </>
+          )}
+        </div>
       )}
 
+      <div className="absolute left-0 w-full px-16 text-center bottom-10">
+        <div className="border-t border-slate-100 pt-6 flex justify-between items-center text-[11px] text-slate-300 uppercase font-bold tracking-widest opacity-60 font-lexend">
+          <span>Maintenance Proposal 2026</span>
+          <span>Page {pageIndex + 1}</span>
+          <span>Quality Works Guaranteed</span>
         </div>
       </div>
-    </div>
-
-      {/* Visual Page Number in Editor (Outside Clip) */}
-      {!isPreview && (
-        <div className="absolute -left-16 top-0 h-8 w-12 flex items-center justify-center bg-slate-100 text-[10px] font-black text-slate-400 rounded-l-md border-y border-l border-slate-200 no-print shadow-sm">
-          #{pageIndex + 1}
-        </div>
-      )}
     </div>
   );
 };

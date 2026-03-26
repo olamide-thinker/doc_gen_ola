@@ -261,6 +261,33 @@ export const TEMPLATES: TemplateDefinition[] = [
         summary: []
       }
     }
+  },
+  {
+    id: "receipt",
+    name: "Standard Receipt",
+    description: "Proof of payment with signature and method",
+    color: "slate",
+    content: {
+      title: "OFFICIAL RECEIPT",
+      isReceipt: true,
+      paymentMethod: "Transfer",
+      receiptMessage: "Thank you for your patronage!",
+      table: {
+        columns: [
+          { id: "A", label: "S/N", type: "index", width: "60px" },
+          { id: "B", label: "Description of Items/Services Paid For", type: "text" },
+          { id: "C", label: "Amount (₦)", type: "number", width: "160px" }
+        ],
+        rows: [
+          { id: "row-1", B: "Partial payment for Furniture Procurement", C: 500000 }
+        ],
+        summary: []
+      },
+      footer: {
+        notes: "<p>Thank you for your patronage! This receipt serves as proof of payment for the items/services listed above.</p>",
+        emphasis: []
+      }
+    }
   }
 ];
 

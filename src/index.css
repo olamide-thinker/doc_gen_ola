@@ -93,6 +93,17 @@
     background-color: hsl(var(--border));
     @apply rounded-full hover:bg-muted-foreground/30 transition-colors;
   }
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+  }
 }
 
 /* Print Styles */

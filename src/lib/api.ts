@@ -74,8 +74,11 @@ const seedIfEmpty = () => {
     saveToStorage("documents", [welcomeDoc]);
   }
 
-  if (templates.length === 0) {
-    saveToStorage("templates", TEMPLATES);
+  const missingTemplates = TEMPLATES.filter(
+    (bt) => !templates.some((t) => t.id === bt.id),
+  );
+  if (missingTemplates.length > 0) {
+    saveToStorage("templates", [...templates, ...missingTemplates]);
   }
 };
 

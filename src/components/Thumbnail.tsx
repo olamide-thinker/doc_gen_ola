@@ -50,10 +50,23 @@ export const DocumentThumbnail: React.FC<ThumbnailProps> = ({ data, className })
       </div>
 
       {/* Footer mock */}
-      <div className="mt-auto pt-2 border-t border-slate-50 flex flex-col gap-1">
-        <div className="w-1/2 h-1 bg-slate-50 rounded-full" />
-        <div className="w-full h-1 bg-slate-50 rounded-full" />
-      </div>
+      {data.isReceipt ? (
+        <div className="mt-auto pt-2 border-t border-slate-50 flex justify-between items-end">
+          <div className="flex flex-col gap-1 w-1/2">
+            <div className="w-3/4 h-1 bg-slate-100 rounded-full" />
+            <div className="w-1/2 h-1 bg-slate-50 rounded-full" />
+          </div>
+          <div className="flex flex-col items-center gap-1">
+             <div className="w-12 h-4 border-b border-slate-100 bg-slate-50/50" />
+             <div className="w-10 h-1 bg-slate-100 rounded-full" />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-auto pt-2 border-t border-slate-50 flex flex-col gap-1">
+          <div className="w-1/2 h-1 bg-slate-50 rounded-full" />
+          <div className="w-full h-1 bg-slate-50 rounded-full" />
+        </div>
+      )}
     </div>
   );
 };
