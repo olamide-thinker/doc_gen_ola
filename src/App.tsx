@@ -2,6 +2,7 @@ import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import Dashboard from "./components/Dashboard";
 import Editor from "./components/Editor";
+import ReceiptEditor from "./components/ReceiptEditor";
 
 const App: React.FC = () => {
   return (
@@ -9,6 +10,7 @@ const App: React.FC = () => {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/editor/:id" element={<Editor />} />
+      <Route path="/receipt-editor/:id" element={<ReceiptEditor />} />
       
       {/* 404 Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

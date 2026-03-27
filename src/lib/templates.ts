@@ -273,18 +273,10 @@ export const TEMPLATES: TemplateDefinition[] = [
       paymentMethod: "Transfer",
       transactionId: "TRX-8829103-XC",
       reference: "Project: Office Renovation",
-      receiptMessage: "Thank you for your patronage!",
-      table: {
-        columns: [
-          { id: "A", label: "S/N", type: "index", width: "60px" },
-          { id: "B", label: "Description of Items/Services Paid For", type: "text" },
-          { id: "C", label: "Amount (₦)", type: "number", width: "160px" }
-        ],
-        rows: [
-          { id: "row-1", B: "Partial payment for Furniture Procurement", C: 500000 }
-        ],
-        summary: []
-      },
+      acknowledgement: "We hereby confirm receipt of the sum of ₦1,500,000 (One Million Five Hundred Thousand Naira Only) from the above-named client for the purpose stated.",
+      totalInvoiceAmount: 2500000,
+      amountPaid: 1500000,
+      outstandingBalance: 1000000,
       footer: {
         notes: "<p>Thank you for your patronage! This receipt serves as proof of payment for the items/services listed above.</p>",
         emphasis: []

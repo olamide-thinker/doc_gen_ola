@@ -63,6 +63,10 @@ export interface DocData {
   reference?: string;
   signature?: string;
   receiptMessage?: string;
+  totalInvoiceAmount?: number;
+  amountPaid?: number;
+  outstandingBalance?: number;
+  acknowledgement?: string;
 }
 
 export interface TotalPrice {

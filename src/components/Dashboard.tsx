@@ -139,10 +139,11 @@ const Dashboard: React.FC = () => {
 
       return api.createDocument(docContent.title, docContent as any, folderId);
     },
-    onSuccess: (newDoc) => {
-      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-      navigate(`/editor/${newDoc.id}`);
-    },
+      onSuccess: (newDoc, variables) => {
+        queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
+        const isReceipt = variables.template?.content?.isReceipt;
+        navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
+      },
   });
 
   const deleteMutation = useMutation({
@@ -375,7 +376,14 @@ const Dashboard: React.FC = () => {
                         onDelete={() => handleDelete(item)}
                         onDuplicate={() => handleDuplicate(item)}
                         onRename={() => handleRename(item)}
-                        onClick={() => item._type === 'folder' ? navigate(`/dashboard?folder=${item._realId}`) : navigate(`/editor/${item._realId}`)}
+                        onClick={() => {
+                          if (item._type === 'folder') {
+                            navigate(`/dashboard?folder=${item._realId}`);
+                          } else {
+                            const isReceipt = item.content?.isReceipt;
+                            navigate(isReceipt ? `/receipt-editor/${item._realId}` : `/editor/${item._realId}`);
+                          }
+                        }}
                       />
                     ))}
                   </AnimatePresence>

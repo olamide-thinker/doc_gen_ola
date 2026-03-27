@@ -121,6 +121,9 @@
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+  * {
+    box-sizing: border-box !important;
+  }
   .no-print { display: none !important; }
 
   .a4-page { 
@@ -134,6 +137,10 @@
     height: 297mm !important;
     position: relative !important;
     background: white !important;
+    overflow: hidden !important;
+  }
+  .a4-page:last-child {
+    page-break-after: avoid !important;
   }
 }
 
