@@ -59,6 +59,8 @@ export interface DocData {
   invoiceCode?: InvoiceCode;
   isReceipt?: boolean;
   paymentMethod?: string;
+  transactionId?: string;
+  reference?: string;
   signature?: string;
   receiptMessage?: string;
 }

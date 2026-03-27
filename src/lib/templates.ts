@@ -271,6 +271,8 @@ export const TEMPLATES: TemplateDefinition[] = [
       title: "OFFICIAL RECEIPT",
       isReceipt: true,
       paymentMethod: "Transfer",
+      transactionId: "TRX-8829103-XC",
+      reference: "Project: Office Renovation",
       receiptMessage: "Thank you for your patronage!",
       table: {
         columns: [

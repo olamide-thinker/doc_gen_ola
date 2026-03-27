@@ -100,6 +100,8 @@ interface A4PageProps {
   resolveSectionTotal: (rows: TableRow[], fromIdx: number) => number;
   resolveStageTotal: (rows: TableRow[], fromIdx: number) => number;
   onUpdatePaymentMethod: (val: string) => void;
+  onUpdateTransactionId: (val: string) => void;
+  onUpdateReference: (val: string) => void;
   onUpdateSignature: (val: string) => void;
   onUpdateReceiptMessage: (val: string) => void;
 }
@@ -193,7 +195,7 @@ const Editor: React.FC = () => {
   const [docData, setDocData] = useState<DocData | null>(null);
   const [jsonInput, setJsonInput] = useState<string>("");
   const [headerImage, setHeaderImage] = useState<string>(
-    () => localStorage.getItem("headerImage") || "/shan-letterhead.png",
+    () => localStorage.getItem("headerImage") || "/Shan-Invoice.png",
   );
 
   const [headerHeight, setHeaderHeight] = useState<number>(
@@ -509,7 +511,12 @@ const Editor: React.FC = () => {
     updateDocData((prev: DocData | null) => {
       if (!prev) return null;
       const nr = [...prev.table.rows];
-      nr.splice(i + 1, 0, { id: crypto.randomUUID() });
+      const newRow: TableRow = { id: crypto.randomUUID(), rowType: "row" };
+      prev.table.columns.forEach((col) => {
+        if (col.type === "index") return;
+        newRow[col.id] = col.type === "number" ? 0 : "";
+      });
+      nr.splice(i + 1, 0, newRow);
       return { ...prev, table: { ...prev.table, rows: nr } };
     });
   };
@@ -518,7 +525,12 @@ const Editor: React.FC = () => {
     updateDocData((prev: DocData | null) => {
       if (!prev) return null;
       const nr = [...prev.table.rows];
-      nr.splice(i, 0, { id: crypto.randomUUID() });
+      const newRow: TableRow = { id: crypto.randomUUID(), rowType: "row" };
+      prev.table.columns.forEach((col) => {
+        if (col.type === "index") return;
+        newRow[col.id] = col.type === "number" ? 0 : "";
+      });
+      nr.splice(i, 0, newRow);
       return { ...prev, table: { ...prev.table, rows: nr } };
     });
   };
@@ -645,8 +657,8 @@ const Editor: React.FC = () => {
         // Skip header/total rows if summing everything
         if (row.rowType === "stage-header" || row.rowType === "section-header" || row.rowType === "section-total") return acc;
         
-        const totalCol = docData.table.columns.find(
-          (c: any) => c.type === "formula" || c.id === "E",
+        const totalCol = [...docData.table.columns].reverse().find(
+          (c: any) => (c.type === "formula" || c.type === "number") && !c.hidden
         );
         const rowTotal =
           totalCol?.type === "formula"
@@ -754,8 +766,8 @@ const Editor: React.FC = () => {
       const row = rows[i];
       if (row.rowType === "stage-header") break;
       if (row.rowType === "row" || !row.rowType) {
-        const totalCol = docData.table.columns.find(
-          (c) => c.type === "formula" || c.id === "E",
+        const totalCol = [...docData.table.columns].reverse().find(
+          (c) => (c.type === "formula" || c.type === "number") && !c.hidden
         );
         const val =
           totalCol?.type === "formula"
@@ -783,8 +795,8 @@ const Editor: React.FC = () => {
     for (let i = startIdx + 1; i < fromIdx; i++) {
       const row = rows[i];
       if (row.rowType === "row" || !row.rowType) {
-        const totalCol = docData?.table.columns.find(
-          (c) => c.type === "formula" || c.id === "E",
+        const totalCol = [...docData.table.columns].reverse().find(
+          (c) => (c.type === "formula" || c.type === "number") && !c.hidden
         );
         const val =
           totalCol?.type === "formula"
@@ -985,6 +997,16 @@ const Editor: React.FC = () => {
   const onUpdatePaymentMethod = (v: string) =>
     updateDocData((prev: DocData | null) =>
       prev ? { ...prev, paymentMethod: v } : null,
+    );
+
+  const onUpdateTransactionId = (v: string) =>
+    updateDocData((prev: DocData | null) =>
+      prev ? { ...prev, transactionId: v } : null,
+    );
+
+  const onUpdateReference = (v: string) =>
+    updateDocData((prev: DocData | null) =>
+      prev ? { ...prev, reference: v } : null,
     );
 
   const onUpdateSignature = (v: string) =>
@@ -1505,6 +1527,8 @@ const Editor: React.FC = () => {
                 onUpdateSummaryItem={onUpdateSummaryItem}
                 onUpdateDate={onUpdateDate}
                 onUpdateReceiptMessage={onUpdateReceiptMessage}
+                onUpdateTransactionId={onUpdateTransactionId}
+                onUpdateReference={onUpdateReference}
                 isPreview={isPreview}
               />
             ))}
@@ -1654,11 +1678,11 @@ const Editable: React.FC<EditableProps> = ({
   let displayValue = value;
   if (numeric) {
     displayValue =
-      value === 0 || value === "" || value === null
+      value === 0 || value === "" || value === null || value === undefined
         ? "0"
         : Number(value).toLocaleString();
   } else {
-    displayValue = value === "" || value === null ? "--" : value;
+    displayValue = value === "" || value === null || value === undefined ? "--" : value;
   }
 
   return (
@@ -1670,7 +1694,7 @@ const Editable: React.FC<EditableProps> = ({
         className,
       )}
     >
-      <span className={cn("block w-full", multiline && "whitespace-pre-wrap text-center")}>
+      <span className={cn("block w-full break-all", multiline && "whitespace-pre-wrap")}>
         {displayValue}
       </span>
     </div>
@@ -2156,6 +2180,8 @@ const A4Page: React.FC<A4PageProps> = ({
   useStages,
   resolveStageTotal,
   onUpdatePaymentMethod,
+  onUpdateTransactionId,
+  onUpdateReference,
   onUpdateSignature,
   onUpdateReceiptMessage,
 }) => {
@@ -2185,7 +2211,7 @@ const A4Page: React.FC<A4PageProps> = ({
           }}
         >
           <img
-            src={headerImage}
+            src={data.isReceipt ? "/Shan-PaymentReceipt.png" : "/Shan-Invoice.png"}
             alt="Logo"
             className="object-contain object-center w-full h-full"
           />
@@ -2283,14 +2309,28 @@ const A4Page: React.FC<A4PageProps> = ({
 
             <div className="flex flex-col items-start w-1/2 pl-12 text-left border-l font-lexend border-slate-200">
               <span className="block text-[#503D36] font-normal text-[13px] font-luzia uppercase mb-3 tracking-[0.1em]">
-                Billed From:
+                {data.isReceipt ? "Ref:" : "Billed From:"}
               </span>
-              <div className="font-normal text-[#212121] mb-1 text-[12px]">
-                B3F3, The Genesis Estate, Off Odobo Street,
-              </div>
-              <div className="font-normal text-[12px] opacity-90">
-                Ogba-Ikeja, Lagos.
-              </div>
+              {data.isReceipt ? (
+                <div className="w-full relative min-h-[1.5em]">
+                  <Editable 
+                    value={data.reference || ""} 
+                    onSave={(val) => onUpdateReference(val as string)}
+                    multiline={true}
+                    className="w-full text-left font-normal text-[#212121] text-[12px]"
+                    readOnly={isPreview}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="font-normal text-[#212121] mb-1 text-[12px]">
+                    B3F3, The Genesis Estate, Off Odobo Street,
+                  </div>
+                  <div className="font-normal text-[12px] opacity-90">
+                    Ogba-Ikeja, Lagos.
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -2400,7 +2440,7 @@ const A4Page: React.FC<A4PageProps> = ({
             style={{ backgroundColor: PRIMARY_BROWN }}
           >
             <span className="text-[14px] font-normal tracking-wide font-lexend uppercase">
-              Grand Total
+              {data.isReceipt ? "Total Amount Paid" : "Grand Total"}
             </span>
             <span className="text-[18px] font-bold font-lexend">
               ₦{Math.round(totalPrice.grandTotal).toLocaleString()}
@@ -2415,29 +2455,43 @@ const A4Page: React.FC<A4PageProps> = ({
             <div className="flex justify-between items-end border-t border-slate-100 pt-8 px-4">
                {/* Left: Thank You & Payment Method */}
                 <div className="flex flex-col gap-6 max-w-[50%]">
-                  <div className="text-[14px] font-medium text-slate-800 italic font-lexend min-h-[1.5em] max-h-16 overflow-y-auto relative custom-scrollbar">
-                    <Editable 
-                      value={data.receiptMessage || "Thank you for your patronage!"} 
+                  <div className="text-[14px] font-medium text-slate-800 italic font-lexend min-h-[1.5em] max-h-16 relative custom-scrollbar w-full">
+                    <Editable
+                      value={data.receiptMessage || "Thank you for your patronage!"}
                       onSave={(val) => onUpdateReceiptMessage(val as string)}
                       multiline={true}
+                      className="w-full text-left"
                       readOnly={isPreview}
                     />
                   </div>
-                 <div className="flex flex-col gap-1">
+                 <div className="flex flex-row gap-4">
+                  <div className="flex flex-col gap-1">
                     <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold font-lexend">Payment Method</span>
+                    <span className="text-[8px] uppercase tracking-widest text-slate-400 font-normal font-lexend">Bank Transfer | Cash | POS | Cheque</span>
                     <div className="text-[13px] font-lexend text-slate-700 h-[1.5em] overflow-hidden relative">
-                      <Editable 
-                        value={data.paymentMethod || "Transfer"} 
+                      <Editable
+                        value={data.paymentMethod || "Transfer"}
                         onSave={(val) => onUpdatePaymentMethod(val as string)}
                         readOnly={isPreview}
                       />
                     </div>
-                 </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold font-lexend">Transaction ID</span>
+                    <div className="text-[13px] font-lexend text-slate-700 h-[1.5em] overflow-hidden relative">
+                      <Editable
+                        value={data.transactionId || "TRX-000000000"}
+                        onSave={(val) => onUpdateTransactionId(val as string)}
+                        readOnly={isPreview}
+                      />
+                    </div>
+                    </div>
+                  </div>
                </div>
 
                {/* Right: Signature Area */}
                <div className="flex flex-col items-center gap-3 min-w-[200px]">
-                  <div 
+                  <div
                     className={cn(
                       "w-48 h-20 border-b-2 border-slate-200 relative flex items-center justify-center group/sign cursor-pointer overflow-hidden transition-all",
                       !data.signature && !isPreview && "hover:bg-slate-50 border-dashed"
