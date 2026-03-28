@@ -1675,7 +1675,7 @@ const Editable: React.FC<EditableProps> = ({
   };
 
   if (isEditing) {
-    const commonClasses = `w-full box-border bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-1 ${className}`;
+    const commonClasses = `w-full box-border bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-3 ${className}`;
     return (
       <div className={cn(multiline ? "relative w-full" : "absolute inset-0 z-10 overflow-hidden")}>
         {multiline ? (
@@ -1976,7 +1976,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
         </td>
         <td
           colSpan={data.table.columns.filter((c) => !c.hidden).length - 1}
-          className="p-3"
+          className="p-3 relative overflow-hidden"
         >
           <Editable
             value={row.sectionTitle || "New Section"}
@@ -2037,7 +2037,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
         </td>
         <td
           colSpan={data.table.columns.filter((c) => !c.hidden).length - 1}
-          className="p-3"
+          className="p-3 relative overflow-hidden"
         >
           <Editable
             value={row.sectionTitle || "New Sub-section"}
