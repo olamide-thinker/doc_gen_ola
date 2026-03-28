@@ -80,6 +80,17 @@ const Dashboard: React.FC = () => {
     queryFn: () => api.getDocuments(currentFolderId),
   });
 
+  const { data: currentFolder } = useQuery({
+    queryKey: ["folder-metadata", currentFolderId],
+    queryFn: () => api.getFolder(currentFolderId!),
+    enabled: !!currentFolderId,
+  });
+
+  const { data: folderPath = [] } = useQuery({
+    queryKey: ["folder-path", currentFolderId],
+    queryFn: () => api.getFolderPath(currentFolderId),
+  });
+
   const { data: templates = [], isLoading: isLoadingTemplates } = useQuery({
     queryKey: ["templates"],
     queryFn: () => api.getTemplates(),
@@ -584,9 +595,33 @@ const Dashboard: React.FC = () => {
           )}
 
           {!isSearching && <div className="flex items-center justify-between mb-8">
-            <div className="flex flex-col gap-0.5">
-               <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">{currentFolderId ? "Folder Explorer" : "All Documents"}</h2>
-               <p className="text-[10px] text-muted-foreground font-medium">Manage your workspace assets</p>
+            <div className="flex flex-col gap-1.5">
+               <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
+                 <Folder size={18} className="text-primary/70 shrink-0" />
+                 {currentFolder ? currentFolder.name : "Library"}
+               </h2>
+               
+               {/* Breadcrumbs */}
+               <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
+                 <button 
+                   onClick={() => navigate('/dashboard')}
+                   className="hover:text-primary transition-colors"
+                 >Home</button>
+                 {folderPath.map((folder, idx) => (
+                   <React.Fragment key={folder.id}>
+                     <span className="opacity-30">/</span>
+                     <button 
+                       onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
+                       className={cn(
+                         "hover:text-primary transition-colors",
+                         idx === folderPath.length - 1 && "text-primary/80 pointer-events-none"
+                       )}
+                     >
+                       {folder.name}
+                     </button>
+                   </React.Fragment>
+                 ))}
+               </div>
             </div>
             <button
               onClick={handleCreateFolder}
@@ -623,7 +658,10 @@ const Dashboard: React.FC = () => {
                             navigate(`/dashboard?folder=${item._realId}`);
                           } else {
                             const isReceipt = item.content?.isReceipt;
-                            navigate(isReceipt ? `/receipt-editor/${item._realId}` : `/invoice-preview/${item._realId}`);
+                            navigate(
+                              isReceipt ? `/receipt-editor/${item._realId}` : `/invoice-preview/${item._realId}`,
+                              { state: { fromFolder: currentFolderId } }
+                            );
                           }
                         }}
                       />

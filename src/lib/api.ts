@@ -137,6 +137,31 @@ export const api = {
     return folders.filter(f => f.parentId === parentId);
   },
 
+  getFolder: async (id: string): Promise<Folder | null> => {
+    await delay(100);
+    const folders = getFromStorage<Folder>("folders");
+    return folders.find(f => f.id === id) || null;
+  },
+
+  getFolderPath: async (id: string | null): Promise<Folder[]> => {
+    if (!id) return [];
+    await delay(100);
+    const allFolders = getFromStorage<Folder>("folders");
+    const path: Folder[] = [];
+    let currentId: string | null = id;
+
+    while (currentId) {
+      const folder = allFolders.find(f => f.id === currentId);
+      if (folder) {
+        path.unshift(folder);
+        currentId = folder.parentId;
+      } else {
+        currentId = null;
+      }
+    }
+    return path;
+  },
+
   createFolder: async (name: string, parentId: string | null = null): Promise<Folder> => {
     await delay(300);
     const folders = getFromStorage<Folder>("folders");

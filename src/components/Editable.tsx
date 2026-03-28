@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { cn } from "../lib/utils";
+import { formatDate } from "../lib/documentUtils";
 
 export interface EditableProps {
   value: string | number;
@@ -51,6 +52,8 @@ export const Editable: React.FC<EditableProps> = ({
   let displayValue = value === undefined || value === "" ? (numeric ? 0 : "--") : value;
   if (numeric && isCurrency && !isEditing) {
     displayValue = Number(value).toLocaleString();
+  } else if (isDate && !isEditing) {
+    displayValue = formatDate(value as string);
   }
 
   if (!readOnly && isEditing) {

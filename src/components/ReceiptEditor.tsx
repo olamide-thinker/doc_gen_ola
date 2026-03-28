@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Printer,
   ArrowLeft,
@@ -27,6 +27,8 @@ import { ReceiptPage } from "./ReceiptPage";
 const ReceiptEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
 
   const [docData, setDocData] = useState<DocData | null>(null);
@@ -269,10 +271,10 @@ const ReceiptEditor: React.FC = () => {
       {/* ── Sticky breadcrumb header ── */}
       <header className="h-14 border-b border-border bg-white flex items-center gap-2 px-6 shrink-0 shadow-sm z-10 no-print print:hidden">
         <button
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
           className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-700 transition-colors uppercase tracking-widest shrink-0"
         >
-          <ArrowLeft size={13} /> All Files
+          <ArrowLeft size={13} /> {fromFolder ? "Back to Folder" : "All Files"}
         </button>
         {docMetadata?.invoiceId && parentInvoice && (
           <>

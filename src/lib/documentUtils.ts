@@ -1,5 +1,29 @@
 import { DocData, TableRow, SummaryItem, TotalPrice } from "../types";
 
+export const formatDate = (dateString: string | undefined): string => {
+  if (!dateString) return "--";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return dateString;
+
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  const dayName = days[date.getDay()];
+  const monthName = months[date.getMonth()];
+  const day = date.getDate();
+  const year = date.getFullYear();
+
+  let suffix = "th";
+  if (day % 10 === 1 && day !== 11) suffix = "st";
+  else if (day % 10 === 2 && day !== 12) suffix = "nd";
+  else if (day % 10 === 3 && day !== 13) suffix = "rd";
+
+  return `${dayName}, ${monthName} ${day}${suffix}. ${year}`;
+};
+
 export const MM_TO_PX = 3.78;
 export const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
 export const PADDING_V_PX = (14 + 20) * MM_TO_PX; // 14mm top, 20mm bottom

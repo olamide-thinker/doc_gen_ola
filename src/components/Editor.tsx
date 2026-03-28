@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Printer,
   FileText,
@@ -38,6 +38,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Editable } from "./Editable";
 import { arrayMove } from "@dnd-kit/sortable";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -54,15 +55,6 @@ import {
   resolveSectionTotalBackward,
   resolveSectionTotal
 } from "../lib/documentUtils";
-interface EditableProps {
-  value: string | number;
-  onSave: (val: string | number) => void;
-  className?: string;
-  multiline?: boolean;
-  numeric?: boolean;
-  isDate?: boolean;
-  readOnly?: boolean;
-}
 
 interface A4PageProps {
   data: DocData;
@@ -198,6 +190,8 @@ const SortableSummaryItem = ({
 const Editor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
 
   const [docData, setDocData] = useState<DocData | null>(null);
@@ -700,7 +694,7 @@ const Editor: React.FC = () => {
           <div className="w-full lg:w-[380px] flex flex-col border-r border-slate-200/60 bg-white pb-5 px-5 overflow-y-auto scrollbar-none no-print">
             <div className="sticky top-0 z-10 flex items-center justify-between pt-5 pb-4 mb-8 bg-white border-b border-border">
               <button
-                onClick={() => navigate(`/invoice-preview/${id}`)}
+                onClick={() => navigate(`/invoice-preview/${id}`, { state: { fromFolder } })}
                 className="flex items-center gap-2 transition-colors text-slate-500 hover:text-slate-900 group"
               >
                 <ArrowLeft
@@ -1282,106 +1276,6 @@ const Editor: React.FC = () => {
   );
 };
 
-const Editable: React.FC<EditableProps> = ({
-  value,
-  onSave,
-  className = "",
-  multiline = false,
-  numeric = false,
-  isDate = false,
-  readOnly = false,
-}) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [currentValue, setCurrentValue] = useState(value);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (isEditing && multiline && textareaRef.current) {
-      const textarea = textareaRef.current;
-      textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
-    }
-  }, [isEditing, currentValue, multiline]);
-
-  const handleBlur = () => {
-    setIsEditing(false);
-    onSave(currentValue);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !multiline) handleBlur();
-    if (e.key === "Escape") {
-      setCurrentValue(value);
-      setIsEditing(false);
-    }
-  };
-
-  if (isEditing) {
-    const commonClasses = `w-full box-border bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-3 ${className}`;
-    return (
-      <div className={cn(multiline ? "relative w-full" : "absolute inset-0 z-10 overflow-hidden")}>
-        {multiline ? (
-          <textarea
-            ref={textareaRef}
-            autoFocus
-            className={cn(commonClasses, "resize-none overflow-hidden block")}
-            value={currentValue as string}
-            onChange={(e) => setCurrentValue(e.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-          />
-        ) : isDate ? (
-          <input
-            autoFocus
-            type="date"
-            className={commonClasses}
-            value={currentValue}
-            onChange={(e) => setCurrentValue(e.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-          />
-        ) : (
-          <input
-            autoFocus
-            type={numeric ? "number" : "text"}
-            className={commonClasses}
-            value={currentValue}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setCurrentValue(numeric ? Number(e.target.value) : e.target.value)
-            }
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-          />
-        )}
-      </div>
-    );
-  }
-
-  let displayValue = value;
-  if (numeric) {
-    displayValue =
-      value === 0 || value === "" || value === null || value === undefined
-        ? "0"
-        : Number(value).toLocaleString();
-  } else {
-    displayValue = value === "" || value === null || value === undefined ? "--" : value;
-  }
-
-  return (
-    <div
-      onDoubleClick={() => !readOnly && setIsEditing(true)}
-      className={cn(
-        "relative w-full h-fit transition-all group font-lexend ",
-        !readOnly && "hover:bg-amber-100/20 cursor-text",
-        className,
-      )}
-    >
-      <span className={cn("block w-full", multiline && "whitespace-pre-wrap")}>
-        {displayValue}
-      </span>
-    </div>
-  );
-};
 
 interface SortableRowProps {
   id: string;

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus, FileText, Edit, RefreshCw, LayoutGrid, List } from "../lib/icons/lucide";
 import { api } from "../lib/api";
@@ -288,6 +288,8 @@ function fmtAmount(n: number): string {
 const InvoicePreviewPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
   const [receiptView, setReceiptView] = useState<"list" | "card">("list");
   const [selectedPageIndex, setSelectedPageIndex] = useState<number | null>(null);
@@ -427,10 +429,10 @@ const InvoicePreviewPage: React.FC = () => {
       {/* ── Top bar / Breadcrumb ── */}
       <header className="h-14 border-b border-border bg-white flex items-center gap-2 px-6 shrink-0 shadow-sm z-10">
         <button
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
           className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-700 transition-colors uppercase tracking-widest shrink-0"
         >
-          <ArrowLeft size={13} /> All Files
+          <ArrowLeft size={13} /> {fromFolder ? "Back to Folder" : "All Files"}
         </button>
         <span className="text-slate-200 font-thin text-base">/</span>
         {docContentSafe.invoiceCode?.text && (
@@ -460,12 +462,12 @@ const InvoicePreviewPage: React.FC = () => {
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => navigate(`/editor/${id}`)}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold border border-border rounded-md bg-white hover:bg-slate-50 transition-all"
-          >
-            <Edit size={13} /> Edit Invoice
-          </button>
+                <button
+                  onClick={() => navigate(`/editor/${id}`, { state: { fromFolder } })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
+                >
+                  <Edit size={12} /> Edit Document
+                </button>
         </div>
       </header>
 
