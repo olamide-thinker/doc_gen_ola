@@ -37,7 +37,7 @@ const ReceiptEditor: React.FC = () => {
     () => localStorage.getItem("receiptHeaderImage") || "/Shan-PaymentReceipt.png",
   );
   const [isPreview, setIsPreview] = useState(false);
-  const [useStages] = useState(false);
+  const useSections = docData?.useSections ?? false;
 
   useEffect(() => {
     localStorage.setItem("receiptHeaderImage", headerImage);
@@ -138,7 +138,12 @@ const ReceiptEditor: React.FC = () => {
   };
 
   const subTotal = (docData.table.rows || []).reduce((acc: number, row: TableRow) => {
-    if (row.rowType === "section-header" || row.rowType === "section-total") return acc;
+    if (
+      row.rowType === "section-header" || 
+      row.rowType === "sub-section-header" || 
+      (row.rowType === "section-total" && useSections)
+    ) return acc;
+    if (row.rowType === "section-total" && !useSections) return acc;
     const totalCol = [...docData.table.columns].reverse().find(
       (c) => (c.type === "formula" || c.type === "number") && !c.hidden
     );
@@ -161,12 +166,72 @@ const ReceiptEditor: React.FC = () => {
 
   const grandTotal = currentRunningTotal;
 
-  const rowNumbering: Record<string, string> = {};
-  docData.table.rows.forEach((row, i) => {
-    if (row.rowType === "row" || !row.rowType) {
-      rowNumbering[row.id] = `${i + 1}`;
-    }
-  });
+  const getRowNumbering = (rows: TableRow[], useSections: boolean = false): Record<string, string> => {
+    const numbering: Record<string, string> = {};
+    let l1 = 0;
+    let l2 = 0;
+    let l3 = 0;
+    let inLevel1 = false;
+    let inLevel2 = false;
+
+    rows.forEach((row) => {
+      if (!useSections) {
+        if (row.rowType === "row" || !row.rowType) {
+          l1++;
+          numbering[row.id] = `${l1}`;
+        } else {
+          numbering[row.id] = "";
+        }
+        return;
+      }
+
+      const type = row.rowType || "row";
+
+      if (type === "section-header") {
+        l1++;
+        l2 = 0;
+        l3 = 0;
+        inLevel1 = true;
+        inLevel2 = false;
+        numbering[row.id] = `${l1}`;
+      } else if (type === "sub-section-header") {
+        if (inLevel1) {
+          l2++;
+          l3 = 0;
+          inLevel2 = true;
+          numbering[row.id] = `${l1}.${l2}`;
+        } else {
+          // Acts as a top-level item if no Level 1 active
+          l1++;
+          l2 = 0;
+          l3 = 0;
+          inLevel1 = true;
+          inLevel2 = true;
+          numbering[row.id] = `${l1}`;
+        }
+      } else if (type === "section-total") {
+        inLevel1 = false;
+        inLevel2 = false;
+        numbering[row.id] = "";
+      } else if (type === "row") {
+        if (inLevel2) {
+          l3++;
+          numbering[row.id] = `${l1}.${l2}.${l3}`;
+        } else if (inLevel1) {
+          l2++;
+          numbering[row.id] = `${l1}.${l2}`;
+        } else {
+          l1++;
+          numbering[row.id] = `${l1}`;
+        }
+      } else {
+        numbering[row.id] = "";
+      }
+    });
+    return numbering;
+  };
+
+  const rowNumbering = docData ? getRowNumbering(docData.table.rows, useSections) : {};
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -317,13 +382,13 @@ const ReceiptEditor: React.FC = () => {
               onAddRowAbove={() => {}}
               onAddSectionBelow={() => {}}
               onAddSectionAbove={() => {}}
-              onAddStageBelow={() => {}}
-              onAddStageAbove={() => {}}
+              onAddSubSectionBelow={() => {}}
+              onAddSubSectionAbove={() => {}}
               onMoveRow={() => {}}
-              useStages={false}
+              useSections={false}
               resolveFormula={resolveFormula}
+              resolveSectionTotalBackward={() => 0}
               resolveSectionTotal={() => 0}
-              resolveStageTotal={() => 0}
               onUpdateInvoiceCode={(upd) => updateDocData(prev => prev ? { ...prev, invoiceCode: { ...(prev.invoiceCode || {}), ...upd } as any } : null)}
               onUpdateSummaryItem={() => {}}
               onUpdateDate={(val) => updateDocData(prev => prev ? { ...prev, date: val } : null)}

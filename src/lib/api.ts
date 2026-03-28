@@ -83,7 +83,51 @@ const seedIfEmpty = () => {
   }
 };
 
+const migrateData = () => {
+  const documents = getFromStorage<Document>("documents");
+  let migrationNeeded = false;
+  
+  const updatedDocuments = documents.map(doc => {
+    if (!doc.content?.table?.rows) return doc;
+    
+    let docChanged = false;
+    const updatedRows = doc.content.table.rows.map(row => {
+      if (row.rowType === ("stage-header" as any)) {
+        docChanged = true;
+        migrationNeeded = true;
+        return { ...row, rowType: "section-header" as const };
+      }
+      if (row.rowType === ("section-header" as any)) {
+        docChanged = true;
+        migrationNeeded = true;
+        return { ...row, rowType: "sub-section-header" as const };
+      }
+      return row;
+    });
+    
+    if (docChanged) {
+      return {
+        ...doc,
+        content: {
+          ...doc.content,
+          table: {
+            ...doc.content.table,
+            rows: updatedRows
+          }
+        }
+      };
+    }
+    return doc;
+  });
+
+  if (migrationNeeded) {
+    console.log("Migrating Stage/Section types in documents...");
+    saveToStorage("documents", updatedDocuments);
+  }
+};
+
 seedIfEmpty();
+migrateData();
 
 export const api = {
   // --- Folders ---

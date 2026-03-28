@@ -21,12 +21,12 @@ export interface A4PageProps {
   onRemoveRow: (index: number) => void;
   onAddRowBelow: (index: number) => void;
   onAddRowAbove: (index: number) => void;
-  onAddSectionBelow: (index: number, numbered: boolean, type?: TableRow["rowType"]) => void;
-  onAddSectionAbove: (index: number, numbered: boolean, type?: TableRow["rowType"]) => void;
+  onAddSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onAddSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
   onMoveRow: (index: number, direction: "up" | "down") => void;
-  onAddStageBelow: (index: number) => void;
-  onAddStageAbove: (index: number) => void;
-  useStages: boolean;
+  onAddSubSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onAddSubSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  useSections: boolean;
   resolveFormula: (
     data: TableRow | Record<string, number>,
     formula: string | undefined,
@@ -41,8 +41,8 @@ export interface A4PageProps {
   isPreview: boolean;
   isEndOfRows: boolean;
   rowNumbering: Record<string, string>;
+  resolveSectionTotalBackward: (rows: TableRow[], fromIdx: number) => number;
   resolveSectionTotal: (rows: TableRow[], fromIdx: number) => number;
-  resolveStageTotal: (rows: TableRow[], fromIdx: number) => number;
   onUpdatePaymentMethod: (val: string) => void;
   onUpdateTransactionId: (val: string) => void;
   onUpdateReference: (val: string) => void;

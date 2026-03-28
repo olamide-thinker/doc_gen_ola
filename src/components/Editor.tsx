@@ -77,12 +77,12 @@ interface A4PageProps {
   onRemoveRow: (index: number) => void;
   onAddRowBelow: (index: number) => void;
   onAddRowAbove: (index: number) => void;
-  onAddSectionBelow: (index: number, numbered: boolean, type?: TableRow["rowType"]) => void;
-  onAddSectionAbove: (index: number, numbered: boolean, type?: TableRow["rowType"]) => void;
+  onAddSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onAddSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
   onMoveRow: (index: number, direction: "up" | "down") => void;
-  onAddStageBelow: (index: number) => void;
-  onAddStageAbove: (index: number) => void;
-  useStages: boolean;
+  onAddSubSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onAddSubSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  useSections: boolean;
   resolveFormula: (
     data: TableRow | Record<string, number>,
     formula: string | undefined,
@@ -97,8 +97,8 @@ interface A4PageProps {
   isPreview: boolean;
   isEndOfRows: boolean;
   rowNumbering: Record<string, string>;
+  resolveSectionTotalBackward: (rows: TableRow[], fromIdx: number) => number;
   resolveSectionTotal: (rows: TableRow[], fromIdx: number) => number;
-  resolveStageTotal: (rows: TableRow[], fromIdx: number) => number;
   onUpdatePaymentMethod: (val: string) => void;
   onUpdateTransactionId: (val: string) => void;
   onUpdateReference: (val: string) => void;
@@ -206,7 +206,7 @@ const Editor: React.FC = () => {
   const [history, setHistory] = useState<DocData[]>([]);
   const [future, setFuture] = useState<DocData[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [useStages, setUseStages] = useState(false);
+  const useSections = docData?.useSections ?? false;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -351,8 +351,8 @@ const Editor: React.FC = () => {
       };
 
       const next = { ...current, ...updates };
-      // Sync the combined text field — format: PREFIX/IS/COUNT/YEAR
-      next.text = `${next.prefix || "INV"}/IS/${next.count || "0001"}/${next.year || new Date().getFullYear()}`;
+      // Sync the combined text field — format: PREFIX/COMPANY/COUNT/YEAR
+      next.text = `${next.prefix || "INV"}/${next.company || "IS"}/${next.count || "0001"}/${next.year || new Date().getFullYear()}`;
 
       return { ...prev, invoiceCode: next };
     });
@@ -444,27 +444,29 @@ const Editor: React.FC = () => {
     });
   };
 
-  const onAddStageBelow = (i: number) => {
+  const onAddSectionBelow = (i: number, numbered?: boolean) => {
     updateDocData((prev: DocData | null) => {
       if (!prev) return null;
       const nr = [...prev.table.rows];
       nr.splice(i + 1, 0, {
         id: crypto.randomUUID(),
-        rowType: "stage-header",
-        sectionTitle: "New Stage",
+        rowType: "section-header",
+        sectionTitle: "New Section",
+        affectsNumbering: numbered ?? true,
       });
       return { ...prev, table: { ...prev.table, rows: nr } };
     });
   };
 
-  const onAddStageAbove = (i: number) => {
+  const onAddSectionAbove = (i: number, numbered?: boolean) => {
     updateDocData((prev: DocData | null) => {
       if (!prev) return null;
       const nr = [...prev.table.rows];
       nr.splice(i, 0, {
         id: crypto.randomUUID(),
-        rowType: "stage-header",
-        sectionTitle: "New Stage",
+        rowType: "section-header",
+        sectionTitle: "New Section",
+        affectsNumbering: numbered ?? true,
       });
       return { ...prev, table: { ...prev.table, rows: nr } };
     });
@@ -479,29 +481,31 @@ const Editor: React.FC = () => {
     });
   };
 
-  const onAddSectionBelow = (i: number, numbered: boolean, type: TableRow["rowType"] = "section-header") => {
+  const onAddSubSectionBelow = (i: number, numbered?: boolean, type?: TableRow["rowType"]) => {
     updateDocData((prev: DocData | null) => {
       if (!prev) return null;
       const nr = [...prev.table.rows];
+      const actualType = type ?? "sub-section-header";
       nr.splice(i + 1, 0, {
         id: crypto.randomUUID(),
-        rowType: type,
-        sectionTitle: type === "section-total" ? "Section Total" : "New Section",
-        affectsNumbering: numbered,
+        rowType: actualType,
+        sectionTitle: actualType === "section-total" ? "Section Total" : "New Sub-section",
+        affectsNumbering: numbered ?? true,
       });
       return { ...prev, table: { ...prev.table, rows: nr } };
     });
   };
 
-  const onAddSectionAbove = (i: number, numbered: boolean, type: TableRow["rowType"] = "section-header") => {
+  const onAddSubSectionAbove = (i: number, numbered?: boolean, type?: TableRow["rowType"]) => {
     updateDocData((prev: DocData | null) => {
       if (!prev) return null;
       const nr = [...prev.table.rows];
+      const actualType = type ?? "sub-section-header";
       nr.splice(i, 0, {
         id: crypto.randomUUID(),
-        rowType: type,
-        sectionTitle: type === "section-total" ? "Section Total" : "New Section",
-        affectsNumbering: numbered,
+        rowType: actualType,
+        sectionTitle: actualType === "section-total" ? "Section Total" : "New Sub-section",
+        affectsNumbering: numbered ?? true,
       });
       return { ...prev, table: { ...prev.table, rows: nr } };
     });
@@ -646,13 +650,13 @@ const Editor: React.FC = () => {
   // IMPORTANT: defined here (before subTotal) to avoid Temporal Dead Zone crash
   // when a document contains section-total rows (e.g. BOQ template).
 
-  /** Sum all regular rows that follow a stage-header, up to the next stage-header. */
-  const resolveStageTotal = (rows: TableRow[], stageIdx: number) => {
+  /** Sum all regular rows that follow a section-header, up to the next section-header. */
+  const resolveSectionTotal = (rows: TableRow[], sectionIdx: number) => {
     if (!docData) return 0;
     let total = 0;
-    for (let i = stageIdx + 1; i < rows.length; i++) {
+    for (let i = sectionIdx + 1; i < rows.length; i++) {
       const row = rows[i];
-      if (row.rowType === "stage-header") break;
+      if (row.rowType === "section-header") break;
       if (row.rowType === "row" || !row.rowType) {
         const totalCol = [...docData.table.columns].reverse().find(
           (c) => (c.type === "formula" || c.type === "number") && !c.hidden
@@ -667,12 +671,15 @@ const Editor: React.FC = () => {
     return total;
   };
 
-  /** Sum all regular rows between the preceding section-header and this section-total row. */
-  const resolveSectionTotal = (rows: TableRow[], fromIdx: number) => {
+  /** Sum all regular rows between the preceding section-header/sub-section-header and this section-total row. */
+  const resolveSectionTotalBackward = (rows: TableRow[], fromIdx: number) => {
     let total = 0;
     let startIdx = -1;
     for (let i = fromIdx; i >= 0; i--) {
-      if (rows[i].rowType === "section-header") { startIdx = i; break; }
+      // Now stops at the new section-header (formerly stage-header) or sub-section-header
+      if (rows[i].rowType === "section-header" || rows[i].rowType === "sub-section-header") { 
+        startIdx = i; break; 
+      }
     }
     if (startIdx === -1) return 0;
     for (let i = startIdx + 1; i < fromIdx; i++) {
@@ -696,17 +703,33 @@ const Editor: React.FC = () => {
   ) || false;
 
   const subTotal = hasStageTotals
-    ? (docData?.table.rows || []).reduce((acc: number, row: TableRow, idx: number) => {
-        if (row.rowType === "section-total") {
-          // Use resolveSectionTotal — sums rows between the preceding section-header
-          // and this section-total (i.e. looks backward, not forward).
-          return acc + resolveSectionTotal(docData?.table.rows || [], idx);
-        }
-        return acc;
-      }, 0)
+    ? (() => {
+        // subTotal = top-level regular rows (outside any section) + each section-total
+        let total = 0;
+        let insideSection = false;
+        const rows = docData?.table.rows || [];
+        const totalCol = [...docData.table.columns].reverse().find(
+          (c) => (c.type === "formula" || c.type === "number") && !c.hidden
+        );
+        rows.forEach((row, idx) => {
+          if (row.rowType === "section-header" || row.rowType === "sub-section-header") {
+            insideSection = true;
+          } else if (row.rowType === "section-total") {
+            insideSection = false;
+            total += resolveSectionTotalBackward(rows, idx);
+          } else if ((row.rowType === "row" || !row.rowType) && !insideSection) {
+            // Top-level regular row — not inside any section
+            const val = totalCol?.type === "formula"
+              ? resolveFormula(row, totalCol.formula)
+              : Number(row[totalCol?.id || ""]) || 0;
+            total += val;
+          }
+        });
+        return total;
+      })()
     : (docData?.table.rows || []).reduce((acc: number, row: TableRow) => {
         // Skip header/total rows if summing everything
-        if (row.rowType === "stage-header" || row.rowType === "section-header" || row.rowType === "section-total") return acc;
+        if (row.rowType === "section-header" || row.rowType === "sub-section-header" || row.rowType === "section-total") return acc;
         
         const totalCol = [...docData.table.columns].reverse().find(
           (c: any) => (c.type === "formula" || c.type === "number") && !c.hidden
@@ -747,60 +770,64 @@ const Editor: React.FC = () => {
 
   const getRowNumbering = (rows: TableRow[]) => {
     const numbering: Record<string, string> = {};
-    let mainIndex = 0;
-    let currentSectionMain = 0;
-    let subIndex = 0;
-    let inNumberedSection = false;
-
-    // Stage-specific counters
-    let stageIndex = 0;
-    let rowInStageIndex = 0;
-    let inStage = false;
+    let l1 = 0;
+    let l2 = 0;
+    let l3 = 0;
+    let inLevel1 = false;
+    let inLevel2 = false;
 
     rows.forEach((row) => {
-      if (useStages) {
-        if (row.rowType === "stage-header") {
-          stageIndex++;
-          rowInStageIndex = 0;
-          inStage = true;
-          numbering[row.id] = `${stageIndex}`;
-        } else if (row.rowType === "row" || !row.rowType) {
-          if (inStage) {
-            rowInStageIndex++;
-            numbering[row.id] = `${stageIndex}.${rowInStageIndex}`;
-          } else {
-            mainIndex++;
-            numbering[row.id] = `${mainIndex}`;
-          }
+      if (!useSections) {
+        if (row.rowType === "row" || !row.rowType) {
+          l1++; // Flat numbering
+          numbering[row.id] = `${l1}`;
         } else {
-          // section-header (sub-group) or section-total
           numbering[row.id] = "";
+        }
+        return;
+      }
+
+      const type = row.rowType || "row";
+
+      if (type === "section-header") {
+        l1++;
+        l2 = 0;
+        l3 = 0;
+        inLevel1 = true;
+        inLevel2 = false;
+        numbering[row.id] = `${l1}`;
+      } else if (type === "sub-section-header") {
+        if (inLevel1) {
+          l2++;
+          l3 = 0;
+          inLevel2 = true;
+          numbering[row.id] = `${l1}.${l2}`;
+        } else {
+          // Acts as a top-level item if no Level 1 active
+          l1++;
+          l2 = 0;
+          l3 = 0;
+          inLevel1 = true;
+          inLevel2 = false;
+          numbering[row.id] = `${l1}`;
+        }
+      } else if (type === "section-total") {
+        inLevel1 = false;
+        inLevel2 = false;
+        numbering[row.id] = "";
+      } else if (type === "row") {
+        if (inLevel2) {
+          l3++;
+          numbering[row.id] = `${l1}.${l2}.${l3}`;
+        } else if (inLevel1) {
+          l2++;
+          numbering[row.id] = `${l1}.${l2}`;
+        } else {
+          l1++;
+          numbering[row.id] = `${l1}`;
         }
       } else {
-        // Original numbering logic
-        if (row.rowType === "section-header") {
-          if (row.affectsNumbering) {
-            mainIndex++;
-            currentSectionMain = mainIndex;
-            subIndex = 0;
-            inNumberedSection = true;
-            numbering[row.id] = `${mainIndex}.0`;
-          } else {
-            inNumberedSection = false;
-            numbering[row.id] = "";
-          }
-        } else if (row.rowType === "section-total") {
-          inNumberedSection = false;
-          numbering[row.id] = "";
-        } else {
-          if (inNumberedSection) {
-            subIndex++;
-            numbering[row.id] = `${currentSectionMain}.${subIndex}`;
-          } else {
-            mainIndex++;
-            numbering[row.id] = `${mainIndex}.0`;
-          }
-        }
+        numbering[row.id] = "";
       }
     });
     return numbering;
@@ -838,7 +865,10 @@ const Editor: React.FC = () => {
       return Math.max(48, lines * 22);
     };
 
-    const allRows = docData.table.rows || [];
+    const allRows = (docData.table.rows || []).filter(r => 
+      useSections || 
+      (r.rowType !== "section-header" && r.rowType !== "sub-section-header" && r.rowType !== "section-total")
+    );
     const hasFooterContent = !!(
       docData.footer.notes || docData.footer.emphasis?.length
     );
@@ -1321,12 +1351,12 @@ const Editor: React.FC = () => {
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-col gap-2">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Invoice Code (Prefix / Count / Year)
+                        Invoice Code (Prefix / Company / Count / Year)
                       </span>
                       <div className="flex items-center gap-1.5">
                         <input
                           type="text"
-                          className="w-12 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
+                          className="w-10 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
                           value={docData.invoiceCode?.prefix || "INV"}
                           placeholder="INV"
                           onChange={(e) =>
@@ -1336,9 +1366,19 @@ const Editor: React.FC = () => {
                         <span className="text-slate-300">/</span>
                         <input
                           type="text"
+                          className="w-10 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
+                          value={docData.invoiceCode?.company || "IS"}
+                          placeholder="IS"
+                          onChange={(e) =>
+                            onUpdateInvoiceCode({ company: e.target.value })
+                          }
+                        />
+                        <span className="text-slate-300">/</span>
+                        <input
+                          type="text"
                           className="w-12 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
-                          value={docData.invoiceCode?.count || "001"}
-                          placeholder="001"
+                          value={docData.invoiceCode?.count || "0001"}
+                          placeholder="0001"
                           onChange={(e) =>
                             onUpdateInvoiceCode({ count: e.target.value })
                           }
@@ -1360,18 +1400,18 @@ const Editor: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Use Stages
+                        Use Sections
                       </span>
                       <button
-                        onClick={() => setUseStages(!useStages)}
+                        onClick={() => updateDocData(prev => prev ? { ...prev, useSections: !useSections } : null)}
                         className={cn(
                           "px-2 py-1 text-[9px] font-black uppercase rounded-full border transition-all",
-                          useStages
+                          useSections
                             ? "bg-primary text-white border-primary"
                             : "bg-slate-100 text-slate-400 border-slate-200",
                         )}
                       >
-                        {useStages ? "Enabled" : "Disabled"}
+                        {useSections ? "Enabled" : "Disabled"}
                       </button>
                     </div>
                   </div>
@@ -1497,15 +1537,15 @@ const Editor: React.FC = () => {
                 onAddRowAbove={onAddRowAbove}
                 onAddSectionBelow={onAddSectionBelow}
                 onAddSectionAbove={onAddSectionAbove}
-                onAddStageBelow={onAddStageBelow}
-                onAddStageAbove={onAddStageAbove}
+                onAddSubSectionBelow={onAddSubSectionBelow}
+                onAddSubSectionAbove={onAddSubSectionAbove}
                 onMoveRow={onMoveRow}
                 onUpdatePaymentMethod={onUpdatePaymentMethod}
                 onUpdateSignature={onUpdateSignature}
-                useStages={useStages}
+                useSections={useSections}
                 resolveFormula={resolveFormula}
+                resolveSectionTotalBackward={resolveSectionTotalBackward}
                 resolveSectionTotal={resolveSectionTotal}
-                resolveStageTotal={resolveStageTotal}
                 onUpdateInvoiceCode={(updates) =>
                   updateDocData((prev) =>
                     prev
@@ -1694,7 +1734,7 @@ const Editable: React.FC<EditableProps> = ({
         className,
       )}
     >
-      <span className={cn("block w-full break-all", multiline && "whitespace-pre-wrap")}>
+      <span className={cn("block w-full", multiline && "whitespace-pre-wrap")}>
         {displayValue}
       </span>
     </div>
@@ -1718,41 +1758,51 @@ interface SortableRowProps {
   onAddRowAbove: (index: number) => void;
   onAddSectionBelow: (
     index: number,
-    numbered: boolean,
+    numbered?: boolean,
     type?: TableRow["rowType"],
   ) => void;
   onAddSectionAbove: (
     index: number,
-    numbered: boolean,
+    numbered?: boolean,
     type?: TableRow["rowType"],
   ) => void;
-  onAddStageBelow: (index: number) => void;
-  onAddStageAbove: (index: number) => void;
-  useStages: boolean;
+  onAddSubSectionBelow: (
+    index: number,
+    numbered?: boolean,
+    type?: TableRow["rowType"],
+  ) => void;
+  onAddSubSectionAbove: (
+    index: number,
+    numbered?: boolean,
+    type?: TableRow["rowType"],
+  ) => void;
+  useSections: boolean;
   rowNumbering: Record<string, string>;
   resolveFormula: (
     data: TableRow | Record<string, number>,
     formula: string | undefined,
     context?: Record<string, number>,
   ) => number;
+  resolveSectionTotalBackward: (rows: TableRow[], fromIdx: number) => number;
   resolveSectionTotal: (rows: TableRow[], fromIdx: number) => number;
-  resolveStageTotal: (rows: TableRow[], fromIdx: number) => number;
 }
 
 const RowActionsMenu: React.FC<{
   onRemove: () => void;
   onAddRowBelow: () => void;
-  onAddStageBelow: () => void;
-  onAddSubGroupBelow: () => void;
+  onAddSectionBelow: () => void;
+  onAddSubSectionBelow: () => void;
   onAddTotalBelow: () => void;
-  useStages: boolean;
+  useSections: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
 }> = ({
   onRemove,
   onAddRowBelow,
-  onAddStageBelow,
-  onAddSubGroupBelow,
+  onAddSectionBelow,
+  onAddSubSectionBelow,
   onAddTotalBelow,
-  useStages,
+  useSections,
+  onOpenChange,
 }) => {
   const [isOpen, setIsOpen] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -1766,6 +1816,10 @@ const RowActionsMenu: React.FC<{
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  React.useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
 
   return (
     <div className="relative inline-block" ref={menuRef}>
@@ -1787,25 +1841,25 @@ const RowActionsMenu: React.FC<{
           >
             <Plus size={12} /> Add Row Below
           </button>
-          {useStages && (
+          {useSections && (
             <>
               <button
                 onClick={() => {
-                  onAddStageBelow();
+                  onAddSectionBelow();
                   setIsOpen(false);
                 }}
                 className="flex items-center w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors gap-2"
               >
-                <Table size={12} /> Add Stage Header
+                <Table size={12} /> Add Section Header
               </button>
               <button
                 onClick={() => {
-                  onAddSubGroupBelow();
+                  onAddSubSectionBelow();
                   setIsOpen(false);
                 }}
-                className="flex items-center w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors gap-2"
+                className="flex items-center text-left w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors gap-2"
               >
-                <Type size={12} /> Add Sub-group Header
+                <Type size={12} /> Add Sub-section Header
               </button>
               <button
                 onClick={() => {
@@ -1814,7 +1868,7 @@ const RowActionsMenu: React.FC<{
                 }}
                 className="flex items-center w-full px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors gap-2 font-bold text-amber-600"
               >
-                <Plus size={12} /> Add Stage Total
+                <Plus size={12} /> Add Section Total
               </button>
             </>
           )}
@@ -1847,13 +1901,13 @@ const SortableRow: React.FC<SortableRowProps> = ({
   onAddRowAbove,
   onAddSectionBelow,
   onAddSectionAbove,
-  onAddStageBelow,
-  onAddStageAbove,
-  useStages,
+  onAddSubSectionBelow,
+  onAddSubSectionAbove,
+  useSections,
   rowNumbering,
   resolveFormula,
+  resolveSectionTotalBackward,
   resolveSectionTotal,
-  resolveStageTotal,
 }) => {
   const {
     attributes,
@@ -1864,17 +1918,19 @@ const SortableRow: React.FC<SortableRowProps> = ({
     isDragging,
   } = useSortable({ id });
 
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
     backgroundColor: (startIndex + idx) % 2 === 1 ? "#FBFBFB" : "#fff",
-    zIndex: isDragging ? 100 : 1,
+    zIndex: isDragging ? 100 : (isMenuOpen ? 50 : 1),
     position: "relative" as const,
   };
   const rowNum = rowNumbering[id] || "";
 
-  if (row.rowType === "stage-header") {
+  if (row.rowType === "section-header") {
     return (
       <tr
         ref={setNodeRef}
@@ -1902,18 +1958,19 @@ const SortableRow: React.FC<SortableRowProps> = ({
                 <GripVertical size={12} className="text-slate-300" />
               </div>
             )}
-            <span className="font-bold text-center text-slate-800">{rowNum}</span>
+            <span className="font-bold text-slate-800">{rowNum}</span>
           </div>
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
-              <RowActionsMenu
-                onRemove={() => onRemoveRow(startIndex + idx)}
-                onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
-                onAddSubGroupBelow={() => onAddSectionBelow(startIndex + idx, false)}
-                onAddTotalBelow={() => onAddSectionBelow(startIndex + idx, false, "section-total")}
-                useStages={useStages}
-              />
+                    <RowActionsMenu
+                      onRemove={() => onRemoveRow(startIndex + idx)}
+                      onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
+                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx, true)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      useSections={useSections}
+                      onOpenChange={setIsMenuOpen}
+                    />
             </div>
           )}
         </td>
@@ -1922,7 +1979,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
           className="p-3"
         >
           <Editable
-            value={row.sectionTitle || "New Stage"}
+            value={row.sectionTitle || "New Section"}
             onSave={(val) =>
               onUpdateCell(startIndex + idx, "sectionTitle", val as string)
             }
@@ -1934,7 +1991,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
     );
   }
 
-  if (row.rowType === "section-header") {
+  if (row.rowType === "sub-section-header") {
     return (
       <tr
         ref={setNodeRef}
@@ -1962,18 +2019,19 @@ const SortableRow: React.FC<SortableRowProps> = ({
                 <GripVertical size={12} className="text-slate-300" />
               </div>
             )}
-            <span className="font-bold text-center">{rowNum}</span>
+            <span className="font-bold">{rowNum}</span>
           </div>
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
-              <RowActionsMenu
-                onRemove={() => onRemoveRow(startIndex + idx)}
-                onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
-                onAddSubGroupBelow={() => onAddSectionBelow(startIndex + idx, false)}
-                onAddTotalBelow={() => onAddSectionBelow(startIndex + idx, false, "section-total")}
-                useStages={useStages}
-              />
+                    <RowActionsMenu
+                      onRemove={() => onRemoveRow(startIndex + idx)}
+                      onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
+                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx, true)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      useSections={useSections}
+                      onOpenChange={setIsMenuOpen}
+                    />
             </div>
           )}
         </td>
@@ -1982,11 +2040,11 @@ const SortableRow: React.FC<SortableRowProps> = ({
           className="p-3"
         >
           <Editable
-            value={row.sectionTitle || "New Sub-group"}
+            value={row.sectionTitle || "New Sub-section"}
             onSave={(val) =>
               onUpdateCell(startIndex + idx, "sectionTitle", val as string)
             }
-            className="text-[13px] font-medium text-slate-600 pl-4"
+            className="text-[13px] font-bold text-slate-800 pl-4"
             readOnly={isPreview}
           />
         </td>
@@ -1995,7 +2053,16 @@ const SortableRow: React.FC<SortableRowProps> = ({
   }
 
   if (row.rowType === "section-total") {
-    const totalValue = resolveSectionTotal(data.table.rows, startIndex + idx);
+    const totalValue = resolveSectionTotalBackward(data.table.rows, startIndex + idx);
+    // Derive label from the nearest section-header above this row
+    let parentSectionTitle = "";
+    for (let i = startIndex + idx - 1; i >= 0; i--) {
+      const r = data.table.rows[i];
+      if (r.rowType === "section-header" || r.rowType === "sub-section-header") {
+        parentSectionTitle = (r.sectionTitle as string) || "";
+        break;
+      }
+    }
     return (
       <tr
         ref={setNodeRef}
@@ -2026,26 +2093,27 @@ const SortableRow: React.FC<SortableRowProps> = ({
           </div>
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
-              <RowActionsMenu
-                onRemove={() => onRemoveRow(startIndex + idx)}
-                onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
-                onAddSubGroupBelow={() => onAddSectionBelow(startIndex + idx, false)}
-                onAddTotalBelow={() => onAddSectionBelow(startIndex + idx, false, "section-total")}
-                useStages={useStages}
-              />
+                    <RowActionsMenu
+                      onRemove={() => onRemoveRow(startIndex + idx)}
+                      onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
+                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx, false)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      useSections={useSections}
+                      onOpenChange={setIsMenuOpen}
+                    />
             </div>
           )}
         </td>
         <td
           colSpan={data.table.columns.filter((c) => !c.hidden).length - 2}
-          className="p-3 text-right"
+          className="p-3"
         >
-          <span className="text-[11px] font-bold uppercase tracking-widest text-amber-900/60">
-            TOTAL
+          <span className="text-[13px] font-bold text-amber-900/80">
+            {parentSectionTitle ? `${parentSectionTitle} Total` : "Section Total"}
           </span>
         </td>
-        <td className="p-3 text-right font-bold text-slate-900 bg-amber-100/60">
+        <td className="p-3 font-bold text-slate-900 bg-amber-100/60">
           ₦{Math.round(totalValue).toLocaleString()}
         </td>
       </tr>
@@ -2083,7 +2151,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
                     size={12}
                     className="transition-opacity text-slate-300 no-print"
                   />
-                  <span className="font-bold text-center">{rowNum}</span>
+                  <span className="font-bold">{rowNum}</span>
                 </div>
 
                 {!isPreview && (
@@ -2091,10 +2159,11 @@ const SortableRow: React.FC<SortableRowProps> = ({
                     <RowActionsMenu
                       onRemove={() => onRemoveRow(startIndex + idx)}
                       onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                      onAddStageBelow={() => onAddStageBelow(startIndex + idx)}
-                      onAddSubGroupBelow={() => onAddSectionBelow(startIndex + idx, false)}
-                      onAddTotalBelow={() => onAddSectionBelow(startIndex + idx, false, "section-total")}
-                      useStages={useStages}
+                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx, true)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      useSections={useSections}
+                      onOpenChange={setIsMenuOpen}
                     />
                   </div>
                 )}
@@ -2163,6 +2232,8 @@ const A4Page: React.FC<A4PageProps> = ({
   onAddRowAbove,
   onAddSectionBelow,
   onAddSectionAbove,
+  onAddSubSectionBelow,
+  onAddSubSectionAbove,
   onMoveRow,
   resolveFormula,
   onUpdateInvoiceCode,
@@ -2174,11 +2245,9 @@ const A4Page: React.FC<A4PageProps> = ({
   isPreview,
   isEndOfRows,
   rowNumbering: rowNumbering,
+  resolveSectionTotalBackward,
+  useSections,
   resolveSectionTotal,
-  onAddStageBelow,
-  onAddStageAbove,
-  useStages,
-  resolveStageTotal,
   onUpdatePaymentMethod,
   onUpdateTransactionId,
   onUpdateReference,
@@ -2222,55 +2291,22 @@ const A4Page: React.FC<A4PageProps> = ({
         </div>
       )}
 
-      {/* Draggable Invoice Code */}
-      {isFirstPage && data.invoiceCode && (
-        <div
-          className={cn(
-            "absolute select-none z-30 group",
-            !isPreview ? "cursor-move" : "",
-          )}
-          style={{
-            left: `${data.invoiceCode.x}px`,
-            top: `${data.invoiceCode.y}px`,
-            color: data.invoiceCode.color,
-          }}
-          onMouseDown={(e) => {
-            if (isPreview) return;
-            e.preventDefault();
-            const startX = e.clientX - data.invoiceCode!.x;
-            const startY = e.clientY - data.invoiceCode!.y;
-            const handleMouseMove = (em: MouseEvent) => {
-              onUpdateInvoiceCode({
-                x: em.clientX - startX,
-                y: em.clientY - startY,
-              });
-            };
-            const handleMouseUp = () => {
-              document.removeEventListener("mousemove", handleMouseMove);
-              document.removeEventListener("mouseup", handleMouseUp);
-            };
-            document.addEventListener("mousemove", handleMouseMove);
-            document.addEventListener("mouseup", handleMouseUp);
-          }}
-        >
-          <div className="font-lexend font-bold text-[16px] whitespace-nowrap">
-            {data.invoiceCode.text}
-          </div>
-          {!isPreview && (
-            <div className="absolute transition-opacity border-2 border-dashed rounded opacity-0 pointer-events-none -inset-2 border-primary/20 group-hover:opacity-100" />
-          )}
-        </div>
-      )}
-
       {isFirstPage && (
         <>
-          <div className="mb-8 w-[150px] text-[14px] font-normal text-[#212121] font-lexend opacity-80 relative h-[1.5em] overflow-hidden">
-            <Editable
-              value={data.date}
-              onSave={(val) => onUpdateDate(val as string)}
-              isDate={true}
-              readOnly={isPreview}
-            />
+          <div className="mb-8 flex items-center justify-between text-[14px] font-normal text-[#212121] font-lexend">
+            <div className="opacity-80 relative h-[1.5em] overflow-hidden">
+              <Editable
+                value={data.date}
+                onSave={(val) => onUpdateDate(val as string)}
+                isDate={true}
+                readOnly={isPreview}
+              />
+            </div>
+            {data.invoiceCode && (
+              <span className="font-bold text-[15px] whitespace-nowrap" style={{ color: data.invoiceCode.color }}>
+                {data.invoiceCode.text}
+              </span>
+            )}
           </div>
 
           <div
@@ -2387,15 +2423,15 @@ const A4Page: React.FC<A4PageProps> = ({
                     onRemoveRow={onRemoveRow}
                     onAddRowBelow={onAddRowBelow}
                     onAddRowAbove={onAddRowAbove}
+                    onAddSubSectionBelow={onAddSubSectionBelow}
+                    onAddSubSectionAbove={onAddSubSectionAbove}
                     onAddSectionBelow={onAddSectionBelow}
                     onAddSectionAbove={onAddSectionAbove}
-                    onAddStageBelow={onAddStageBelow}
-                    onAddStageAbove={onAddStageAbove}
-                    useStages={useStages}
+                    useSections={useSections}
                     rowNumbering={rowNumbering}
                     resolveFormula={resolveFormula}
+                    resolveSectionTotalBackward={resolveSectionTotalBackward}
                     resolveSectionTotal={resolveSectionTotal}
-                    resolveStageTotal={resolveStageTotal}
                   />
                 ))}
               </SortableContext>

@@ -25,13 +25,13 @@ const SortableRow = ({
   onAddRowAbove,
   onAddSectionBelow,
   onAddSectionAbove,
-  onAddStageBelow,
-  onAddStageAbove,
-  useStages,
+  onAddSubSectionBelow,
+  onAddSubSectionAbove,
+  useSections,
   rowNumbering,
   resolveFormula,
+  resolveSectionTotalBackward,
   resolveSectionTotal,
-  resolveStageTotal,
 }: any) => {
   const {
     attributes,
@@ -51,18 +51,30 @@ const SortableRow = ({
 
   const isSection = row.rowType === "section-header";
   const isSectionTotal = row.rowType === "section-total";
-  const isStageHeader = row.rowType === "stage-header";
+  const isSubSection = row.rowType === "sub-section-header";
 
-  if (isSection || isSectionTotal || isStageHeader) {
+  if (isSection || isSectionTotal || isSubSection) {
+    // For section-total rows, auto-derive label from the nearest section-header above
+    let parentSectionTitle = "";
+    if (isSectionTotal) {
+      for (let i = startIndex + idx - 1; i >= 0; i--) {
+        const r = data.table.rows[i];
+        if (r.rowType === "section-header" || r.rowType === "sub-section-header") {
+          parentSectionTitle = (r.sectionTitle as string) || "";
+          break;
+        }
+      }
+    }
+
     return (
       <tr ref={setNodeRef} style={style} className="group/row">
         <td
           colSpan={data.table.columns.filter((c: any) => !c.hidden).length}
           className={cn(
             "p-2 text-[11px] font-black uppercase tracking-[0.2em] font-lexend relative",
-            isSection && "bg-slate-50 text-slate-400 border-y border-slate-100",
-            isSectionTotal && "bg-slate-100/50 text-slate-500 text-right pr-4",
-            isStageHeader && "bg-[#8D6E63]/10 text-[#8D6E63] border-y border-[#8D6E63]/20 py-3",
+            isSection && "bg-[#8D6E63]/10 text-[#8D6E63] border-y border-[#8D6E63]/20 py-3",
+            isSectionTotal && "bg-slate-100/50 text-slate-500",
+            isSubSection && "bg-slate-50 text-slate-400 border-y border-slate-100",
           )}
         >
           <div className="flex items-center justify-between">
@@ -74,22 +86,21 @@ const SortableRow = ({
                    </div>
                 </div>
               )}
-              {isStageHeader && <span className="mr-2">Stage {rowNumbering[row.id]}</span>}
-              <Editable
-                className="min-w-[150px]"
-                value={row.sectionTitle || ""}
-                onSave={(val) => onUpdateCell(startIndex + idx, "sectionTitle", val)}
-                readOnly={isPreview}
-              />
+              {isSection && <span className="mr-2">{rowNumbering[row.id]}</span>}
+              {isSectionTotal ? (
+                <span>{parentSectionTitle ? `${parentSectionTitle} Total` : "Section Total"}</span>
+              ) : (
+                <Editable
+                  className="min-w-[150px] font-bold"
+                  value={row.sectionTitle || ""}
+                  onSave={(val) => onUpdateCell(startIndex + idx, "sectionTitle", val)}
+                  readOnly={isPreview}
+                />
+              )}
             </div>
             {isSectionTotal && (
               <span className="font-bold">
-                ₦{Math.round(resolveSectionTotal(data.table.rows, startIndex + idx)).toLocaleString()}
-              </span>
-            )}
-             {isStageHeader && (
-              <span className="font-bold ml-auto pr-4">
-                Stage Total: ₦{Math.round(resolveStageTotal(data.table.rows, startIndex + idx)).toLocaleString()}
+                ₦{Math.round(resolveSectionTotalBackward(data.table.rows, startIndex + idx)).toLocaleString()}
               </span>
             )}
           </div>
@@ -120,7 +131,7 @@ const SortableRow = ({
               key={col.id}
               className={cn(
                 "p-4 text-[13px] font-normal text-slate-600 relative",
-                (isNumeric || isFormula) && "text-right font-lexend",
+                (isNumeric || isFormula) && "font-lexend",
               )}
             >
               {isIndex ? (
@@ -201,6 +212,8 @@ export const InvoicePage: React.FC<A4PageProps> = ({
   onAddRowAbove,
   onAddSectionBelow,
   onAddSectionAbove,
+  onAddSubSectionBelow,
+  onAddSubSectionAbove,
   resolveFormula,
   onUpdateInvoiceCode,
   onUpdateSummaryItem,
@@ -211,11 +224,14 @@ export const InvoicePage: React.FC<A4PageProps> = ({
   isPreview,
   isEndOfRows,
   rowNumbering,
+  resolveSectionTotalBackward,
+  useSections,
   resolveSectionTotal,
-  onAddStageBelow,
-  onAddStageAbove,
-  useStages,
-  resolveStageTotal,
+  onUpdatePaymentMethod,
+  onUpdateTransactionId,
+  onUpdateReference,
+  onUpdateSignature,
+  onUpdateReceiptMessage,
 }) => {
   return (
     <div
@@ -239,7 +255,7 @@ export const InvoicePage: React.FC<A4PageProps> = ({
           }}
         >
           <img
-            src="/Shan-Invoice.png"
+            src={data.isReceipt ? "/Shan-PaymentReceipt.png" : "/Shan-Invoice.png"}
             alt="Logo"
             className="object-contain object-center w-full h-full"
           />
@@ -250,38 +266,17 @@ export const InvoicePage: React.FC<A4PageProps> = ({
         </div>
       )}
 
-      {/* Draggable Invoice Code */}
-      {isFirstPage && data.invoiceCode && (
-        <div
-          className={cn("absolute select-none z-30 group", !isPreview ? "cursor-move" : "")}
-          style={{ left: `${data.invoiceCode.x}px`, top: `${data.invoiceCode.y}px`, color: data.invoiceCode.color }}
-          onMouseDown={(e) => {
-            if (isPreview) return;
-            e.preventDefault();
-            const startX = e.clientX - data.invoiceCode!.x;
-            const startY = e.clientY - data.invoiceCode!.y;
-            const handleMouseMove = (em: MouseEvent) => {
-              onUpdateInvoiceCode({ x: em.clientX - startX, y: em.clientY - startY });
-            };
-            const handleMouseUp = () => {
-              document.removeEventListener("mousemove", handleMouseMove);
-              document.removeEventListener("mouseup", handleMouseUp);
-            };
-            document.addEventListener("mousemove", handleMouseMove);
-            document.addEventListener("mouseup", handleMouseUp);
-          }}
-        >
-          <div className="font-lexend font-bold text-[16px] whitespace-nowrap">{data.invoiceCode.text}</div>
-          {!isPreview && (
-            <div className="absolute transition-opacity border-2 border-dashed rounded opacity-0 pointer-events-none -inset-2 border-primary/20 group-hover:opacity-100" />
-          )}
-        </div>
-      )}
-
       {isFirstPage && (
         <>
-          <div className="mb-8 w-[150px] text-[14px] font-normal text-[#212121] font-lexend opacity-80 relative h-[1.5em] overflow-hidden">
-            <Editable value={data.date} onSave={(val) => onUpdateDate(val as string)} isDate={true} readOnly={isPreview} />
+          <div className="mb-8 flex items-center justify-between text-[14px] font-normal text-[#212121] font-lexend">
+            <div className="opacity-80 relative h-[1.5em] overflow-hidden">
+              <Editable value={data.date} onSave={(val) => onUpdateDate(val as string)} isDate={true} readOnly={isPreview} />
+            </div>
+            {data.invoiceCode && (
+              <span className="font-bold text-[15px] whitespace-nowrap" style={{ color: data.invoiceCode.color }}>
+                {data.invoiceCode.text}
+              </span>
+            )}
           </div>
 
           <div className="flex justify-between px-4 py-8 mb-12" style={{ backgroundColor: ADDRESS_BG }}>
@@ -324,9 +319,17 @@ export const InvoicePage: React.FC<A4PageProps> = ({
             </div>
 
             <div className="flex flex-col items-start w-1/2 pl-12 text-left border-l font-lexend border-slate-200">
-              <span className="block text-[#503D36] font-normal text-[13px] font-luzia uppercase mb-3 tracking-[0.1em]">Billed From:</span>
-              <div className="font-normal text-[#212121] mb-1 text-[12px]">B3F3, The Genesis Estate, Off Odobo Street,</div>
-              <div className="font-normal text-[12px] opacity-90">Ogba-Ikeja, Lagos.</div>
+              <span className="block text-[#503D36] font-normal text-[13px] font-luzia uppercase mb-3 tracking-[0.1em]">{data.isReceipt ? "Ref:" : "Billed From:"}</span>
+              {data.isReceipt ? (
+                <div className="text-left font-normal text-[#212121] text-[12px] whitespace-pre-wrap">
+                  {data.reference || ""}
+                </div>
+              ) : (
+                <>
+                  <div className="font-normal text-[#212121] mb-1 text-[12px]">B3F3, The Genesis Estate, Off Odobo Street,</div>
+                  <div className="font-normal text-[12px] opacity-90">Ogba-Ikeja, Lagos.</div>
+                </>
+              )}
             </div>
           </div>
 
@@ -369,13 +372,13 @@ export const InvoicePage: React.FC<A4PageProps> = ({
                     onAddRowAbove={onAddRowAbove}
                     onAddSectionBelow={onAddSectionBelow}
                     onAddSectionAbove={onAddSectionAbove}
-                    onAddStageBelow={onAddStageBelow}
-                    onAddStageAbove={onAddStageAbove}
-                    useStages={useStages}
+                    onAddSubSectionBelow={onAddSubSectionBelow}
+                    onAddSubSectionAbove={onAddSubSectionAbove}
+                    useSections={useSections}
                     rowNumbering={rowNumbering}
                     resolveFormula={resolveFormula}
+                    resolveSectionTotalBackward={resolveSectionTotalBackward}
                     resolveSectionTotal={resolveSectionTotal}
-                    resolveStageTotal={resolveStageTotal}
                   />
                 ))}
               </SortableContext>
@@ -402,7 +405,7 @@ export const InvoicePage: React.FC<A4PageProps> = ({
             <TotalRow key={item.id} label={item.label} value={item.calculatedValue || 0} onSaveLabel={(val) => onUpdateSummaryItem(item.id, val)} readOnly={isPreview} />
           ))}
           <div className="flex items-center justify-between p-2 px-5 text-white" style={{ backgroundColor: PRIMARY_BROWN }}>
-            <span className="text-[14px] font-normal tracking-wide font-lexend uppercase">Grand Total</span>
+            <span className="text-[14px] font-normal tracking-wide font-lexend uppercase">{data.isReceipt ? "Total Amount Paid" : "Grand Total"}</span>
             <span className="text-[18px] font-bold font-lexend">₦{Math.round(totalPrice.grandTotal).toLocaleString()}</span>
           </div>
         </div>
@@ -410,22 +413,59 @@ export const InvoicePage: React.FC<A4PageProps> = ({
 
       {showFooter && (
         <div className="mt-8">
-          {data.footer.notes && (
-            <div className="p-4 border rounded bg-slate-50 border-slate-200">
-              <div className="text-[14px] font-normal text-[#212121] font-lexend leading-relaxed" dangerouslySetInnerHTML={{ __html: data.footer.notes }} />
-            </div>
-          )}
-
-          {data.footer.emphasis && Array.isArray(data.footer.emphasis) && data.footer.emphasis.length > 0 && (
-            <div className="mt-4 bg-[#EDEDED] px-8 py-5 flex flex-col gap-1.5">
-              {data.footer.emphasis.map((item: any, idx: number) => (
-                <div key={idx} className="flex items-center gap-3">
-                  <span className="uppercase text-[12px] tracking-widest text-[#7A7672] font-black">{item.key}:</span>
-                  <span className="text-[17px] font-bold tracking-wide text-[#4B4032]">{item.value}</span>
+           {data.isReceipt ? (
+            <div className="flex justify-between items-end border-t border-slate-100 pt-8 px-4">
+                <div className="flex flex-col gap-6 max-w-[50%]">
+                  <div className="text-[14px] font-medium text-slate-800 italic font-lexend whitespace-pre-wrap">
+                    {data.receiptMessage || "Thank you for your patronage!"}
+                  </div>
+                 <div className="flex flex-row gap-4">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold font-lexend">Payment Method</span>
+                    <span className="text-[8px] uppercase tracking-widest text-slate-400 font-normal font-lexend">Bank Transfer | Cash | POS | Cheque</span>
+                    <div className="text-[13px] font-lexend text-slate-700">
+                      {data.paymentMethod || "Transfer"}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold font-lexend">Transaction ID</span>
+                    <div className="text-[13px] font-lexend text-slate-700">
+                      {data.transactionId || "TRX-000000000"}
+                    </div>
+                  </div>
+                 </div>
                 </div>
-              ))}
+                
+                <div className="flex flex-col items-center gap-2">
+                 {data.signature && (
+                    <div className="h-16 w-32 relative">
+                      <img src={data.signature} alt="Signature" className="h-full w-full object-contain" />
+                    </div>
+                  )}
+                  <div className="w-40 border-t border-slate-300"></div>
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-bold font-lexend">Authorized Signatory</span>
+                </div>
             </div>
-          )}
+           ) : (
+             <>
+              {data.footer.notes && (
+                <div className="p-4 border rounded bg-slate-50 border-slate-200">
+                  <div className="text-[14px] font-normal text-[#212121] font-lexend leading-relaxed" dangerouslySetInnerHTML={{ __html: data.footer.notes }} />
+                </div>
+              )}
+
+              {data.footer.emphasis && Array.isArray(data.footer.emphasis) && data.footer.emphasis.length > 0 && (
+                <div className="mt-4 bg-[#EDEDED] px-8 py-5 flex flex-col gap-1.5">
+                  {data.footer.emphasis.map((item: any, idx: number) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      <span className="uppercase text-[12px] tracking-widest text-[#7A7672] font-black">{item.key}:</span>
+                      <span className="text-[17px] font-bold tracking-wide text-[#4B4032]">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+           )}
         </div>
       )}
 

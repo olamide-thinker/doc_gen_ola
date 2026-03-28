@@ -24,13 +24,10 @@ const SortableRow = ({
   onAddRowAbove,
   onAddSectionBelow,
   onAddSectionAbove,
-  onAddStageBelow,
-  onAddStageAbove,
-  useStages,
+  useSections,
   rowNumbering,
   resolveFormula,
   resolveSectionTotal,
-  resolveStageTotal,
 }: any) => {
   const {
     attributes,
@@ -50,18 +47,18 @@ const SortableRow = ({
 
   const isSection = row.rowType === "section-header";
   const isSectionTotal = row.rowType === "section-total";
-  const isStageHeader = row.rowType === "stage-header";
+  const isSubSection = row.rowType === "sub-section-header";
 
-  if (isSection || isSectionTotal || isStageHeader) {
+  if (isSection || isSectionTotal || isSubSection) {
     return (
       <tr ref={setNodeRef} style={style} className="group/row">
         <td
           colSpan={data.table.columns.filter((c: any) => !c.hidden).length}
           className={cn(
             "p-2 text-[11px] font-black uppercase tracking-[0.2em] font-lexend relative",
-            isSection && "bg-slate-50 text-slate-400 border-y border-slate-100",
+            isSection && "bg-[#8D6E63]/10 text-[#8D6E63] border-y border-[#8D6E63]/20 py-3",
             isSectionTotal && "bg-slate-100/50 text-slate-500 text-right pr-4",
-            isStageHeader && "bg-[#8D6E63]/10 text-[#8D6E63] border-y border-[#8D6E63]/20 py-3",
+            isSubSection && "bg-slate-50 text-slate-400 border-y border-slate-100",
           )}
         >
           <div className="flex items-center justify-between">
@@ -73,9 +70,9 @@ const SortableRow = ({
                    </div>
                 </div>
               )}
-              {isStageHeader && <span className="mr-2">Stage {rowNumbering[row.id]}</span>}
+            {isSection && <span className="mr-2">Section {rowNumbering[row.id]}</span>}
               <Editable
-                className="min-w-[150px]"
+                className="min-w-[150px] font-bold"
                 value={row.sectionTitle || ""}
                 onSave={(val) => onUpdateCell(startIndex + idx, "sectionTitle", val)}
                 readOnly={isPreview}
@@ -86,9 +83,9 @@ const SortableRow = ({
                 ₦{Math.round(resolveSectionTotal(data.table.rows, startIndex + idx)).toLocaleString()}
               </span>
             )}
-             {isStageHeader && (
+             {isSection && (
               <span className="font-bold ml-auto pr-4">
-                Stage Total: ₦{Math.round(resolveStageTotal(data.table.rows, startIndex + idx)).toLocaleString()}
+                Section Total: ₦{Math.round(resolveSectionTotal(data.table.rows, startIndex + idx)).toLocaleString()}
               </span>
             )}
           </div>
@@ -213,10 +210,10 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
   isEndOfRows,
   rowNumbering,
   resolveSectionTotal,
-  onAddStageBelow,
-  onAddStageAbove,
-  useStages,
-  resolveStageTotal,
+  // onAddStageBelow,
+  // onAddStageAbove,
+  // useStages,
+  // resolveStageTotal,
   onUpdatePaymentMethod,
   onUpdateTransactionId,
   onUpdateReference,
@@ -283,44 +280,17 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
         </div>
       )}
 
-      {/* Draggable Receipt Code */}
-      {isFirstPage && data.invoiceCode && (
-        <div
-          className={cn("absolute select-none z-30 group", !isPreview ? "cursor-move" : "")}
-          style={{ left: `${data.invoiceCode.x}px`, top: `${data.invoiceCode.y}px`, color: data.invoiceCode.color }}
-          onMouseDown={(e) => {
-            if (isPreview) return;
-            e.preventDefault();
-            const startX = e.clientX - data.invoiceCode!.x;
-            const startY = e.clientY - data.invoiceCode!.y;
-            const handleMouseMove = (em: MouseEvent) => {
-              onUpdateInvoiceCode({ x: em.clientX - startX, y: em.clientY - startY });
-            };
-            const handleMouseUp = () => {
-              document.removeEventListener("mousemove", handleMouseMove);
-              document.removeEventListener("mouseup", handleMouseUp);
-            };
-            document.addEventListener("mousemove", handleMouseMove);
-            document.addEventListener("mouseup", handleMouseUp);
-          }}
-        >
-          <div className="font-lexend font-bold text-[16px] whitespace-nowrap">
-            <Editable
-              value={data.invoiceCode.text}
-              onSave={(val) => onUpdateInvoiceCode({ text: val as string })}
-              readOnly={isPreview}
-            />
-          </div>
-          {!isPreview && (
-            <div className="absolute transition-opacity border-2 border-dashed rounded opacity-0 pointer-events-none -inset-2 border-primary/20 group-hover:opacity-100" />
-          )}
-        </div>
-      )}
-
       {isFirstPage && (
         <>
-          <div className="mb-6 w-[150px] text-[14px] font-normal text-[#212121] font-lexend opacity-80 relative h-[1.5em] overflow-hidden">
-            <Editable value={data.date} onSave={(val) => onUpdateDate(val as string)} isDate={true} readOnly={isPreview} />
+          <div className="mb-6 flex items-center justify-between text-[14px] font-normal text-[#212121] font-lexend">
+            <div className="opacity-80 relative h-[1.5em] overflow-hidden">
+              <Editable value={data.date} onSave={(val) => onUpdateDate(val as string)} isDate={true} readOnly={isPreview} />
+            </div>
+            {data.invoiceCode && (
+              <span className="font-bold text-[15px] whitespace-nowrap" style={{ color: data.invoiceCode.color }}>
+                {data.invoiceCode.text}
+              </span>
+            )}
           </div>
 
           <div className="flex justify-between px-6 py-6 mb-8" style={{ backgroundColor: ADDRESS_BG }}>
@@ -486,7 +456,7 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
          </div>
       </div>
 
-      {showRows && !data.isReceipt && (
+      {/* {showRows && !data.isReceipt && (
         <div className="overflow-hidden border border-slate-100">
           <table className="w-full border-collapse">
             <thead>
@@ -541,7 +511,7 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
             </div>
           )}
         </div>
-      )}
+      )} */}
 
       {showTotals && totalPrice && !data.isReceipt && (
         <div className="mt-8 border-t border-slate-100">

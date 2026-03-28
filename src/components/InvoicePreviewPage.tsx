@@ -49,13 +49,17 @@ function resolveFormulaUtil(
 }
 
 function computeTotalPriceForData(data: DocData): TotalPrice {
+  const useSections = data.useSections ?? false;
   const subTotal = (data.table.rows || []).reduce((acc, row) => {
     if (
-      row.rowType === "stage-header" ||
       row.rowType === "section-header" ||
-      row.rowType === "section-total"
+      row.rowType === "sub-section-header" ||
+      (row.rowType === "section-total" && useSections)
     )
       return acc;
+    
+    // Also skip section-total if we are not actually using sections
+    if (row.rowType === "section-total" && !useSections) return acc;
     const totalCol = [...data.table.columns]
       .reverse()
       .find((c) => (c.type === "formula" || c.type === "number") && !c.hidden);
@@ -81,11 +85,66 @@ function computeTotalPriceForData(data: DocData): TotalPrice {
   return { subTotal, summaries, grandTotal: currentTotal };
 }
 
-function getRowNumbering(rows: TableRow[]): Record<string, string> {
+const getRowNumbering = (rows: TableRow[], useSections: boolean = false): Record<string, string> => {
   const numbering: Record<string, string> = {};
-  rows.forEach((row, i) => {
-    if (row.rowType === "row" || !row.rowType) {
-      numbering[row.id as string] = String(i + 1);
+  let l1 = 0;
+  let l2 = 0;
+  let l3 = 0;
+  let inLevel1 = false;
+  let inLevel2 = false;
+
+  rows.forEach((row) => {
+    if (!useSections) {
+      if (row.rowType === "row" || !row.rowType) {
+        l1++;
+        numbering[row.id] = `${l1}`;
+      } else {
+        numbering[row.id] = "";
+      }
+      return;
+    }
+
+    const type = row.rowType || "row";
+
+    if (type === "section-header") {
+      l1++;
+      l2 = 0;
+      l3 = 0;
+      inLevel1 = true;
+      inLevel2 = false;
+      numbering[row.id] = `${l1}`;
+    } else if (type === "sub-section-header") {
+      if (inLevel1) {
+        l2++;
+        l3 = 0;
+        inLevel2 = true;
+        numbering[row.id] = `${l1}.${l2}`;
+      } else {
+        // Acts as a top-level item if no Level 1 active
+        l1++;
+        l2 = 0;
+        l3 = 0;
+        inLevel1 = true;
+        inLevel2 = true;
+        numbering[row.id] = `${l1}`;
+      }
+    } else if (type === "section-total") {
+      inLevel1 = false;
+      inLevel2 = false;
+      numbering[row.id] = "";
+    } else if (type === "row") {
+      if (inLevel2) {
+        l3++;
+        numbering[row.id] = `${l1}.${l2}.${l3}`;
+      } else if (inLevel1) {
+        l2++;
+        numbering[row.id] = `${l1}.${l2}`;
+      } else {
+        l1++;
+        numbering[row.id] = `${l1}`;
+      }
+    } else {
+      numbering[row.id] = "";
     }
   });
   return numbering;
@@ -107,7 +166,7 @@ const ScaledInvoicePreview: React.FC<{ data: DocData; scale: number }> = ({
   const containerWidth = A4_PX_WIDTH * scale;
   const containerHeight = A4_PX_HEIGHT * scale;
   const totalPrice = useMemo(() => computeTotalPriceForData(data), [data]);
-  const rowNumbering = useMemo(() => getRowNumbering(data.table.rows), [data]);
+  const rowNumbering = useMemo(() => getRowNumbering(data.table.rows, data.useSections), [data]);
   const headerHeight = Number(localStorage.getItem("headerHeight")) || 128;
 
   return (
@@ -154,9 +213,9 @@ const ScaledInvoicePreview: React.FC<{ data: DocData; scale: number }> = ({
           onAddSectionBelow={NOOP}
           onAddSectionAbove={NOOP}
           onMoveRow={NOOP}
-          onAddStageBelow={NOOP}
-          onAddStageAbove={NOOP}
-          useStages={false}
+          onAddSubSectionBelow={NOOP}
+          onAddSubSectionAbove={NOOP}
+          useSections={data.useSections ?? false}
           resolveFormula={resolveFormulaUtil}
           onUpdateInvoiceCode={NOOP}
           onUpdateSummaryItem={NOOP}
@@ -167,8 +226,8 @@ const ScaledInvoicePreview: React.FC<{ data: DocData; scale: number }> = ({
           isPreview={true}
           isEndOfRows={true}
           rowNumbering={rowNumbering}
+          resolveSectionTotalBackward={() => 0}
           resolveSectionTotal={() => 0}
-          resolveStageTotal={() => 0}
           onUpdatePaymentMethod={NOOP}
           onUpdateTransactionId={NOOP}
           onUpdateReference={NOOP}
@@ -567,12 +626,12 @@ const InvoicePreviewPage: React.FC = () => {
                             onUpdateContact={NOOP} onUpdateTitle={NOOP} onUpdateCell={NOOP}
                             onRemoveRow={NOOP} onAddRowBelow={NOOP} onAddRowAbove={NOOP}
                             onAddSectionBelow={NOOP} onAddSectionAbove={NOOP} onMoveRow={NOOP}
-                            onAddStageBelow={NOOP} onAddStageAbove={NOOP} useStages={false}
+                            onAddSubSectionBelow={NOOP} onAddSubSectionAbove={NOOP} useSections={receipt.content.useSections ?? false}
                             resolveFormula={resolveFormulaUtil} onUpdateInvoiceCode={NOOP}
                             onUpdateSummaryItem={NOOP} onUpdateDate={NOOP}
                             showRows={false} showTotals={false} showFooter={false}
-                            isPreview={true} isEndOfRows={true} rowNumbering={{}}
-                            resolveSectionTotal={() => 0} resolveStageTotal={() => 0}
+                            isPreview={true} isEndOfRows={true} rowNumbering={getRowNumbering(receipt.content.table.rows, receipt.content.useSections)}
+                            resolveSectionTotalBackward={() => 0} resolveSectionTotal={() => 0}
                             onUpdatePaymentMethod={NOOP} onUpdateTransactionId={NOOP}
                             onUpdateReference={NOOP} onUpdateSignature={NOOP}
                             onUpdateReceiptMessage={NOOP} onUpdateTotalInvoiceAmount={NOOP}
@@ -648,12 +707,12 @@ const InvoicePreviewPage: React.FC = () => {
                             onUpdateContact={NOOP} onUpdateTitle={NOOP} onUpdateCell={NOOP}
                             onRemoveRow={NOOP} onAddRowBelow={NOOP} onAddRowAbove={NOOP}
                             onAddSectionBelow={NOOP} onAddSectionAbove={NOOP} onMoveRow={NOOP}
-                            onAddStageBelow={NOOP} onAddStageAbove={NOOP} useStages={false}
+                            onAddSubSectionBelow={NOOP} onAddSubSectionAbove={NOOP} useSections={receipt.content.useSections ?? false}
                             resolveFormula={resolveFormulaUtil} onUpdateInvoiceCode={NOOP}
                             onUpdateSummaryItem={NOOP} onUpdateDate={NOOP}
                             showRows={false} showTotals={false} showFooter={false}
-                            isPreview={true} isEndOfRows={true} rowNumbering={{}}
-                            resolveSectionTotal={() => 0} resolveStageTotal={() => 0}
+                            isPreview={true} isEndOfRows={true} rowNumbering={getRowNumbering(receipt.content.table.rows, receipt.content.useSections)}
+                            resolveSectionTotalBackward={() => 0} resolveSectionTotal={() => 0}
                             onUpdatePaymentMethod={NOOP} onUpdateTransactionId={NOOP}
                             onUpdateReference={NOOP} onUpdateSignature={NOOP}
                             onUpdateReceiptMessage={NOOP} onUpdateTotalInvoiceAmount={NOOP}

@@ -18,7 +18,7 @@ export interface TableColumn {
 
 export interface TableRow {
   id: string;
-  rowType?: "row" | "section-header" | "section-total" | "stage-header";
+  rowType?: "row" | "section-header" | "section-total" | "sub-section-header";
   sectionTitle?: string;
   affectsNumbering?: boolean;
   [key: string]: string | number | boolean | undefined;
@@ -41,6 +41,7 @@ export interface Footer {
 export interface InvoiceCode {
   text: string;
   prefix?: string;
+  company?: string;
   count?: string;
   year?: string;
   x: number;
@@ -59,6 +60,7 @@ export interface DocData {
   };
   footer: Footer;
   invoiceCode?: InvoiceCode;
+  useSections?: boolean;
   isReceipt?: boolean;
   paymentMethod?: string;
   transactionId?: string;

@@ -100,7 +100,7 @@ export const Editable: React.FC<EditableProps> = ({
         className,
       )}
     >
-      <span className={cn("block w-full break-all", multiline && "whitespace-pre-wrap")}>
+      <span className={cn("block w-full", multiline && "whitespace-pre-wrap")}>
         {displayValue}
       </span>
     </div>
