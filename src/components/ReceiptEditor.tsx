@@ -4,6 +4,7 @@ import {
   Printer,
   ArrowLeft,
   RefreshCw,
+  Check,
 } from "../lib/icons/lucide";
 import {
   DndContext,
@@ -42,6 +43,14 @@ const ReceiptEditor: React.FC = () => {
     localStorage.setItem("receiptHeaderImage", headerImage);
   }, [headerImage]);
 
+  useEffect(() => {
+    if (docData) {
+      const receiptNo = docData.invoiceCode?.text || "Receipt";
+      const clientName = docData.contact?.name || "Client";
+      document.title = `${receiptNo} - ${clientName}`;
+    }
+  }, [docData]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, {
@@ -53,6 +62,13 @@ const ReceiptEditor: React.FC = () => {
     queryKey: ["document", id],
     queryFn: () => api.getDocument(id!),
     enabled: !!id,
+  });
+
+  // Fetch parent invoice for breadcrumb
+  const { data: parentInvoice } = useQuery({
+    queryKey: ["document", docMetadata?.invoiceId],
+    queryFn: () => api.getDocument(docMetadata!.invoiceId!),
+    enabled: !!docMetadata?.invoiceId,
   });
 
   useEffect(() => {
@@ -93,22 +109,57 @@ const ReceiptEditor: React.FC = () => {
       </div>
     );
 
-  // Simplified logic for Receipt (no stages, just rows, simple subtotal)
+  const resolveFormula = (
+    rowData: TableRow | Record<string, number>,
+    formula: string | undefined,
+    context: Record<string, number> = {},
+  ): number => {
+    if (!formula) return 0;
+    try {
+      let expression = formula.replace(/(\d*\.?\d+)\s*%/g, "($1/100)");
+      Object.keys(context).forEach((key) => {
+        expression = expression.replace(new RegExp(`\\b${key}\\b`, "g"), String(Number(context[key]) || 0));
+      });
+      const matches = formula.match(/[A-Z]+/g) || [];
+      matches.forEach((cid) => {
+        if (context[cid] !== undefined) return;
+        expression = expression.replace(new RegExp(`\\b${cid}\\b`, "g"), String(Number((rowData as any)[cid]) || 0));
+      });
+      const idMatches = formula.match(/[a-z][a-zA-Z0-9]+/g) || [];
+      idMatches.forEach((mid) => {
+        if (context[mid] !== undefined) return;
+        expression = expression.replace(new RegExp(`\\b${mid}\\b`, "g"), String(Number((rowData as any)[mid]) || 0));
+      });
+      if (/[^0-9\s+\-*/().]/.test(expression)) return 0;
+      return new Function(`return ${expression}`)();
+    } catch {
+      return 0;
+    }
+  };
+
   const subTotal = (docData.table.rows || []).reduce((acc: number, row: TableRow) => {
     if (row.rowType === "section-header" || row.rowType === "section-total") return acc;
     const totalCol = [...docData.table.columns].reverse().find(
       (c) => (c.type === "formula" || c.type === "number") && !c.hidden
     );
-    const rowTotal = Number(row[totalCol?.id || ""]) || 0;
+    const rowTotal = totalCol?.type === "formula"
+      ? resolveFormula(row, totalCol.formula)
+      : Number(row[totalCol?.id || ""]) || 0;
     return acc + rowTotal;
   }, 0);
 
-  const summaryForRender = (docData.table.summary || []).map((item: any, idx: number) => {
-     // For receipts, we assume simple sum if not specified
-     return { ...item, calculatedValue: Number(item.value) || 0 };
+  const summaryForRender: any[] = [];
+  let currentRunningTotal = subTotal;
+  (docData.table.summary || []).forEach((item: any, idx: number) => {
+    const displayId = String.fromCharCode(65 + idx);
+    const val = item.type === "formula"
+      ? resolveFormula({}, item.formula, { subTotal, prev: currentRunningTotal })
+      : Number(item.value) || 0;
+    summaryForRender.push({ ...item, calculatedValue: val, displayId });
+    currentRunningTotal += val;
   });
 
-  const grandTotal = subTotal + summaryForRender.reduce((acc, s) => acc + s.calculatedValue, 0);
+  const grandTotal = currentRunningTotal;
 
   const rowNumbering: Record<string, string> = {};
   docData.table.rows.forEach((row, i) => {
@@ -150,43 +201,82 @@ const ReceiptEditor: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden print:overflow-visible print:h-auto">
-      <div className="preview-container flex-1 overflow-y-auto p-6 lg:p-16 flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto">
-        {!isPreview && (
-           <div className="fixed z-50 flex gap-2 top-6 left-6 no-print">
+      {/* ── Sticky breadcrumb header ── */}
+      <header className="h-14 border-b border-border bg-white flex items-center gap-2 px-6 shrink-0 shadow-sm z-10 no-print print:hidden">
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-700 transition-colors uppercase tracking-widest shrink-0"
+        >
+          <ArrowLeft size={13} /> All Files
+        </button>
+        {docMetadata?.invoiceId && parentInvoice && (
+          <>
+            <span className="text-slate-200 font-thin text-base">/</span>
             <button
-              onClick={() => navigate("/dashboard")}
-              className="px-4 py-2 bg-white border border-slate-200 text-slate-900 rounded-full transition-all shadow-xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase"
+              onClick={() => navigate(`/invoice-preview/${docMetadata.invoiceId}`)}
+              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
             >
-              <ArrowLeft size={16} /> Dashboard
+              {parentInvoice.content?.invoiceCode?.text ? (
+                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-primary/10 text-primary tracking-wider font-lexend">
+                  {parentInvoice.content.invoiceCode.text}
+                </span>
+              ) : (
+                <span className="text-xs font-semibold text-slate-600 truncate max-w-[160px]">
+                  {parentInvoice.name}
+                </span>
+              )}
             </button>
-          </div>
+          </>
         )}
-        
-        {isPreview && (
-          <div className="fixed z-50 flex gap-2 top-6 right-6 no-print">
-            <button
-              onClick={() => setIsPreview(false)}
-              className="px-4 py-2 bg-slate-900 text-white rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase"
-            >
-              <ArrowLeft size={16} /> Edit Mode
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="px-4 py-2 bg-white border border-slate-200 text-slate-900 rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase"
-            >
-              <Printer size={16} /> Print
-            </button>
-          </div>
+        <span className="text-slate-200 font-thin text-base">/</span>
+        {docData.invoiceCode?.text ? (
+          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-slate-800 text-white tracking-wider font-lexend">
+            {docData.invoiceCode.text}
+          </span>
+        ) : (
+          <span className="text-xs font-semibold text-slate-700 truncate max-w-[200px]">
+            {docMetadata?.name || "Receipt"}
+          </span>
         )}
 
-        {!isPreview && (
-          <button
+        {/* Save indicator */}
+        <div className="ml-auto flex items-center gap-3">
+          {saveMutation.isPending ? (
+            <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400 flex items-center gap-1.5">
+              <RefreshCw size={11} className="animate-spin" /> Saving…
+            </span>
+          ) : saveMutation.isSuccess ? (
+            <span className="text-[10px] font-bold tracking-widest uppercase text-emerald-500 flex items-center gap-1.5">
+              <Check size={11} /> Saved
+            </span>
+          ) : null}
+          {isPreview ? (
+            <>
+              <button
+                onClick={() => setIsPreview(false)}
+                className="px-3 py-1.5 text-xs font-bold border border-border rounded-md bg-white hover:bg-slate-50 transition-all flex items-center gap-1.5"
+              >
+                <ArrowLeft size={12} /> Edit Mode
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all flex items-center gap-1.5"
+              >
+                <Printer size={12} /> Print
+              </button>
+            </>
+          ) : (
+            <button
               onClick={() => setIsPreview(true)}
-              className="fixed bottom-10 right-10 z-50 px-8 py-4 bg-primary text-primary-foreground rounded-full shadow-2xl font-black uppercase tracking-widest text-xs flex items-center gap-2 hover:scale-105 transition-all"
+              className="px-3 py-1.5 text-xs font-bold bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all flex items-center gap-1.5"
             >
-              <Printer size={18} /> Preview & Print
-          </button>
-        )}
+              <Printer size={12} /> Preview & Print
+            </button>
+          )}
+        </div>
+      </header>
+
+      <div className="preview-container flex-1 overflow-y-auto p-6 lg:p-16 flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto">
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           {pages.map((page, idx) => (
@@ -231,7 +321,7 @@ const ReceiptEditor: React.FC = () => {
               onAddStageAbove={() => {}}
               onMoveRow={() => {}}
               useStages={false}
-              resolveFormula={(row, formula) => 0} // Receipts skip formulas for now
+              resolveFormula={resolveFormula}
               resolveSectionTotal={() => 0}
               resolveStageTotal={() => 0}
               onUpdateInvoiceCode={(upd) => updateDocData(prev => prev ? { ...prev, invoiceCode: { ...(prev.invoiceCode || {}), ...upd } as any } : null)}

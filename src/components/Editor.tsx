@@ -342,8 +342,8 @@ const Editor: React.FC = () => {
       if (!prev) return null;
       const current = prev.invoiceCode || {
         text: "",
-        prefix: "SI",
-        count: String(Math.floor(Math.random() * 999) + 1).padStart(3, "0"),
+        prefix: "INV",
+        count: api.getNextInvoiceCount(),
         year: String(new Date().getFullYear()),
         x: 600,
         y: 100,
@@ -351,8 +351,8 @@ const Editor: React.FC = () => {
       };
 
       const next = { ...current, ...updates };
-      // Sync the combined text field
-      next.text = `${next.prefix || "SI"}/${next.count || "001"}/${next.year || new Date().getFullYear()}`;
+      // Sync the combined text field — format: PREFIX/IS/COUNT/YEAR
+      next.text = `${next.prefix || "INV"}/IS/${next.count || "0001"}/${next.year || new Date().getFullYear()}`;
 
       return { ...prev, invoiceCode: next };
     });
@@ -642,6 +642,55 @@ const Editor: React.FC = () => {
       </div>
     );
 
+  // ── Section / Stage total resolvers ────────────────────────────────────────
+  // IMPORTANT: defined here (before subTotal) to avoid Temporal Dead Zone crash
+  // when a document contains section-total rows (e.g. BOQ template).
+
+  /** Sum all regular rows that follow a stage-header, up to the next stage-header. */
+  const resolveStageTotal = (rows: TableRow[], stageIdx: number) => {
+    if (!docData) return 0;
+    let total = 0;
+    for (let i = stageIdx + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.rowType === "stage-header") break;
+      if (row.rowType === "row" || !row.rowType) {
+        const totalCol = [...docData.table.columns].reverse().find(
+          (c) => (c.type === "formula" || c.type === "number") && !c.hidden
+        );
+        const val =
+          totalCol?.type === "formula"
+            ? resolveFormula(row, totalCol.formula)
+            : Number(row[totalCol?.id || ""]) || 0;
+        total += val;
+      }
+    }
+    return total;
+  };
+
+  /** Sum all regular rows between the preceding section-header and this section-total row. */
+  const resolveSectionTotal = (rows: TableRow[], fromIdx: number) => {
+    let total = 0;
+    let startIdx = -1;
+    for (let i = fromIdx; i >= 0; i--) {
+      if (rows[i].rowType === "section-header") { startIdx = i; break; }
+    }
+    if (startIdx === -1) return 0;
+    for (let i = startIdx + 1; i < fromIdx; i++) {
+      const row = rows[i];
+      if (row.rowType === "row" || !row.rowType) {
+        const totalCol = [...docData.table.columns].reverse().find(
+          (c) => (c.type === "formula" || c.type === "number") && !c.hidden
+        );
+        const val =
+          totalCol?.type === "formula"
+            ? resolveFormula(row, totalCol.formula)
+            : Number(row[totalCol?.id || ""]) || 0;
+        total += val;
+      }
+    }
+    return total;
+  };
+
   const hasStageTotals = docData?.table.rows?.some(
     (r) => r.rowType === "section-total",
   ) || false;
@@ -649,7 +698,9 @@ const Editor: React.FC = () => {
   const subTotal = hasStageTotals
     ? (docData?.table.rows || []).reduce((acc: number, row: TableRow, idx: number) => {
         if (row.rowType === "section-total") {
-          return acc + resolveStageTotal(docData?.table.rows || [], idx);
+          // Use resolveSectionTotal — sums rows between the preceding section-header
+          // and this section-total (i.e. looks backward, not forward).
+          return acc + resolveSectionTotal(docData?.table.rows || [], idx);
         }
         return acc;
       }, 0)
@@ -756,57 +807,6 @@ const Editor: React.FC = () => {
   };
 
   const rowNumbering = docData ? getRowNumbering(docData.table.rows) : {};
-
-  // Resolve stage totals
-  const resolveStageTotal = (rows: TableRow[], stageIdx: number) => {
-    if (!docData) return 0;
-    let total = 0;
-    // Sum rows from the stage header until the next stage header or end of table
-    for (let i = stageIdx + 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.rowType === "stage-header") break;
-      if (row.rowType === "row" || !row.rowType) {
-        const totalCol = [...docData.table.columns].reverse().find(
-          (c) => (c.type === "formula" || c.type === "number") && !c.hidden
-        );
-        const val =
-          totalCol?.type === "formula"
-            ? resolveFormula(row, totalCol.formula)
-            : Number(row[totalCol?.id || ""]) || 0;
-        total += val;
-      }
-    }
-    return total;
-  };
-
-  const resolveSectionTotal = (rows: TableRow[], fromIdx: number) => {
-    let total = 0;
-    // Find the current section header start
-    let startIdx = -1;
-    for (let i = fromIdx; i >= 0; i--) {
-      if (rows[i].rowType === "section-header") {
-        startIdx = i;
-        break;
-      }
-    }
-    if (startIdx === -1) return 0;
-
-    // Sum all rows until the next section total or end of section
-    for (let i = startIdx + 1; i < fromIdx; i++) {
-      const row = rows[i];
-      if (row.rowType === "row" || !row.rowType) {
-        const totalCol = [...docData.table.columns].reverse().find(
-          (c) => (c.type === "formula" || c.type === "number") && !c.hidden
-        );
-        const val =
-          totalCol?.type === "formula"
-            ? resolveFormula(row, totalCol.formula)
-            : Number(row[totalCol?.id || ""]) || 0;
-        total += val;
-      }
-    }
-    return total;
-  };
 
   const MM_TO_PX = 3.78;
   const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
@@ -1028,7 +1028,7 @@ const Editor: React.FC = () => {
           <div className="w-full lg:w-[380px] flex flex-col border-r border-slate-200/60 bg-white pb-5 px-5 overflow-y-auto scrollbar-none no-print">
             <div className="sticky top-0 z-10 flex items-center justify-between pt-5 pb-4 mb-8 bg-white border-b border-border">
               <button
-                onClick={() => navigate("/dashboard")}
+                onClick={() => navigate(`/invoice-preview/${id}`)}
                 className="flex items-center gap-2 transition-colors text-slate-500 hover:text-slate-900 group"
               >
                 <ArrowLeft
@@ -1036,7 +1036,7 @@ const Editor: React.FC = () => {
                   className="group-hover:-translate-x-0.5 transition-transform"
                 />
                 <span className="text-[10px] font-semibold uppercase tracking-widest font-lexend">
-                  Dashboard
+                  Invoice
                 </span>
               </button>
               <div className="flex items-center gap-2">
@@ -1327,8 +1327,8 @@ const Editor: React.FC = () => {
                         <input
                           type="text"
                           className="w-12 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
-                          value={docData.invoiceCode?.prefix || "SI"}
-                          placeholder="SI"
+                          value={docData.invoiceCode?.prefix || "INV"}
+                          placeholder="INV"
                           onChange={(e) =>
                             onUpdateInvoiceCode({ prefix: e.target.value })
                           }
@@ -1995,7 +1995,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
   }
 
   if (row.rowType === "section-total") {
-    const totalValue = resolveStageTotal(data.table.rows, startIndex + idx);
+    const totalValue = resolveSectionTotal(data.table.rows, startIndex + idx);
     return (
       <tr
         ref={setNodeRef}

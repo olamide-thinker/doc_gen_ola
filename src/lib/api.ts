@@ -1,4 +1,4 @@
-import { DocData } from "../types";
+import { DocData, InvoiceCode } from "../types";
 import { TEMPLATES, TemplateDefinition } from "./templates";
 
 export interface Folder {
@@ -14,6 +14,7 @@ export interface Document {
   name: string;
   content: DocData;
   folderId: string | null;
+  invoiceId?: string | null;
   thumbnail?: string;
   createdAt: string;
   updatedAt: string;
@@ -239,5 +240,89 @@ export const api = {
     templates[index] = { ...templates[index], isPinned: !templates[index].isPinned };
     saveToStorage("templates", templates);
     return templates[index];
-  }
+  },
+
+  // --- Global Counters ---
+  getNextReceiptNumber: (): string => {
+    const counter = Number(localStorage.getItem("shan_receipt_counter") || "0") + 1;
+    localStorage.setItem("shan_receipt_counter", String(counter));
+    const year = new Date().getFullYear();
+    return `REC/IS/${String(counter).padStart(4, "0")}/${year}`;
+  },
+
+  /** Read what the next invoice number will be WITHOUT consuming it (for form previews). */
+  peekNextInvoiceNumber: (): string => {
+    const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
+    const year = new Date().getFullYear();
+    return `INV/IS/${String(counter).padStart(4, "0")}/${year}`;
+  },
+
+  /** Returns a full InvoiceCode object with a globally unique number assigned at creation time. */
+  getNextInvoiceNumber: (): InvoiceCode => {
+    const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
+    localStorage.setItem("shan_invoice_counter", String(counter));
+    const year = new Date().getFullYear();
+    const count = String(counter).padStart(4, "0");
+    return {
+      text: `INV/IS/${count}/${year}`,
+      prefix: "INV",
+      count,
+      year: String(year),
+      x: 600,
+      y: 100,
+      color: "#503D36",
+    };
+  },
+
+  /** Legacy: returns just the padded count string. Used as editor fallback for old documents. */
+  getNextInvoiceCount: (): string => {
+    const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
+    localStorage.setItem("shan_invoice_counter", String(counter));
+    return String(counter).padStart(4, "0");
+  },
+
+  // --- Invoice-Receipt Linking ---
+  getReceiptsForInvoice: async (invoiceId: string): Promise<Document[]> => {
+    await delay(200);
+    const documents = getFromStorage<Document>("documents");
+    return documents.filter(d => d.invoiceId === invoiceId && d.content?.isReceipt);
+  },
+
+  /** Search all documents across all folders by name, number, title, client, reference, date. */
+  searchAll: async (query: string): Promise<Document[]> => {
+    if (!query.trim()) return [];
+    await delay(150);
+    const documents = getFromStorage<Document>("documents");
+    const q = query.toLowerCase().trim();
+    return documents.filter((d) =>
+      d.name.toLowerCase().includes(q) ||
+      (d.content?.title || "").toLowerCase().includes(q) ||
+      (d.content?.invoiceCode?.text || "").toLowerCase().includes(q) ||
+      (d.content?.contact?.name || "").toLowerCase().includes(q) ||
+      (d.content?.reference || "").toLowerCase().includes(q) ||
+      (d.content?.date || "").toLowerCase().includes(q)
+    );
+  },
+
+  /** Fetch every document regardless of folder (for ID lookups). */
+  getAllDocuments: async (): Promise<Document[]> => {
+    await delay(100);
+    return getFromStorage<Document>("documents");
+  },
+
+  createReceiptDocument: async (data: DocData, invoiceId: string): Promise<Document> => {
+    await delay(300);
+    const documents = getFromStorage<Document>("documents");
+    const newDoc: Document = {
+      id: crypto.randomUUID(),
+      name: data.invoiceCode?.text || "Receipt",
+      content: data,
+      folderId: null,
+      invoiceId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    saveToStorage("documents", [...documents, newDoc]);
+    return newDoc;
+  },
 };

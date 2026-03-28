@@ -2,6 +2,8 @@ export interface Contact {
   name: string;
   address1: string;
   address2: string;
+  phone?: string;
+  email?: string;
 }
 
 export interface TableColumn {
@@ -67,6 +69,9 @@ export interface DocData {
   amountPaid?: number;
   outstandingBalance?: number;
   acknowledgement?: string;
+  // Template metadata — stored at creation for display purposes only
+  _templateColor?: string;
+  _templateName?: string;
 }
 
 export interface TotalPrice {

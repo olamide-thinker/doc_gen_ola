@@ -18,10 +18,12 @@ import {
 import { cn } from "../lib/utils";
 import { api, type Folder as FolderType, type Document as DocumentType } from "../lib/api";
 import { type TemplateDefinition } from "../lib/templates";
+import { type InvoiceCode } from "../types";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { EditTemplateModal } from "./EditTemplateModal";
+import CreateInvoiceModal, { type CreateInvoiceFormData } from "./CreateInvoiceModal";
 import { Pin, PinOff } from "lucide-react";
 import {
   DndContext, 
@@ -50,6 +52,7 @@ const Dashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<TemplateDefinition | null>(null);
+  const [createModal, setCreateModal] = useState<{ open: boolean; template?: TemplateDefinition }>({ open: false });
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -82,6 +85,39 @@ const Dashboard: React.FC = () => {
     enabled: !currentFolderId
   });
 
+  const isSearching = searchQuery.trim().length >= 2;
+
+  const { data: searchResults = [] } = useQuery({
+    queryKey: ["search", searchQuery],
+    queryFn: () => api.searchAll(searchQuery),
+    enabled: isSearching,
+    staleTime: 3000,
+  });
+
+  const { data: allDocs = [] } = useQuery({
+    queryKey: ["all-documents"],
+    queryFn: () => api.getAllDocuments(),
+    enabled: isSearching,
+    staleTime: 5000,
+  });
+
+  // Build a lookup map: docId → document (for parent invoice resolution)
+  const docById = React.useMemo(() => {
+    const map = new Map<string, typeof allDocs[0]>();
+    allDocs.forEach(d => map.set(d.id, d));
+    return map;
+  }, [allDocs]);
+
+  // Split search results into invoices and receipts
+  const searchInvoices = React.useMemo(
+    () => searchResults.filter(d => !d.content?.isReceipt),
+    [searchResults]
+  );
+  const searchReceipts = React.useMemo(
+    () => searchResults.filter(d => d.content?.isReceipt),
+    [searchResults]
+  );
+
   const items = [
     ...folderItems.map(f => ({ ...f, id: `f-${f.id}`, _type: 'folder' as const, _realId: f.id })),
     ...docItems.map(d => ({ ...d, id: `d-${d.id}`, _type: 'document' as const, _realId: d.id }))
@@ -96,52 +132,81 @@ const Dashboard: React.FC = () => {
   });
 
   const createDocMutation = useMutation({
-    mutationFn: ({ name, folderId, template }: { name: string, folderId: string | null, template?: TemplateDefinition }) => {
+    mutationFn: ({ name, folderId, template, formData, invoiceCode }: {
+      name: string;
+      folderId: string | null;
+      template?: TemplateDefinition;
+      formData: CreateInvoiceFormData;
+      invoiceCode?: InvoiceCode;
+    }) => {
       const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-      
+
       const defaultData: any = {
-        contact: { name: "OLUWAKEMI ISINKAYE", address1: "Prime Waters Garden II", address2: "Lekki Phase 1" },
-        title: name,
+        contact: {
+          name: formData.clientName || "Client Name",
+          address1: formData.street || "",
+          address2: formData.location || "",
+          phone: formData.phone || undefined,
+          email: formData.email || undefined,
+        },
+        title: formData.description || name,
         date: now,
-        table: { 
+        table: {
           columns: [
             { id: "A", label: "S/N", type: "index", width: "60px" },
             { id: "B", label: "Description", type: "text" },
             { id: "C", label: "Unit", type: "text", width: "80px" },
             { id: "D", label: "Qty", type: "number", width: "80px" },
-            { id: "E", label: "Price", type: "number", width: "140px" },
-            { id: "F", label: "Total", type: "formula", formula: "D * E", width: "140px" }
-          ], 
-          rows: [{ B: "New Item", C: "pcs", D: 1, E: 0 }], 
-          summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }] 
+            { id: "E", label: "Price (₦)", type: "number", width: "140px" },
+            { id: "F", label: "Total (₦)", type: "formula", formula: "D * E", width: "140px" }
+          ],
+          rows: [
+            { id: crypto.randomUUID(), rowType: "row", B: "Service Item", C: "lot", D: 1, E: 0 }
+          ],
+          summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }]
         },
-        footer: { notes: "<p>Thank you for your business!</p>", emphasis: [] }
+        footer: { notes: "<p>Thank you for your business! Payment is due within 14 days of invoice date.</p>", emphasis: [] }
       };
 
-      const docContent: any = template 
-        ? { 
-            ...defaultData, 
-            ...template.content, 
-            table: { 
-              ...defaultData.table, 
+      const docContent: any = template
+        ? {
+            ...defaultData,
+            ...template.content,
+            // Always use form client info — override whatever template had
+            contact: defaultData.contact,
+            // Template title is the type descriptor; keep it unless user changed it
+            title: formData.description || template.content?.title || name,
+            table: {
+              ...defaultData.table,
               ...(template.content?.table || {})
             },
-            footer: { 
-              ...defaultData.footer, 
+            footer: {
+              ...defaultData.footer,
               ...(template.content?.footer || {})
             }
           }
         : defaultData;
 
-      // Ensure title/date are updated
-      docContent.title = name || template?.name || "Untitled";
       docContent.date = now;
 
-      return api.createDocument(docContent.title, docContent as any, folderId);
+      // Assign unique invoice number at creation time
+      if (!template?.content?.isReceipt) {
+        docContent.invoiceCode = invoiceCode ?? api.getNextInvoiceNumber();
+      }
+
+      // Persist template metadata for dashboard display
+      if (template) {
+        docContent._templateColor = template.color;
+        docContent._templateName = template.name;
+      }
+
+      return api.createDocument(name, docContent as any, folderId);
     },
       onSuccess: (newDoc, variables) => {
         queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
+        setCreateModal({ open: false });
         const isReceipt = variables.template?.content?.isReceipt;
+        // New invoices go straight to editor for initial setup; receipts go to receipt-editor
         navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
       },
   });
@@ -203,10 +268,21 @@ const Dashboard: React.FC = () => {
   };
 
   const handleCreateDocument = (template?: TemplateDefinition) => {
-    const defaultName = template ? template.name : "New Document";
-    const name = prompt("Document Name:", defaultName);
-    if (name === null) return;
-    createDocMutation.mutate({ name: name || defaultName, folderId: currentFolderId, template });
+    setCreateModal({ open: true, template });
+  };
+
+  const handleModalSubmit = (formData: CreateInvoiceFormData) => {
+    const isReceipt = createModal.template?.content?.isReceipt;
+    // Consume counter now (at submit, not at modal open)
+    const invoiceCode = isReceipt ? undefined : api.getNextInvoiceNumber();
+    const name = formData.projectName.trim() || (invoiceCode?.text ?? "New Invoice");
+    createDocMutation.mutate({
+      name,
+      folderId: currentFolderId,
+      template: createModal.template,
+      formData,
+      invoiceCode,
+    });
   };
 
   const handleDelete = (item: any) => {
@@ -310,7 +386,7 @@ const Dashboard: React.FC = () => {
         {/* Browser Area */}
         <section className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin">
 
-          {!currentFolderId && (
+          {!isSearching && !currentFolderId && (
             <div className="mb-12">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex flex-col gap-0.5">
@@ -341,25 +417,143 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-center justify-between mb-8">
+          {/* ── Deep Search Results ── */}
+          {isSearching && (
+            <div className="mb-8">
+              {searchResults.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground">
+                  <Search size={32} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm font-semibold">No results for "{searchQuery}"</p>
+                  <p className="text-xs opacity-60 mt-1">Try a different name, number, or client</p>
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {searchInvoices.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Invoices</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/10 text-primary">{searchInvoices.length}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {searchInvoices.map(doc => (
+                          <button
+                            key={doc.id}
+                            onClick={() => { setSearchQuery(""); navigate(`/invoice-preview/${doc.id}`); }}
+                            className="w-full text-left flex items-center gap-4 p-4 bg-white border border-border rounded-lg hover:border-primary/40 hover:shadow-sm transition-all group"
+                          >
+                            <div className="p-2 bg-primary/5 rounded-md border border-primary/10 shrink-0">
+                              <FileText size={16} className="text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {doc.content?.invoiceCode?.text && (
+                                  <span className="text-[10px] font-black bg-primary/10 text-primary px-2 py-0.5 rounded tracking-wider font-lexend">
+                                    {doc.content.invoiceCode.text}
+                                  </span>
+                                )}
+                                <span className="text-xs font-semibold text-slate-800 truncate">{doc.name}</span>
+                                {doc.content?._templateName && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-bold">{doc.content._templateName}</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-1">
+                                <span className="text-[10px] text-slate-400">{doc.content?.contact?.name}</span>
+                                <span className="text-[10px] text-slate-300">•</span>
+                                <span className="text-[10px] text-slate-400">{doc.content?.date}</span>
+                                {doc.content?.title && doc.content.title !== doc.name && (
+                                  <>
+                                    <span className="text-[10px] text-slate-300">•</span>
+                                    <span className="text-[10px] text-slate-400 italic truncate">{doc.content.title}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <ArrowLeft size={13} className="text-slate-300 group-hover:text-primary rotate-180 transition-colors shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {searchReceipts.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Receipts</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-600">{searchReceipts.length}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {searchReceipts.map(doc => {
+                          const parentInv = doc.invoiceId ? docById.get(doc.invoiceId) : undefined;
+                          return (
+                            <button
+                              key={doc.id}
+                              onClick={() => { setSearchQuery(""); navigate(`/receipt-editor/${doc.id}`); }}
+                              className="w-full text-left flex items-center gap-4 p-4 bg-white border border-border rounded-lg hover:border-emerald-400/40 hover:shadow-sm transition-all group"
+                            >
+                              <div className="p-2 bg-emerald-50 rounded-md border border-emerald-100 shrink-0">
+                                <FileText size={16} className="text-emerald-600" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {doc.content?.invoiceCode?.text && (
+                                    <span className="text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded tracking-wider font-lexend">
+                                      {doc.content.invoiceCode.text}
+                                    </span>
+                                  )}
+                                  {parentInv && (
+                                    <>
+                                      <span className="text-[9px] text-slate-300">linked to</span>
+                                      <span className="text-[10px] font-black bg-primary/10 text-primary px-2 py-0.5 rounded tracking-wider font-lexend">
+                                        {parentInv.content?.invoiceCode?.text || parentInv.name}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 mt-1">
+                                  <span className="text-[10px] text-slate-400">{doc.content?.contact?.name}</span>
+                                  <span className="text-[10px] text-slate-300">•</span>
+                                  <span className="text-[10px] text-slate-400">{doc.content?.date}</span>
+                                  {doc.content?.amountPaid !== undefined && (
+                                    <>
+                                      <span className="text-[10px] text-slate-300">•</span>
+                                      <span className="text-[10px] font-semibold text-emerald-600">
+                                        ₦{Math.round(doc.content.amountPaid).toLocaleString()} paid
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <ArrowLeft size={13} className="text-slate-300 group-hover:text-emerald-500 rotate-180 transition-colors shrink-0" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!isSearching && <div className="flex items-center justify-between mb-8">
             <div className="flex flex-col gap-0.5">
                <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">{currentFolderId ? "Folder Explorer" : "All Documents"}</h2>
                <p className="text-[10px] text-muted-foreground font-medium">Manage your workspace assets</p>
             </div>
-            <button 
-              onClick={handleCreateFolder} 
+            <button
+              onClick={handleCreateFolder}
               className="px-3 py-1.5 border border-border bg-white text-[10px] font-bold tracking-widest text-foreground rounded-md transition-all hover:bg-muted"
             >+ NEW FOLDER</button>
-          </div>
+          </div>}
 
-          {isLoading ? (
+          {!isSearching && isLoading ? (
             <div className={cn("gap-6", viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "flex flex-col gap-2")}>
               {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
                 <ItemSkeleton key={i} mode={viewMode} />
               ))}
             </div>
-          ) : (
-            <DndContext 
+          ) : !isSearching ? (
+            <DndContext
               sensors={sensors} 
               collisionDetection={closestCenter} 
               onDragStart={(e) => setActiveId(e.active.id as string)}
@@ -381,7 +575,7 @@ const Dashboard: React.FC = () => {
                             navigate(`/dashboard?folder=${item._realId}`);
                           } else {
                             const isReceipt = item.content?.isReceipt;
-                            navigate(isReceipt ? `/receipt-editor/${item._realId}` : `/editor/${item._realId}`);
+                            navigate(isReceipt ? `/receipt-editor/${item._realId}` : `/invoice-preview/${item._realId}`);
                           }
                         }}
                       />
@@ -398,16 +592,26 @@ const Dashboard: React.FC = () => {
                 ) : null}
               </DragOverlay>
             </DndContext>
-          )}
+          ) : null}
         </section>
       </main>
 
       {/* Edit Template Modal */}
       {editingTemplate && (
-        <EditTemplateModal 
+        <EditTemplateModal
           template={editingTemplate}
           onClose={() => setEditingTemplate(null)}
           onSave={(updated) => saveTemplateMutation.mutate(updated)}
+        />
+      )}
+
+      {/* Create Invoice Modal */}
+      {createModal.open && (
+        <CreateInvoiceModal
+          template={createModal.template}
+          onClose={() => setCreateModal({ open: false })}
+          onSubmit={handleModalSubmit}
+          isLoading={createDocMutation.isPending}
         />
       )}
     </div>
@@ -438,10 +642,36 @@ const SortableItem = (props: any) => {
   );
 };
 
+// Maps template color names → Tailwind badge classes
+const templateBadgeClass = (color?: string) => {
+  switch (color) {
+    case "blue":   return "bg-blue-100 text-blue-700";
+    case "green":  return "bg-green-100 text-green-700";
+    case "purple": return "bg-purple-100 text-purple-700";
+    case "amber":  return "bg-amber-100 text-amber-700";
+    case "rose":   return "bg-rose-100 text-rose-700";
+    case "cyan":   return "bg-cyan-100 text-cyan-700";
+    case "indigo": return "bg-indigo-100 text-indigo-700";
+    case "slate":  return "bg-slate-200 text-slate-600";
+    default:       return "bg-slate-100 text-slate-500";
+  }
+};
+
 const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any) => {
   const [showMenu, setShowMenu] = useState(false);
   const isFolder = item._type === 'folder';
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Subtitle: truncated content.title (e.g. "Design Fee Invoice") for docs, "Folder" for folders
+  const subtitle = isFolder
+    ? "Folder"
+    : item.content?.title
+      ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title)
+      : "Invoice";
+
+  // Template type badge (only for docs that have _templateName)
+  const badgeLabel: string | undefined = !isFolder ? (item.content?._templateName as string | undefined) : undefined;
+  const badgeClass = templateBadgeClass(item.content?._templateColor);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -458,16 +688,23 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
           <div className={cn("p-2 rounded-md flex items-center justify-center border", isFolder ? "bg-amber-50 text-amber-600 border-amber-200/50" : "bg-primary/5 text-primary border-primary/20")}>
             {isFolder ? <Folder size={18} /> : <FileText size={18} />}
           </div>
-          <div className="flex flex-col">
-            <p className="text-xs font-semibold tracking-tight">{item.name}</p>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold tracking-tight">{item.name}</p>
+              {badgeLabel && (
+                <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-sm leading-none", badgeClass)}>
+                  {badgeLabel}
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-muted-foreground font-medium">
-              {isFolder ? "Folder" : "Document"} • {new Date(item.updatedAt).toLocaleDateString()}
+              {subtitle} • {new Date(item.updatedAt).toLocaleDateString()}
             </p>
           </div>
         </div>
         <div className="relative" ref={menuRef}>
-          <button 
-            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} 
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-all border border-transparent hover:border-border"
           ><MoreHorizontal size={16} /></button>
           {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} />}
@@ -478,7 +715,7 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
 
   return (
     <div className="flex flex-col gap-3 group relative cursor-pointer">
-      <div 
+      <div
         onClick={onClick}
         className={cn(
           "aspect-[3/4] rounded-lg border border-border bg-white shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center",
@@ -498,11 +735,20 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
              <DocumentThumbnail data={item.content} className="rounded-sm" />
           </div>
         )}
-        
+
+        {/* Template type badge — bottom-left of thumbnail */}
+        {badgeLabel && (
+          <div className="absolute bottom-3 left-3 pointer-events-none">
+            <span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none shadow-sm", badgeClass)}>
+              {badgeLabel}
+            </span>
+          </div>
+        )}
+
         {/* Actions Button */}
         <div className="absolute top-3 right-3" ref={menuRef}>
-          <button 
-            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} 
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="p-1.5 bg-white/90 backdrop-blur shadow-sm border border-border rounded-md hover:bg-white text-foreground opacity-0 group-hover:opacity-100 transition-all duration-200"
           ><MoreHorizontal size={14} /></button>
           {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} />}
@@ -510,9 +756,7 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
       </div>
       <div className="px-1" onClick={onClick}>
         <p className="text-[12px] font-semibold truncate tracking-tight text-slate-700">{item.name}</p>
-        <p className="text-[10px] text-muted-foreground font-medium opacity-70">
-          {isFolder ? "Folder" : "Document"}
-        </p>
+        <p className="text-[10px] text-muted-foreground font-medium opacity-70">{subtitle}</p>
       </div>
     </div>
   );

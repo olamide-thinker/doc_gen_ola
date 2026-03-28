@@ -311,6 +311,16 @@ export const InvoicePage: React.FC<A4PageProps> = ({
                   readOnly={isPreview}
                 />
               </div>
+              {data.contact.phone && (
+                <div className="w-full relative h-[1.5em] overflow-hidden mt-1">
+                  <span className="font-normal text-[13px] opacity-60">{data.contact.phone}</span>
+                </div>
+              )}
+              {data.contact.email && (
+                <div className="w-full relative h-[1.5em] overflow-hidden">
+                  <span className="font-normal text-[13px] opacity-60">{data.contact.email}</span>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col items-start w-1/2 pl-12 text-left border-l font-lexend border-slate-200">
