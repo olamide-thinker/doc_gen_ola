@@ -50,45 +50,58 @@ const SortableRow = ({
   const isSubSection = row.rowType === "sub-section-header";
 
   if (isSection || isSectionTotal || isSubSection) {
+    let parentSectionTitle = "";
+    if (isSectionTotal) {
+      for (let i = startIndex + idx - 1; i >= 0; i--) {
+        const r = data.table.rows[i];
+        if (r.rowType === "section-header" || r.rowType === "sub-section-header") {
+          parentSectionTitle = (r.sectionTitle as string) || "";
+          break;
+        }
+      }
+    }
+
     return (
       <tr ref={setNodeRef} style={style} className="group/row">
         <td
-          colSpan={data.table.columns.filter((c: any) => !c.hidden).length}
+          colSpan={data.table.columns.filter((c: any) => !c.hidden).length - 1}
           className={cn(
             "p-2 text-[11px] font-black uppercase tracking-[0.2em] font-lexend relative",
             isSection && "bg-[#8D6E63]/10 text-[#8D6E63] border-y border-[#8D6E63]/20 py-3",
-            isSectionTotal && "bg-slate-100/50 text-slate-500 text-right pr-4",
+            isSectionTotal && "bg-slate-100/50 text-slate-500",
             isSubSection && "bg-slate-50 text-slate-400 border-y border-slate-100",
           )}
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {!isPreview && (
-                <div {...attributes} {...listeners} className="cursor-grab opacity-0 group-hover/row:opacity-100 transition-opacity">
-                   <div className="w-4 h-4 rounded hover:bg-slate-200 flex items-center justify-center">
-                    <div className="w-1 h-3 border-l-2 border-r-2 border-slate-300" />
-                   </div>
-                </div>
-              )}
+          <div className="flex items-center gap-2">
+            {!isPreview && (
+              <div {...attributes} {...listeners} className="cursor-grab opacity-0 group-hover/row:opacity-100 transition-opacity absolute left-[-20px] top-1/2 -translate-y-1/2">
+                 <div className="w-4 h-4 rounded hover:bg-slate-200 flex items-center justify-center">
+                  <div className="w-1 h-3 border-l-2 border-r-2 border-slate-300" />
+                 </div>
+              </div>
+            )}
             {isSection && <span className="mr-2">Section {rowNumbering[row.id]}</span>}
-              <Editable
-                className="min-w-[150px] font-bold"
-                value={row.sectionTitle || ""}
-                onSave={(val) => onUpdateCell(startIndex + idx, "sectionTitle", val)}
-                readOnly={isPreview}
-              />
-            </div>
-            {isSectionTotal && (
-              <span className="font-bold">
-                ₦{Math.round(resolveSectionTotal(data.table.rows, startIndex + idx)).toLocaleString()}
-              </span>
-            )}
-             {isSection && (
-              <span className="font-bold ml-auto pr-4">
-                Section Total: ₦{Math.round(resolveSectionTotal(data.table.rows, startIndex + idx)).toLocaleString()}
-              </span>
-            )}
+            <Editable
+              className="min-w-[150px] font-bold"
+              value={row.sectionTitle || (isSectionTotal ? (parentSectionTitle ? `${parentSectionTitle} Total` : "Section Total") : "")}
+              onSave={(val) => onUpdateCell(startIndex + idx, "sectionTitle", val)}
+              readOnly={isPreview || isSectionTotal}
+            />
           </div>
+        </td>
+        <td
+           className={cn(
+            "p-2 text-[11px] font-black uppercase tracking-[0.2em] font-lexend text-left",
+            isSection && "bg-[#8D6E63]/10 text-[#8D6E63] border-y border-[#8D6E63]/20 py-3",
+            isSectionTotal && "bg-slate-100/50 text-slate-500",
+            isSubSection && "bg-slate-50 text-slate-400 border-y border-slate-100",
+          )}
+        >
+          {(isSection || isSectionTotal) && (
+            <span className="font-bold">
+              {isSection && "Section Total: "}₦{Math.round(resolveSectionTotal(data.table.rows, startIndex + idx)).toLocaleString()}
+            </span>
+          )}
         </td>
       </tr>
     );
@@ -499,7 +512,7 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
               </SortableContext>
             </tbody>
           </table>
-          {isEndOfRows && (
+          {!isPreview && isEndOfRows && (
             <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
               <button
                 onClick={() => onAddRowBelow(startIndex + rows.length - 1)}

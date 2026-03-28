@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus, FileText, Edit, RefreshCw, LayoutGrid, List } from "../lib/icons/lucide";
@@ -8,147 +8,14 @@ import { InvoicePage } from "./InvoicePage";
 import { ReceiptPage } from "./ReceiptPage";
 import { cn } from "../lib/utils";
 import { DndContext, closestCenter } from "@dnd-kit/core";
-
-// ─── Formula resolution (mirrors Editor.tsx logic) ───────────────────────────
-
-function resolveFormulaUtil(
-  rowData: TableRow | Record<string, number>,
-  formula: string | undefined,
-  context: Record<string, number> = {},
-): number {
-  if (!formula) return 0;
-  try {
-    let expression = formula.replace(/(\d*\.?\d+)\s*%/g, "($1/100)");
-    Object.keys(context).forEach((key) => {
-      expression = expression.replace(
-        new RegExp(`\\b${key}\\b`, "g"),
-        String(Number(context[key]) || 0),
-      );
-    });
-    const matches = formula.match(/[A-Z]+/g) || [];
-    matches.forEach((cid) => {
-      if (context[cid] !== undefined) return;
-      expression = expression.replace(
-        new RegExp(`\\b${cid}\\b`, "g"),
-        String(Number((rowData as any)[cid]) || 0),
-      );
-    });
-    const idMatches = formula.match(/[a-z][a-zA-Z0-9]+/g) || [];
-    idMatches.forEach((mid) => {
-      if (context[mid] !== undefined) return;
-      expression = expression.replace(
-        new RegExp(`\\b${mid}\\b`, "g"),
-        String(Number((rowData as any)[mid]) || 0),
-      );
-    });
-    if (/[^0-9\s+\-*/().]/.test(expression)) return 0;
-    return new Function(`return ${expression}`)();
-  } catch {
-    return 0;
-  }
-}
-
-function computeTotalPriceForData(data: DocData): TotalPrice {
-  const useSections = data.useSections ?? false;
-  const subTotal = (data.table.rows || []).reduce((acc, row) => {
-    if (
-      row.rowType === "section-header" ||
-      row.rowType === "sub-section-header" ||
-      (row.rowType === "section-total" && useSections)
-    )
-      return acc;
-    
-    // Also skip section-total if we are not actually using sections
-    if (row.rowType === "section-total" && !useSections) return acc;
-    const totalCol = [...data.table.columns]
-      .reverse()
-      .find((c) => (c.type === "formula" || c.type === "number") && !c.hidden);
-    const rowTotal =
-      totalCol?.type === "formula"
-        ? resolveFormulaUtil(row, totalCol.formula)
-        : Number(row[totalCol?.id || ""]) || 0;
-    return acc + rowTotal;
-  }, 0);
-
-  const summaries: any[] = [];
-  let currentTotal = subTotal;
-  (data.table.summary || []).forEach((item, idx) => {
-    const displayId = String.fromCharCode(65 + idx);
-    const val =
-      item.type === "formula"
-        ? resolveFormulaUtil({}, item.formula, { subTotal, prev: currentTotal })
-        : Number(item.value) || 0;
-    summaries.push({ ...item, calculatedValue: val, displayId });
-    currentTotal += val;
-  });
-
-  return { subTotal, summaries, grandTotal: currentTotal };
-}
-
-const getRowNumbering = (rows: TableRow[], useSections: boolean = false): Record<string, string> => {
-  const numbering: Record<string, string> = {};
-  let l1 = 0;
-  let l2 = 0;
-  let l3 = 0;
-  let inLevel1 = false;
-  let inLevel2 = false;
-
-  rows.forEach((row) => {
-    if (!useSections) {
-      if (row.rowType === "row" || !row.rowType) {
-        l1++;
-        numbering[row.id] = `${l1}`;
-      } else {
-        numbering[row.id] = "";
-      }
-      return;
-    }
-
-    const type = row.rowType || "row";
-
-    if (type === "section-header") {
-      l1++;
-      l2 = 0;
-      l3 = 0;
-      inLevel1 = true;
-      inLevel2 = false;
-      numbering[row.id] = `${l1}`;
-    } else if (type === "sub-section-header") {
-      if (inLevel1) {
-        l2++;
-        l3 = 0;
-        inLevel2 = true;
-        numbering[row.id] = `${l1}.${l2}`;
-      } else {
-        // Acts as a top-level item if no Level 1 active
-        l1++;
-        l2 = 0;
-        l3 = 0;
-        inLevel1 = true;
-        inLevel2 = true;
-        numbering[row.id] = `${l1}`;
-      }
-    } else if (type === "section-total") {
-      inLevel1 = false;
-      inLevel2 = false;
-      numbering[row.id] = "";
-    } else if (type === "row") {
-      if (inLevel2) {
-        l3++;
-        numbering[row.id] = `${l1}.${l2}.${l3}`;
-      } else if (inLevel1) {
-        l2++;
-        numbering[row.id] = `${l1}.${l2}`;
-      } else {
-        l1++;
-        numbering[row.id] = `${l1}`;
-      }
-    } else {
-      numbering[row.id] = "";
-    }
-  });
-  return numbering;
-}
+import {
+  resolveFormula as resolveFormulaUtil,
+  computeTotalPrice as computeTotalPriceForData,
+  getRowNumbering,
+  calculateChunks,
+  resolveSectionTotalBackward,
+  resolveSectionTotal
+} from "../lib/documentUtils";
 
 // ─── No-op handlers for read-only previews ───────────────────────────────────
 
@@ -159,15 +26,37 @@ const NOOP = () => {};
 const A4_PX_WIDTH = 794;
 const A4_PX_HEIGHT = 1123;
 
-const ScaledInvoicePreview: React.FC<{ data: DocData; scale: number }> = ({
+const usePagination = (data: DocData | null) => {
+  const headerHeight = useMemo(() => Number(localStorage.getItem("headerHeight")) || 128, []);
+  return useMemo(() => {
+    if (!data) return [];
+    const useSections = data.useSections ?? false;
+    return calculateChunks(data, headerHeight, useSections);
+  }, [data, headerHeight]);
+};
+
+interface ScaledInvoicePreviewProps {
+  data: DocData;
+  scale: number;
+  page?: any;
+  pageIndex: number;
+}
+
+const ScaledInvoicePreview: React.FC<ScaledInvoicePreviewProps> = ({
   data,
   scale,
+  page,
+  pageIndex,
 }) => {
   const containerWidth = A4_PX_WIDTH * scale;
   const containerHeight = A4_PX_HEIGHT * scale;
   const totalPrice = useMemo(() => computeTotalPriceForData(data), [data]);
   const rowNumbering = useMemo(() => getRowNumbering(data.table.rows, data.useSections), [data]);
   const headerHeight = Number(localStorage.getItem("headerHeight")) || 128;
+  const resolveSectionTotalBackwardWrapper = (rows: TableRow[], fromIdx: number) => 
+    resolveSectionTotalBackward(rows, fromIdx, data);
+  const resolveSectionTotalWrapper = (rows: TableRow[], fromIdx: number) => 
+    resolveSectionTotal(rows, fromIdx, data);
 
   return (
     <div
@@ -177,7 +66,6 @@ const ScaledInvoicePreview: React.FC<{ data: DocData; scale: number }> = ({
         overflow: "hidden",
         position: "relative",
         flexShrink: 0,
-        borderRadius: 10,
         boxShadow: "0 8px 32px rgba(0,0,0,0.14)",
       }}
     >
@@ -193,48 +81,194 @@ const ScaledInvoicePreview: React.FC<{ data: DocData; scale: number }> = ({
         }}
       >
         <DndContext collisionDetection={closestCenter} onDragEnd={NOOP}>
-        <InvoicePage
-          data={data}
-          rows={data.table.rows}
-          pageIndex={0}
-          totalPrice={totalPrice}
-          headerImage=""
-          headerHeight={headerHeight}
-          onHeaderResize={NOOP}
-          isFirstPage={true}
-          isLastPage={true}
-          startIndex={0}
-          onUpdateContact={NOOP}
-          onUpdateTitle={NOOP}
-          onUpdateCell={NOOP}
-          onRemoveRow={NOOP}
-          onAddRowBelow={NOOP}
-          onAddRowAbove={NOOP}
-          onAddSectionBelow={NOOP}
-          onAddSectionAbove={NOOP}
-          onMoveRow={NOOP}
-          onAddSubSectionBelow={NOOP}
-          onAddSubSectionAbove={NOOP}
-          useSections={data.useSections ?? false}
-          resolveFormula={resolveFormulaUtil}
-          onUpdateInvoiceCode={NOOP}
-          onUpdateSummaryItem={NOOP}
-          onUpdateDate={NOOP}
-          showRows={true}
-          showTotals={true}
-          showFooter={true}
-          isPreview={true}
-          isEndOfRows={true}
-          rowNumbering={rowNumbering}
-          resolveSectionTotalBackward={() => 0}
-          resolveSectionTotal={() => 0}
-          onUpdatePaymentMethod={NOOP}
-          onUpdateTransactionId={NOOP}
-          onUpdateReference={NOOP}
-          onUpdateSignature={NOOP}
-          onUpdateReceiptMessage={NOOP}
-        />
+        {data.isReceipt ? (
+          <ReceiptPage
+            data={data}
+            rows={page?.rows || data.table.rows}
+            pageIndex={pageIndex}
+            totalPrice={totalPrice}
+            headerImage=""
+            headerHeight={headerHeight}
+            onHeaderResize={NOOP}
+            isFirstPage={pageIndex === 0}
+            isLastPage={false}
+            startIndex={page?.startIndex || 0}
+            onUpdateContact={NOOP}
+            onUpdateTitle={NOOP}
+            onUpdateCell={NOOP}
+            onRemoveRow={NOOP}
+            onAddRowBelow={NOOP}
+            onAddRowAbove={NOOP}
+            onAddSectionBelow={NOOP}
+            onAddSectionAbove={NOOP}
+            onMoveRow={NOOP}
+            onAddSubSectionBelow={NOOP}
+            onAddSubSectionAbove={NOOP}
+            useSections={data.useSections ?? false}
+            resolveFormula={resolveFormulaUtil}
+            onUpdateInvoiceCode={NOOP}
+            onUpdateSummaryItem={NOOP}
+            onUpdateDate={NOOP}
+            showRows={page ? page.showRows : true}
+            showTotals={page ? page.showTotals : true}
+            showFooter={page ? page.showFooter : true}
+            isPreview={true}
+            isEndOfRows={page ? page.isEndOfRows : true}
+            rowNumbering={rowNumbering}
+            resolveSectionTotalBackward={resolveSectionTotalBackwardWrapper}
+            resolveSectionTotal={resolveSectionTotalWrapper}
+            onUpdatePaymentMethod={NOOP}
+            onUpdateTransactionId={NOOP}
+            onUpdateReference={NOOP}
+            onUpdateSignature={NOOP}
+            onUpdateReceiptMessage={NOOP}
+            onHeaderImageUpload={NOOP}
+            onUpdateTotalInvoiceAmount={NOOP}
+            onUpdateAmountPaid={NOOP}
+            onUpdateOutstandingBalance={NOOP}
+            onUpdateAcknowledgement={NOOP}
+          />
+        ) : (
+          <InvoicePage
+            data={data}
+            rows={page?.rows || data.table.rows}
+            pageIndex={pageIndex}
+            totalPrice={totalPrice}
+            headerImage=""
+            headerHeight={headerHeight}
+            onHeaderResize={NOOP}
+            isFirstPage={pageIndex === 0}
+            isLastPage={false}
+            startIndex={page?.startIndex || 0}
+            onUpdateContact={NOOP}
+            onUpdateTitle={NOOP}
+            onUpdateCell={NOOP}
+            onRemoveRow={NOOP}
+            onAddRowBelow={NOOP}
+            onAddRowAbove={NOOP}
+            onAddSectionBelow={NOOP}
+            onAddSectionAbove={NOOP}
+            onMoveRow={NOOP}
+            onAddSubSectionBelow={NOOP}
+            onAddSubSectionAbove={NOOP}
+            useSections={data.useSections ?? false}
+            resolveFormula={resolveFormulaUtil}
+            onUpdateInvoiceCode={NOOP}
+            onUpdateSummaryItem={NOOP}
+            onUpdateDate={NOOP}
+            showRows={page ? page.showRows : true}
+            showTotals={page ? page.showTotals : true}
+            showFooter={page ? page.showFooter : true}
+            isPreview={true}
+            isEndOfRows={page ? page.isEndOfRows : true}
+            rowNumbering={rowNumbering}
+            resolveSectionTotalBackward={resolveSectionTotalBackwardWrapper}
+            resolveSectionTotal={resolveSectionTotalWrapper}
+            onUpdatePaymentMethod={NOOP}
+            onUpdateTransactionId={NOOP}
+            onUpdateReference={NOOP}
+            onUpdateSignature={NOOP}
+            onUpdateReceiptMessage={NOOP}
+            onUpdateTotalInvoiceAmount={NOOP}
+            onUpdateAmountPaid={NOOP}
+            onUpdateOutstandingBalance={NOOP}
+            onUpdateAcknowledgement={NOOP}
+          />
+        )}
         </DndContext>
+      </div>
+    </div>
+  );
+};
+
+// ─── Modal Previewer with Pan & Zoom ──────────────────────────────────────
+
+const ModalPreviewer: React.FC<{
+  data: DocData;
+  pages: any[];
+  initialIndex: number;
+  onClose: () => void;
+}> = ({ data, pages, initialIndex, onClose }) => {
+  const [zoom, setZoom] = useState(1);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to the clicked page on mount
+  useEffect(() => {
+    if (containerRef.current && initialIndex > 0) {
+      const target = containerRef.current.children[initialIndex] as HTMLElement;
+      if (target) {
+        target.scrollIntoView({ behavior: "auto", inline: "center", block: "nearest" });
+      }
+    }
+  }, [initialIndex]);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      const delta = -e.deltaY * 0.01;
+      setZoom(prev => Math.min(Math.max(0.4, prev + delta), 3));
+    }
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 z-[100] flex flex-col bg-gray-900/40 p-4 animate-in fade-in duration-200 overflow-hidden backdrop-blur-[2px]"
+      onWheel={handleWheel}
+    >
+      {/* Header bar */}
+      <div className="flex items-center justify-between px-6 py-4 shrink-0 pointer-events-auto">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-black/20 text-white transition-all shadow-sm"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex flex-col">
+            <span className="text-sm font-bold text-white uppercase tracking-widest select-none drop-shadow-md leading-none">
+              Preview Mode
+            </span>
+            <span className="text-[10px] font-medium text-white/70 uppercase tracking-widest mt-1">
+              {pages.length} {pages.length === 1 ? "Page" : "Pages"} • Side-by-Side
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 bg-white/95 backdrop-blur-md border border-white/20 rounded-lg p-1 shadow-xl">
+           <button onClick={() => setZoom(prev => Math.max(0.4, prev - 0.1))} className="p-2 hover:bg-slate-100 rounded text-slate-600 text-sm font-bold w-9">-</button>
+           <span className="px-3 text-[10px] font-black text-slate-500 min-w-[60px] text-center select-none">{Math.round(zoom * 100)}%</span>
+           <button onClick={() => setZoom(prev => Math.min(3, prev + 0.1))} className="p-2 hover:bg-slate-100 rounded text-slate-600 text-sm font-bold w-9">+</button>
+           <div className="w-px h-4 bg-slate-200 mx-1" />
+           <button onClick={() => setZoom(1)} className="px-3 py-1.5 hover:bg-slate-50 rounded text-[10px] font-black uppercase text-primary">100%</button>
+        </div>
+      </div>
+
+      {/* Pages strip */}
+      <div 
+        ref={containerRef}
+        className="flex-1 flex gap-12 p-12 overflow-x-auto overflow-y-auto items-start snap-x custom-scrollbar"
+      >
+        {pages.map((page, idx) => (
+          <div 
+            key={idx} 
+            className="flex flex-col items-center gap-6 shrink-0 snap-center transition-transform duration-300"
+            style={{ transform: `scale(${zoom})`, transformOrigin: "top center" }}
+          >
+            <div className="bg-white shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-black/5 relative">
+              <ScaledInvoicePreview data={data} scale={0.9} page={page} pageIndex={idx} />
+            </div>
+            <div className="bg-black/20 px-4 py-1.5 rounded-full backdrop-blur-md">
+              <span className="text-white font-bold uppercase tracking-[0.3em] text-[10px]">
+                Page {idx + 1}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Helper Footer */}
+      <div className="py-4 shrink-0 flex justify-center">
+        <p className="text-white/60 text-[9px] font-bold uppercase tracking-widest bg-black/10 px-6 py-2 rounded-full border border-white/5">
+          Use the scrollbar or mouse wheel to navigate
+        </p>
       </div>
     </div>
   );
@@ -256,6 +290,7 @@ const InvoicePreviewPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [receiptView, setReceiptView] = useState<"list" | "card">("list");
+  const [selectedPageIndex, setSelectedPageIndex] = useState<number | null>(null);
 
   const { data: invoiceDoc, isLoading } = useQuery({
     queryKey: ["document", id],
@@ -268,6 +303,9 @@ const InvoicePreviewPage: React.FC = () => {
     queryFn: () => api.getReceiptsForInvoice(id!),
     enabled: !!id,
   });
+
+  const docContent = invoiceDoc?.content || null;
+  const pages = usePagination(docContent);
 
   const createReceiptMutation = useMutation({
     mutationFn: (receiptData: DocData) =>
@@ -382,7 +420,7 @@ const InvoicePreviewPage: React.FC = () => {
     );
   }
 
-  const invoiceData = invoiceDoc.content;
+  const docContentSafe = invoiceDoc.content;
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-lexend">
@@ -395,10 +433,10 @@ const InvoicePreviewPage: React.FC = () => {
           <ArrowLeft size={13} /> All Files
         </button>
         <span className="text-slate-200 font-thin text-base">/</span>
-        {invoiceData.invoiceCode?.text && (
+        {docContentSafe.invoiceCode?.text && (
           <>
             <span className="px-2 py-0.5 rounded text-[10px] font-black bg-primary/10 text-primary tracking-wider shrink-0 font-lexend">
-              {invoiceData.invoiceCode.text}
+              {docContentSafe.invoiceCode.text}
             </span>
             <span className="text-slate-200 font-thin text-base">/</span>
           </>
@@ -406,19 +444,19 @@ const InvoicePreviewPage: React.FC = () => {
         <span className="text-xs font-semibold text-slate-700 truncate">
           {invoiceDoc.name}
         </span>
-        {invoiceData._templateName && (
+        {docContentSafe._templateName && (
           <span className={cn(
             "ml-1 px-2 py-0.5 rounded text-[9px] font-bold shrink-0",
-            invoiceData._templateColor === "blue" ? "bg-blue-100 text-blue-700" :
-            invoiceData._templateColor === "green" ? "bg-green-100 text-green-700" :
-            invoiceData._templateColor === "purple" ? "bg-purple-100 text-purple-700" :
-            invoiceData._templateColor === "amber" ? "bg-amber-100 text-amber-700" :
-            invoiceData._templateColor === "rose" ? "bg-rose-100 text-rose-700" :
-            invoiceData._templateColor === "cyan" ? "bg-cyan-100 text-cyan-700" :
-            invoiceData._templateColor === "indigo" ? "bg-indigo-100 text-indigo-700" :
+            docContentSafe._templateColor === "blue" ? "bg-blue-100 text-blue-700" :
+            docContentSafe._templateColor === "green" ? "bg-green-100 text-green-700" :
+            docContentSafe._templateColor === "purple" ? "bg-purple-100 text-purple-700" :
+            docContentSafe._templateColor === "amber" ? "bg-amber-100 text-amber-700" :
+            docContentSafe._templateColor === "rose" ? "bg-rose-100 text-rose-700" :
+            docContentSafe._templateColor === "cyan" ? "bg-cyan-100 text-cyan-700" :
+            docContentSafe._templateColor === "indigo" ? "bg-indigo-100 text-indigo-700" :
             "bg-slate-100 text-slate-500"
           )}>
-            {invoiceData._templateName}
+            {docContentSafe._templateName}
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -442,12 +480,12 @@ const InvoicePreviewPage: React.FC = () => {
                   {invoiceDoc.name}
                 </h1>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-md">
-                  {invoiceData.title}
+                  {docContentSafe.title}
                 </p>
               </div>
-              {invoiceData.invoiceCode?.text && (
+              {docContentSafe.invoiceCode?.text && (
                 <span className="px-3 py-1.5 rounded-full text-xs font-black bg-primary/10 text-primary tracking-wider shrink-0 ml-4">
-                  {invoiceData.invoiceCode.text}
+                  {docContentSafe.invoiceCode.text}
                 </span>
               )}
             </div>
@@ -479,7 +517,7 @@ const InvoicePreviewPage: React.FC = () => {
                   Client
                 </span>
                 <span className="text-xs font-semibold text-slate-700 truncate">
-                  {invoiceData.contact.name}
+                  {docContentSafe.contact.name}
                 </span>
               </div>
               <div className="flex flex-col gap-1">
@@ -487,7 +525,7 @@ const InvoicePreviewPage: React.FC = () => {
                   Invoice Date
                 </span>
                 <span className="text-xs font-semibold text-slate-700">
-                  {invoiceData.date}
+                  {docContentSafe.date}
                 </span>
               </div>
             </div>
@@ -538,16 +576,38 @@ const InvoicePreviewPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Scaled invoice preview */}
-          <div className="flex flex-col gap-3">
+          {/* Grid of invoice pages */}
+          <div className="flex flex-col gap-5">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Invoice Preview
+              Invoice Pages ({pages.length})
             </h2>
-            <div className="flex justify-center pb-4">
-              <ScaledInvoicePreview data={invoiceData} scale={0.55} />
+            <div className="flex flex-wrap gap-4 pb-12">
+              {pages.map((page, idx) => (
+                <div key={idx} className="flex flex-col gap-2 group">
+                  <div 
+                    onClick={() => setSelectedPageIndex(idx)}
+                    className="cursor-pointer transition-all hover:scale-[1.02] active:scale-100 shadow-lg rounded-lg overflow-hidden"
+                  >
+                    <ScaledInvoicePreview data={docContentSafe} scale={0.3} page={page} pageIndex={idx} />
+                  </div>
+                  <div className="flex items-center justify-center p-2">
+                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">P.{idx + 1}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
+
+        {/* Modal Previewer */}
+        {selectedPageIndex !== null && (
+          <ModalPreviewer 
+            data={docContentSafe} 
+            pages={pages} 
+            initialIndex={selectedPageIndex} 
+            onClose={() => setSelectedPageIndex(null)} 
+          />
+        )}
 
         {/* ── Right: Receipts sidebar ── */}
         <div className="w-[340px] border-l border-border bg-white flex flex-col shrink-0 overflow-hidden">

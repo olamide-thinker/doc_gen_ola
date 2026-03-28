@@ -54,7 +54,7 @@ export const Editable: React.FC<EditableProps> = ({
   }
 
   if (!readOnly && isEditing) {
-    const commonClasses = `w-full box-border bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-3 ${className}`;
+    const commonClasses = `w-full box-border bg-amber-50/90 border border-amber-400 outline-none text-[#212121] transition-all p-1 ${className}`;
     
     if (multiline) {
       return (
