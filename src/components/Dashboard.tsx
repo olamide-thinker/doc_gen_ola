@@ -40,7 +40,8 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
   rectSortingStrategy,
-  useSortable
+  useSortable,
+  arrayMove
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -260,6 +261,39 @@ const Dashboard: React.FC = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["templates"] }),
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: ({ activeId, overId }: { activeId: string, overId: string }) => 
+      api.reorderItems(currentFolderId, activeId, overId),
+    onMutate: async ({ activeId, overId }) => {
+      const isActiveFolder = activeId.startsWith('f-');
+      const isOverFolder = overId.startsWith('f-');
+      
+      if (isActiveFolder && isOverFolder) {
+        await queryClient.cancelQueries({ queryKey: ["folders", currentFolderId] });
+        queryClient.setQueryData(["folders", currentFolderId], (old: any[] | undefined) => {
+          if (!old) return [];
+          const activeIdx = old.findIndex(f => f.id === activeId.replace('f-', ''));
+          const overIdx = old.findIndex(f => f.id === overId.replace('f-', ''));
+          if (activeIdx === -1 || overIdx === -1) return old;
+          return arrayMove(old, activeIdx, overIdx);
+        });
+      } else if (!isActiveFolder && !isOverFolder) {
+        await queryClient.cancelQueries({ queryKey: ["documents", currentFolderId] });
+        queryClient.setQueryData(["documents", currentFolderId], (old: any[] | undefined) => {
+          if (!old) return [];
+          const activeIdx = old.findIndex(d => d.id === activeId.replace('d-', ''));
+          const overIdx = old.findIndex(d => d.id === overId.replace('d-', ''));
+          if (activeIdx === -1 || overIdx === -1) return old;
+          return arrayMove(old, activeIdx, overIdx);
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
+      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
+    }
+  });
+
   // --- Handlers ---
   const handleCreateFolder = () => {
     const name = prompt("Folder Name:");
@@ -303,13 +337,27 @@ const Dashboard: React.FC = () => {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over) return;
+    if (!over) {
+      setActiveId(null);
+      return;
+    }
+    
     const activeItem = items.find(i => i.id === active.id);
     const overItem = items.find(i => i.id === over.id);
 
-    if (overItem && overItem._type === 'folder' && activeItem && activeItem.id !== overItem.id) {
-       moveMutation.mutate({ item: activeItem, targetFolderId: overItem._realId });
+    if (!activeItem || !overItem) {
+      setActiveId(null);
+      return;
     }
+
+    if (overItem._type === 'folder' && activeItem.id !== overItem.id && activeItem._type === 'document') {
+       // Move into folder
+       moveMutation.mutate({ item: activeItem, targetFolderId: overItem._realId });
+    } else if (active.id !== over.id) {
+       // Reorder
+       reorderMutation.mutate({ activeId: active.id as string, overId: over.id as string });
+    }
+    
     setActiveId(null);
   };
 

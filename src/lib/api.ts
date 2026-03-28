@@ -226,8 +226,9 @@ export const api = {
   duplicateDocument: async (id: string): Promise<Document> => {
     await delay(300);
     const documents = getFromStorage<Document>("documents");
-    const original = documents.find(d => d.id === id);
-    if (!original) throw new Error("Document not found");
+    const index = documents.findIndex(d => d.id === id);
+    if (index === -1) throw new Error("Document not found");
+    const original = documents[index];
     const newDoc: Document = {
       ...original,
       id: crypto.randomUUID(),
@@ -235,7 +236,9 @@ export const api = {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    saveToStorage("documents", [...documents, newDoc]);
+    // Insert right after the original
+    documents.splice(index + 1, 0, newDoc);
+    saveToStorage("documents", documents);
     return newDoc;
   },
 
@@ -368,5 +371,36 @@ export const api = {
     };
     saveToStorage("documents", [...documents, newDoc]);
     return newDoc;
+  },
+
+  reorderItems: async (folderId: string | null, activeId: string, overId: string): Promise<void> => {
+    await delay(100);
+    
+    // Determine type (folder or document) based on the ID prefix in the UI
+    const isActiveFolder = activeId.startsWith('f-');
+    const isOverFolder = overId.startsWith('f-');
+    const realActiveId = activeId.replace(/^[fd]-/, '');
+    const realOverId = overId.replace(/^[fd]-/, '');
+
+    // Reordering within the SAME type group
+    if (isActiveFolder && isOverFolder) {
+      const folders = getFromStorage<Folder>("folders");
+      const activeIdx = folders.findIndex(f => f.id === realActiveId);
+      const overIdx = folders.findIndex(f => f.id === realOverId);
+      if (activeIdx !== -1 && overIdx !== -1) {
+        const [moved] = folders.splice(activeIdx, 1);
+        folders.splice(overIdx, 0, moved);
+        saveToStorage("folders", folders);
+      }
+    } else if (!isActiveFolder && !isOverFolder) {
+      const documents = getFromStorage<Document>("documents");
+      const activeIdx = documents.findIndex(d => d.id === realActiveId);
+      const overIdx = documents.findIndex(d => d.id === realOverId);
+      if (activeIdx !== -1 && overIdx !== -1) {
+        const [moved] = documents.splice(activeIdx, 1);
+        documents.splice(overIdx, 0, moved);
+        saveToStorage("documents", documents);
+      }
+    }
   },
 };
