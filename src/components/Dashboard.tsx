@@ -13,7 +13,8 @@ import {
   Copy, 
   Edit,
   ArrowLeft,
-  UserIcon
+  UserIcon,
+  RefreshCw
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api, type Folder as FolderType, type Document as DocumentType } from "../lib/api";
@@ -54,6 +55,8 @@ const Dashboard: React.FC = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<TemplateDefinition | null>(null);
   const [createModal, setCreateModal] = useState<{ open: boolean; template?: TemplateDefinition }>({ open: false });
+  const [clipboard, setClipboard] = useState<{ id: string, name: string, type: 'document' | 'folder' } | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -231,9 +234,14 @@ const Dashboard: React.FC = () => {
     },
   });
 
-  const duplicateMutation = useMutation({
-    mutationFn: (id: string) => api.duplicateDocument(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] }),
+  const duplicateMutation = useMutation<any, Error, any>({
+    mutationFn: (item: any) => item._type === 'folder' 
+      ? api.duplicateFolderToFolder(item._realId, currentFolderId) 
+      : api.duplicateDocumentToFolder(item._realId, currentFolderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
+      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
+    },
   });
 
   const renameMutation = useMutation<any, Error, { item: any, newName: string }>({
@@ -244,7 +252,6 @@ const Dashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
     },
   });
-
   const moveMutation = useMutation<any, Error, { item: any, targetFolderId: string | null }>({
     mutationFn: ({ item, targetFolderId }: { item: any, targetFolderId: string | null }) => 
       item._type === 'folder' ? api.moveFolder(item._realId, targetFolderId) : api.moveDocument(item._realId, targetFolderId),
@@ -253,6 +260,40 @@ const Dashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
     },
   });
+
+  const pasteMutation = useMutation<any, Error, void>({
+    mutationFn: () => {
+      if (!clipboard) return Promise.reject();
+      return clipboard.type === 'document' 
+        ? api.duplicateDocumentToFolder(clipboard.id, currentFolderId)
+        : api.duplicateFolderToFolder(clipboard.id, currentFolderId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
+      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
+      setClipboard(null);
+    }
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'c') {
+          if (selectedId) {
+            const item = items.find(i => i.id === selectedId);
+            if (item) setClipboard({ id: item._realId, name: item.name, type: item._type });
+          }
+        } else if (e.key === 'v' || e.key === 'p') {
+          if (clipboard) pasteMutation.mutate();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, clipboard, items, pasteMutation]);
 
   const saveTemplateMutation = useMutation({
     mutationFn: (template: TemplateDefinition) => api.saveTemplate(template),
@@ -336,8 +377,7 @@ const Dashboard: React.FC = () => {
   };
 
   const handleDuplicate = (item: any) => {
-    if (item._type === 'folder') return alert("Folder duplication coming soon!");
-    duplicateMutation.mutate(item._realId);
+    duplicateMutation.mutate(item);
   };
 
   const handleRename = (item: any) => {
@@ -422,6 +462,16 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
+            {clipboard && (
+              <button
+                onClick={() => pasteMutation.mutate()}
+                disabled={pasteMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 rounded-md font-bold text-xs transition-all group"
+              >
+                <RefreshCw size={14} className={cn(pasteMutation.isPending && "animate-spin")} />
+                <span>{pasteMutation.isPending ? "Pasting..." : "Paste Item"}</span>
+              </button>
+            )}
             <div className="flex p-0.5 bg-muted/50 rounded-md border border-border">
               <button 
                 onClick={() => setViewMode("grid")} 
@@ -443,7 +493,10 @@ const Dashboard: React.FC = () => {
         </header>
 
         {/* Browser Area */}
-        <section className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin">
+        <section 
+          className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin"
+          onClick={() => setSelectedId(null)}
+        >
 
           {!isSearching && !currentFolderId && (
             <div className="mb-12">
@@ -600,6 +653,16 @@ const Dashboard: React.FC = () => {
                  <Folder size={18} className="text-primary/70 shrink-0" />
                  {currentFolder ? currentFolder.name : "Library"}
                </h2>
+               {clipboard && (
+                 <div className="flex items-center gap-2 mt-1 px-2 py-1 bg-primary/5 border border-primary/20 rounded-md w-fit animate-in slide-in-from-left-2 duration-300">
+                   <Copy size={10} className="text-primary/60" />
+                   <span className="text-[10px] text-primary/80 font-medium">Copied: <span className="font-bold">{clipboard.name}</span></span>
+                   <button 
+                     onClick={() => setClipboard(null)}
+                     className="ml-2 text-[10px] text-slate-400 hover:text-slate-600 font-bold"
+                   >Cancel</button>
+                 </div>
+               )}
                
                {/* Breadcrumbs */}
                <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
@@ -650,12 +713,15 @@ const Dashboard: React.FC = () => {
                         key={item.id} 
                         item={item} 
                         mode={viewMode} 
-                        onDelete={() => handleDelete(item)}
-                        onDuplicate={() => handleDuplicate(item)}
                         onRename={() => handleRename(item)}
-                        onClick={() => {
+                        onDuplicate={() => handleDuplicate(item)}
+                        onDelete={() => handleDelete(item)}
+                        onCopy={() => setClipboard({ id: item._realId, name: item.name, type: item._type })}
+                        isSelected={selectedId === item.id}
+                        onClick={() => setSelectedId(item.id)}
+                        onDoubleClick={() => {
                           if (item._type === 'folder') {
-                            navigate(`/dashboard?folder=${item._realId}`);
+                            navigate(`/dashboard?folder=${item._realId}`, { state: { fromFolder: currentFolderId } });
                           } else {
                             const isReceipt = item.content?.isReceipt;
                             navigate(
@@ -743,7 +809,7 @@ const templateBadgeClass = (color?: string) => {
   }
 };
 
-const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any) => {
+const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, onRename, onCopy, isSelected }: any) => {
   const [showMenu, setShowMenu] = useState(false);
   const isFolder = item._type === 'folder';
   const menuRef = useRef<HTMLDivElement>(null);
@@ -769,7 +835,16 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
 
   if (mode === "list") {
     return (
-      <div onClick={onClick} className="flex items-center justify-between p-3 bg-white border border-border rounded-lg cursor-pointer group transition-all hover:border-primary/40 hover:bg-slate-50/50">
+      <div 
+        onClick={(e) => { e.stopPropagation(); onClick(); }} 
+        onDoubleClick={onDoubleClick}
+        className={cn(
+          "flex items-center justify-between p-3 border rounded-lg cursor-pointer group transition-all",
+          isSelected 
+            ? "bg-primary/5 border-primary shadow-sm" 
+            : "bg-white border-border hover:border-primary/40 hover:bg-slate-50/50"
+        )}
+      >
         <div className="flex items-center gap-4">
           <div className={cn("p-2 rounded-md flex items-center justify-center border", isFolder ? "bg-amber-50 text-amber-600 border-amber-200/50" : "bg-primary/5 text-primary border-primary/20")}>
             {isFolder ? <Folder size={18} /> : <FileText size={18} />}
@@ -793,19 +868,18 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-all border border-transparent hover:border-border"
           ><MoreHorizontal size={16} /></button>
-          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} />}
+          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} isFolder={isFolder} />}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3 group relative cursor-pointer">
+    <div className="flex flex-col gap-3 group relative cursor-pointer" onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick}>
       <div
-        onClick={onClick}
         className={cn(
-          "aspect-[3/4] rounded-lg border border-border bg-white shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center",
-          "hover:border-primary/40 hover:shadow-md",
+          "aspect-[3/4] rounded-lg border bg-white shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center",
+          isSelected ? "border-primary ring-2 ring-primary/20 shadow-md scale-[1.02]" : "border-border hover:border-primary/40 hover:shadow-md",
           isFolder ? "bg-amber-50/5" : ""
         )}
       >
@@ -837,7 +911,7 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
             className="p-1.5 bg-white/90 backdrop-blur shadow-sm border border-border rounded-md hover:bg-white text-foreground opacity-0 group-hover:opacity-100 transition-all duration-200"
           ><MoreHorizontal size={14} /></button>
-          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} />}
+          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} isFolder={isFolder} />}
         </div>
       </div>
       <div className="px-1" onClick={onClick}>
@@ -848,9 +922,10 @@ const ItemCard = ({ item, mode, onClick, onDelete, onDuplicate, onRename }: any)
   );
 };
 
-const MenuContent = ({ onRename, onDuplicate, onDelete }: any) => (
+const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, isFolder }: any) => (
   <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-border shadow-lg rounded-md p-1 z-50 animate-in fade-in zoom-in duration-150 origin-top-right">
     <button onClick={(e) => { e.stopPropagation(); onRename(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Edit size={14} /> Rename</button>
+    {!isFolder && <button onClick={(e) => { e.stopPropagation(); onCopy(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Copy to Clipboard</button>}
     <button onClick={(e) => { e.stopPropagation(); onDuplicate(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Duplicate</button>
     <div className="my-1 border-t border-border mx-1" />
     <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold text-destructive hover:bg-destructive/5 rounded transition-all"><Trash size={14} /> Delete</button>

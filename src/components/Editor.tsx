@@ -1839,9 +1839,13 @@ const A4Page: React.FC<A4PageProps> = ({
               />
             </div>
             {data.invoiceCode && (
-              <span className="font-bold text-[15px] whitespace-nowrap" style={{ color: data.invoiceCode.color }}>
-                {data.invoiceCode.text}
-              </span>
+              <div className="font-bold text-[15px] whitespace-nowrap min-w-[100px]" style={{ color: data.invoiceCode.color }}>
+                <Editable 
+                  value={data.invoiceCode.text} 
+                  onSave={(val) => onUpdateInvoiceCode({ text: val as string })} 
+                  readOnly={isPreview}
+                />
+              </div>
             )}
           </div>
 

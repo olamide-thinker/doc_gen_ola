@@ -300,9 +300,13 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
               <Editable value={data.date} onSave={(val) => onUpdateDate(val as string)} isDate={true} readOnly={isPreview} />
             </div>
             {data.invoiceCode && (
-              <span className="font-bold text-[15px] whitespace-nowrap" style={{ color: data.invoiceCode.color }}>
-                {data.invoiceCode.text}
-              </span>
+              <div className="font-bold text-[15px] whitespace-nowrap min-w-[100px]" style={{ color: data.invoiceCode.color }}>
+                <Editable 
+                  value={data.invoiceCode.text} 
+                  onSave={(val) => onUpdateInvoiceCode?.({ text: val as string })} 
+                  readOnly={isPreview}
+                />
+              </div>
             )}
           </div>
 
@@ -310,9 +314,9 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
             <div className="flex flex-col items-start w-1/2 font-lexend">
               <span className="block text-[#503D36] font-normal text-[13px] font-luzia uppercase mb-3 tracking-[0.1em]">Received From:</span>
               <div className="flex flex-col gap-2 w-full">
-                <div className="flex items-center gap-2">
+                <div className="flex items-start gap-2">
                   <span className="text-[11px] text-slate-400 font-bold uppercase min-w-[80px]">Client Name:</span>
-                  <div className="flex-1 relative h-[1.5em] overflow-hidden">
+                  <div className="flex-1 relative  min-h-[1.5em] max-h-[2.5em] overflow-hidden">
                     <Editable
                       className="font-normal text-[#212121] text-[15px] uppercase"
                       value={data.contact.name}
@@ -321,9 +325,9 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-start gap-2">
                   <span className="text-[11px] text-slate-400 font-bold uppercase min-w-[80px]">Project:</span>
-                  <div className="flex-1 relative h-[1.5em] overflow-hidden">
+                  <div className="flex-1 relative min-h-[1.5em] max-h-[2.5em] overflow-hidden">
                     <Editable
                       className="font-normal text-[14px] opacity-90"
                       value={data.contact.address1}
@@ -332,9 +336,9 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-start gap-2">
                   <span className="text-[11px] text-slate-400 font-bold uppercase min-w-[80px]">Location:</span>
-                  <div className="flex-1 relative h-[1.5em] overflow-hidden">
+                  <div className="flex-1 relative min-h-[1.5em] max-h-[2.5em] overflow-hidden">
                     <Editable
                       className="font-normal text-[14px] opacity-90"
                       value={data.contact.address2}

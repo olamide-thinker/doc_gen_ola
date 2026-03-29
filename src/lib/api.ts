@@ -204,6 +204,60 @@ export const api = {
     return folders[index];
   },
 
+  duplicateFolderToFolder: async (id: string, targetParentId: string | null): Promise<Folder> => {
+    await delay(500);
+    const folders = getFromStorage<Folder>("folders");
+    const documents = getFromStorage<Document>("documents");
+    const index = folders.findIndex(f => f.id === id);
+    if (index === -1) throw new Error("Folder not found");
+    
+    const original = folders[index];
+    const newFolderId = crypto.randomUUID();
+    const newFolder: Folder = {
+      ...original,
+      id: newFolderId,
+      name: `${original.name} (Copy)`,
+      parentId: targetParentId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    const duplicateRecursive = (oldParentId: string, newParentId: string) => {
+      const docsInFolder = documents.filter(d => d.folderId === oldParentId);
+      docsInFolder.forEach(d => {
+        documents.push({
+          ...d,
+          id: crypto.randomUUID(),
+          name: d.name,
+          folderId: newParentId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      });
+      
+      const subFolders = folders.filter(f => f.parentId === oldParentId);
+      subFolders.forEach(sf => {
+        const nextFolderId = crypto.randomUUID();
+        folders.push({
+          ...sf,
+          id: nextFolderId,
+          name: sf.name,
+          parentId: newParentId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        duplicateRecursive(sf.id, nextFolderId);
+      });
+    };
+    
+    folders.splice(index + 1, 0, newFolder);
+    duplicateRecursive(id, newFolderId);
+    
+    saveToStorage("folders", folders);
+    saveToStorage("documents", documents);
+    return newFolder;
+  },
+
   // --- Documents ---
   getDocuments: async (folderId: string | null = null): Promise<Document[]> => {
     await delay(300);
@@ -263,6 +317,29 @@ export const api = {
     };
     // Insert right after the original
     documents.splice(index + 1, 0, newDoc);
+    saveToStorage("documents", documents);
+    return newDoc;
+  },
+
+  duplicateDocumentToFolder: async (id: string, folderId: string | null): Promise<Document> => {
+    await delay(300);
+    const documents = getFromStorage<Document>("documents");
+    const index = documents.findIndex(d => d.id === id);
+    if (index === -1) throw new Error("Document not found");
+    const original = documents[index];
+    const newDoc: Document = {
+      ...original,
+      id: crypto.randomUUID(),
+      name: `${original.name} (Copy)`,
+      folderId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    if (original.folderId === folderId) {
+      documents.splice(index + 1, 0, newDoc);
+    } else {
+      documents.push(newDoc);
+    }
     saveToStorage("documents", documents);
     return newDoc;
   },
