@@ -284,8 +284,8 @@ export const calculateChunks = (
     if (!docData.showBOQSummary) return 0;
     const sections = (docData.table.rows || []).filter(r => r.rowType === "section-header" || r.rowType === "sub-section-header");
     if (sections.length === 0) return 0;
-    // Title (40px) + Header (40px) + Rows (40px each) + Spacing (20px)
-    return 40 + 40 + (sections.length * 40) + 20;
+    // Title (40px) + Header (40px) + Rows (40px each) + Totals (approx 150px) + Spacing (20px)
+    return 40 + 40 + (sections.length * 40) + 150 + 20;
   };
 
   const BOQ_SUMMARY_HEIGHT = estimateBOQSummaryHeight(docData);

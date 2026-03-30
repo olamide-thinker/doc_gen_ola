@@ -36,6 +36,7 @@ const SortableRow = ({
     transform,
     transition,
     isDragging,
+    isOver,
   } = useSortable({ id });
 
   const style = {
@@ -62,7 +63,14 @@ const SortableRow = ({
     }
 
     return (
-      <tr ref={setNodeRef} style={style} className="group/row">
+      <tr 
+        ref={setNodeRef} 
+        style={style} 
+        className={cn(
+          "group/row relative",
+          isOver && !isDragging && "before:absolute before:top-0 before:left-0 before:right-0 before:h-0.5 before:bg-primary before:z-50"
+        )}
+      >
         <td
           colSpan={data.table.columns.filter((c: any) => !c.hidden).length - 1}
           className={cn(
@@ -112,8 +120,9 @@ const SortableRow = ({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "border-b border-slate-100 hover:bg-amber-50/10 group/row transition-colors",
+        "border-b border-slate-100 hover:bg-amber-50/10 group/row transition-colors relative",
         isDragging && "bg-white shadow-xl z-50",
+        isOver && !isDragging && "before:absolute before:top-0 before:left-0 before:right-0 before:h-0.5 before:bg-primary before:z-50"
       )}
     >
       {(data.table.columns || [])
@@ -261,17 +270,42 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
                 const total = resolveSectionTotal(data.table.rows, data.table.rows.indexOf(section));
                 return (
                   <tr key={section.id} className={cn(
-                    "text-[12px] font-lexend border-b border-[#F5EDE8] last:border-b-0",
+                    "text-[12px] font-lexend border-b border-[#F5EDE8]",
                     idx % 2 === 0 ? "bg-white" : "bg-[#FBF9F7]"
                   )}>
                     <td className="p-3 font-bold text-slate-400 border-r border-[#F5EDE8]">{String.fromCharCode(65 + idx)}</td>
                     <td className="p-3 font-bold text-slate-800 border-r border-[#F5EDE8] uppercase">{section.sectionTitle}</td>
                     <td className="p-3 text-right font-black text-slate-900">
-                      {Math.round(total).toLocaleString()}
+                      ₦{Math.round(total).toLocaleString()}
                     </td>
                   </tr>
                 );
               })}
+
+              {(totalPrice?.grandTotal !== undefined) && (
+                <>
+                  <tr className="bg-[#F8F9FA] text-[12px] font-lexend border-b border-[#E5D3C8]">
+                    <td colSpan={2} className="p-3 font-bold text-slate-500 uppercase tracking-wider text-right border-r border-[#E5D3C8]">Sub Total</td>
+                    <td className="p-3 text-right font-black text-slate-900 bg-white">
+                      ₦{Math.round(totalPrice.subTotal).toLocaleString()}
+                    </td>
+                  </tr>
+                  {(totalPrice.summaries || []).map((item: any, sidx: number) => (
+                    <tr key={item.id || sidx} className="bg-[#F8F9FA] text-[12px] font-lexend border-b border-[#E5D3C8]">
+                      <td colSpan={2} className="p-3 font-bold text-slate-500 uppercase tracking-wider text-right border-r border-[#E5D3C8]">{item.label}</td>
+                      <td className="p-3 text-right font-black text-slate-900 bg-white">
+                        ₦{Math.round(item.calculatedValue || 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="text-white text-[13px] font-lexend" style={{ backgroundColor: PRIMARY_BROWN }}>
+                    <td colSpan={2} className="p-4 font-bold uppercase tracking-[0.15em] text-right border-r border-white/10">Grand Total</td>
+                    <td className="p-4 text-right font-black text-[15px]">
+                      ₦{Math.round(totalPrice.grandTotal).toLocaleString()}
+                    </td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
         </div>
