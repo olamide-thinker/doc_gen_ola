@@ -301,6 +301,7 @@ export const calculateChunks = (
     h += THEAD_HEIGHT;
 
     const rowsForThisPage: TableRow[] = [];
+    const startIdxOfPage = currentRowsProcessed;
     while (currentRowsProcessed < allRows.length) {
       const rHeight = estimateRowHeight(allRows[currentRowsProcessed]);
       if (h + rHeight <= USABLE_HEIGHT - 10) {
@@ -310,6 +311,24 @@ export const calculateChunks = (
       } else {
         break;
       }
+    }
+
+    let showRows = rowsForThisPage.length > 0;
+    
+    // Orphan Header Prevention:
+    // If we have fewer than 2 rows (but more exist) and we just started this table block
+    // (or on the first page where BOQ Summary might have taken space), 
+    // push the table to the next page for better flow.
+    if (rowsForThisPage.length > 0 && rowsForThisPage.length < 2 && currentRowsProcessed < allRows.length) {
+      rowsForThisPage.length = 0;
+      currentRowsProcessed = startIdxOfPage;
+      showRows = false;
+    }
+
+    // For the first page, we used to always set showRows to true (header only).
+    // Now we only do it if we actually have enough rows or if it's the only page.
+    if (isFirstPage && !showRows && currentRowsProcessed === allRows.length) {
+        showRows = true; // Keep it if there really are no rows at all
     }
 
     let showTotals = false;
@@ -339,7 +358,7 @@ export const calculateChunks = (
 
     pages.push({
       rows: rowsForThisPage,
-      showRows: rowsForThisPage.length > 0 || isFirstPage,
+      showRows: showRows || (isFirstPage && allRows.length === 0),
       showTotals,
       showFooter,
       isEndOfRows:
