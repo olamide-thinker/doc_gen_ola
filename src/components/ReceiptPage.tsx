@@ -237,6 +237,48 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
   onUpdateOutstandingBalance,
   onUpdateAcknowledgement,
 }) => {
+  const BOQSummary = () => {
+    if (!data.showBOQSummary) return null;
+    const sections = (data.table.rows || []).filter(r => r.rowType === "section-header" || r.rowType === "sub-section-header");
+    if (sections.length === 0) return null;
+
+    return (
+      <div className="mb-10 w-full animate-in fade-in slide-in-from-top-4 duration-700">
+        <h2 className="text-center font-lora text-[18px] uppercase tracking-[0.2em] text-[#503D36] mb-6">
+          Summary of Bill of Quantity
+        </h2>
+        <div className="overflow-hidden border border-[#E5D3C8] rounded-sm">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-[#E5D3C8] text-[#503D36] text-[11px] font-bold uppercase tracking-[0.15em]">
+                <th className="p-3 text-left w-12 border-r border-white/20">#</th>
+                <th className="p-3 text-left border-r border-white/20">Description</th>
+                <th className="p-3 text-right">Amount (₦)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sections.map((section, idx) => {
+                const total = resolveSectionTotal(data.table.rows, data.table.rows.indexOf(section));
+                return (
+                  <tr key={section.id} className={cn(
+                    "text-[12px] font-lexend border-b border-[#F5EDE8] last:border-b-0",
+                    idx % 2 === 0 ? "bg-white" : "bg-[#FBF9F7]"
+                  )}>
+                    <td className="p-3 font-bold text-slate-400 border-r border-[#F5EDE8]">{String.fromCharCode(65 + idx)}</td>
+                    <td className="p-3 font-bold text-slate-800 border-r border-[#F5EDE8] uppercase">{section.sectionTitle}</td>
+                    <td className="p-3 text-right font-black text-slate-900">
+                      {Math.round(total).toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       className="a4-page bg-white text-[#212121] shadow-2xl mb-12 print:mb-0 relative overflow-hidden shrink-0"
@@ -381,6 +423,8 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
           </div>
         </>
       )}
+
+      {isFirstPage && <BOQSummary />}
 
       {/* Financial Summary Section */}
       <div className="mb-8 font-lexend">

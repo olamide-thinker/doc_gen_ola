@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { cn } from "../lib/utils";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Printer,
@@ -23,6 +24,7 @@ import { DocData, TableRow, InvoiceCode } from "../types";
 import { api } from "../lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ReceiptPage } from "./ReceiptPage";
+import { resolveSectionTotal, resolveSectionTotalBackward } from "../lib/documentUtils";
 
 const ReceiptEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -317,6 +319,17 @@ const ReceiptEditor: React.FC = () => {
               <Check size={11} /> Saved
             </span>
           ) : null}
+          <button
+            onClick={() => updateDocData(prev => prev ? { ...prev, showBOQSummary: !prev.showBOQSummary } : null)}
+            className={cn(
+              "px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 border",
+              docData.showBOQSummary
+                ? "bg-primary text-white border-primary"
+                : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50",
+            )}
+          >
+            {docData.showBOQSummary ? "Hide BOQ Summary" : "Show BOQ Summary"}
+          </button>
           {isPreview ? (
             <>
               <button
@@ -387,10 +400,10 @@ const ReceiptEditor: React.FC = () => {
               onAddSubSectionBelow={() => {}}
               onAddSubSectionAbove={() => {}}
               onMoveRow={() => {}}
-              useSections={false}
+              useSections={useSections}
               resolveFormula={resolveFormula}
-              resolveSectionTotalBackward={() => 0}
-              resolveSectionTotal={() => 0}
+              resolveSectionTotalBackward={(rows, idx) => resolveSectionTotalBackward(rows, idx, docData)}
+              resolveSectionTotal={(rows, idx) => resolveSectionTotal(rows, idx, docData)}
               onUpdateInvoiceCode={(upd) => updateDocData(prev => prev ? { ...prev, invoiceCode: { ...(prev.invoiceCode || {}), ...upd } as any } : null)}
               onUpdateSummaryItem={() => {}}
               onUpdateDate={(val) => updateDocData(prev => prev ? { ...prev, date: val } : null)}

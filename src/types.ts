@@ -61,6 +61,7 @@ export interface DocData {
   footer: Footer;
   invoiceCode?: InvoiceCode;
   useSections?: boolean;
+  showBOQSummary?: boolean;
   isReceipt?: boolean;
   paymentMethod?: string;
   transactionId?: string;

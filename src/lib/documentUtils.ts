@@ -100,7 +100,7 @@ export const resolveSectionTotal = (rows: TableRow[], fromIdx: number, docData: 
 
   for (let i = fromIdx + 1; i < rows.length; i++) {
     const row = rows[i];
-    if (row.rowType === "section-header") break;
+    if (row.rowType === "section-header" || row.rowType === "sub-section-header") break;
     if (row.rowType === "row" || !row.rowType) {
       const val =
         totalCol?.type === "formula"
@@ -279,6 +279,16 @@ export const calculateChunks = (
   const pages: any[] = [];
 
   const page1HeaderHeight = headerHeight + 50 + 180 + 120;
+  
+  const estimateBOQSummaryHeight = (docData: DocData) => {
+    if (!docData.showBOQSummary) return 0;
+    const sections = (docData.table.rows || []).filter(r => r.rowType === "section-header" || r.rowType === "sub-section-header");
+    if (sections.length === 0) return 0;
+    // Title (40px) + Header (40px) + Rows (40px each) + Spacing (20px)
+    return 40 + 40 + (sections.length * 40) + 20;
+  };
+
+  const BOQ_SUMMARY_HEIGHT = estimateBOQSummaryHeight(docData);
 
   let iterations = 0;
   while (
@@ -287,7 +297,7 @@ export const calculateChunks = (
   ) {
     iterations++;
     const isFirstPage = pages.length === 0;
-    let h = isFirstPage ? page1HeaderHeight : 40;
+    let h = isFirstPage ? page1HeaderHeight + BOQ_SUMMARY_HEIGHT : 40;
     h += THEAD_HEIGHT;
 
     const rowsForThisPage: TableRow[] = [];

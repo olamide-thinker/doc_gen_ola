@@ -209,6 +209,7 @@ const Editor: React.FC = () => {
   const [future, setFuture] = useState<DocData[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const useSections = docData?.useSections ?? false;
+  const showBOQSummary = docData?.showBOQSummary ?? false;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -1050,6 +1051,22 @@ const Editor: React.FC = () => {
                         {useSections ? "Enabled" : "Disabled"}
                       </button>
                     </div>
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">
+                        Show BOQ Summary
+                      </span>
+                      <button
+                        onClick={() => updateDocData(prev => prev ? { ...prev, showBOQSummary: !showBOQSummary } : null)}
+                        className={cn(
+                          "px-2 py-1 text-[9px] font-black uppercase rounded-full border transition-all",
+                          showBOQSummary
+                            ? "bg-primary text-white border-primary"
+                            : "bg-slate-100 text-slate-400 border-slate-200",
+                        )}
+                      >
+                        {showBOQSummary ? "Enabled" : "Disabled"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -1794,6 +1811,48 @@ const A4Page: React.FC<A4PageProps> = ({
   const PRIMARY_BROWN = "#8D6E63";
   const ADDRESS_BG = "#F8F8F8";
 
+  const BOQSummary = () => {
+    if (!data.showBOQSummary) return null;
+    const sections = (data.table.rows || []).filter(r => r.rowType === "section-header" || r.rowType === "sub-section-header");
+    if (sections.length === 0) return null;
+
+    return (
+      <div className="mb-10 w-full animate-in fade-in slide-in-from-top-4 duration-700">
+        <h2 className="text-center font-lora text-[18px] uppercase tracking-[0.2em] text-[#503D36] mb-6">
+          Summary of Bill of Quantity
+        </h2>
+        <div className="overflow-hidden border border-[#E5D3C8] rounded-sm">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-[#E5D3C8] text-[#503D36] text-[11px] font-bold uppercase tracking-[0.15em]">
+                <th className="p-3 text-left w-12 border-r border-white/20">#</th>
+                <th className="p-3 text-left border-r border-white/20">Description</th>
+                <th className="p-3 text-right">Amount (₦)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sections.map((section, idx) => {
+                const total = resolveSectionTotal(data.table.rows, data.table.rows.indexOf(section));
+                return (
+                  <tr key={section.id} className={cn(
+                    "text-[12px] font-lexend border-b border-[#F5EDE8] last:border-b-0",
+                    idx % 2 === 0 ? "bg-white" : "bg-[#FBF9F7]"
+                  )}>
+                    <td className="p-3 font-bold text-slate-400 border-r border-[#F5EDE8]">{String.fromCharCode(65 + idx)}</td>
+                    <td className="p-3 font-bold text-slate-800 border-r border-[#F5EDE8] uppercase">{section.sectionTitle}</td>
+                    <td className="p-3 text-right font-black text-slate-900">
+                      {Math.round(total).toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative overflow-hidden shrink-0"
@@ -1923,6 +1982,8 @@ const A4Page: React.FC<A4PageProps> = ({
           </div>
         </>
       )}
+
+      {isFirstPage && <BOQSummary />}
 
       {showRows && (
         <div className="overflow-hidden border border-slate-100">
