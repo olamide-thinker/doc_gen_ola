@@ -9,15 +9,35 @@ import AccessDenied from "./components/AccessDenied";
 import LoginPage from "./components/LoginPage";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import OnboardingPage from "./components/OnboardingPage";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, businessId, loading } = useAuth();
   if (loading) return (
-    <div className="h-screen flex items-center justify-center bg-slate-50">
-      <div className="w-8 h-8 border-4 border-slate-900/10 border-t-slate-900 rounded-full animate-spin" />
+    <div className="h-screen flex items-center justify-center bg-background">
+      <div className="w-8 h-8 border-4 border-primary/10 border-t-primary rounded-full animate-spin" />
     </div>
   );
   if (!user) return <Navigate to="/login" replace />;
+  if (!businessId) return <Navigate to="/onboarding" replace />;
+  return <>{children}</>;
+};
+
+const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, businessId, loading } = useAuth();
+  if (loading) return null;
+  if (user) {
+    if (businessId) return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/onboarding" replace />;
+  }
+  return <>{children}</>;
+};
+
+const BoardingRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, businessId, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (businessId) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 };
 
@@ -26,8 +46,9 @@ const App: React.FC = () => {
     <ThemeProvider>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
           <Route path="/denied" element={<AccessDenied />} />
+          <Route path="/onboarding" element={<BoardingRoute><OnboardingPage /></BoardingRoute>} />
           
           <Route path="/" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

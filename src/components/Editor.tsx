@@ -56,7 +56,7 @@ import { api } from "../lib/api";
 import { cn } from "../lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore, authStore, authProvider } from "../store";
+import { workspaceStore, authStore, connectWorkspace, connectEditor, authProvider } from "../store";
 import { EditTemplateModal } from "./EditTemplateModal";
 import {
   resolveFormula,
@@ -208,12 +208,14 @@ const Editor: React.FC = () => {
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
-  const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
   const { user: currentUser } = useAuth();
+  const { businessId } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
+  const [isSyncReady, setIsSyncReady] = useState(false);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+  const [myClientId, setMyClientId] = useState<string>("unknown");
 
   useEffect(() => {
     if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
@@ -222,38 +224,48 @@ const Editor: React.FC = () => {
   }, [authAction.bannedClients, currentUser, navigate]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !businessId || !id) return;
 
-    const updatePresence = () => {
-      const states = authProvider.awareness?.getStates();
-      if (!states) return;
-      const clients: any[] = [];
-      states.forEach((state: any, clientId: number) => {
-        // Only track users with an authenticated email address
-        if (state.user && state.user.email) {
-          clients.push({
-            id: clientId.toString(),
-            user: state.user
-          });
-        }
+    let cleanup: (() => void) | undefined;
+
+    const startSync = async () => {
+      const token = await currentUser.getIdToken();
+      // 1. Connect to workspace (for metadata/folders)
+      const workspaceProviders = connectWorkspace(businessId, token);
+      // 2. Connect to specific document
+      const editorProvider = connectEditor(id, token);
+      
+      const updatePresence = () => {
+        const states = workspaceProviders.authProvider.awareness?.getStates();
+        if (!states) return;
+        const clients: any[] = [];
+        states.forEach((state: any, clientId: number) => {
+          if (state.user && state.user.email) {
+            clients.push({ id: clientId.toString(), user: state.user });
+          }
+        });
+        setConnectedClients(clients);
+      };
+
+      workspaceProviders.authProvider.awareness?.on('change', updatePresence);
+      setMyClientId(workspaceProviders.authProvider.awareness?.clientID.toString() || "unknown");
+      workspaceProviders.authProvider.awareness?.setLocalStateField('user', { 
+        name: currentUser.displayName || "Anonymous",
+        email: currentUser.email || "guest@system.com",
+        photo: currentUser.photoURL,
+        id: currentUser.uid,
+        color: '#' + Math.floor(Math.random()*16777215).toString(16)
       });
-      setConnectedClients(clients);
+
+      setIsSyncReady(true);
+      cleanup = () => {
+        workspaceProviders.authProvider.awareness?.off('change', updatePresence);
+      };
     };
 
-    authProvider.awareness?.on('change', updatePresence);
-
-    authProvider.awareness?.setLocalStateField('user', { 
-      name: currentUser.displayName || "Anonymous",
-      email: currentUser.email || "guest@system.com",
-      photo: currentUser.photoURL,
-      id: currentUser.uid,
-      color: '#' + Math.floor(Math.random()*16777215).toString(16)
-    });
-
-    return () => {
-      authProvider.awareness?.off('change', updatePresence);
-    };
-  }, [myClientId, currentUser]);
+    startSync();
+    return () => cleanup?.();
+  }, [currentUser, businessId, id]);
 
   const docMetadata = workspaceAction.documents?.find((d: any) => d.id === id);
   const docData = docMetadata?.content as DocData | undefined;

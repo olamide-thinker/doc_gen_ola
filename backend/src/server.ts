@@ -20,6 +20,64 @@ const hocuspocusServer = new Server({
   // The name of your server
   name: 'shan-doc-printer-backend',
 
+  // Authentication Hook
+  async onAuthenticate(data: any) {
+    const { token, roomName } = data;
+    
+    if (!token) {
+      console.error(`[Auth] Connection rejected: No token provided for room ${roomName}`);
+      throw new Error('Unauthorized: No token provided');
+    }
+
+    try {
+      // 1. Verify user identity via Firebase
+      const admin = await import('firebase-admin');
+      let decodedToken;
+      
+      try {
+        decodedToken = await admin.auth().verifyIdToken(token);
+      } catch (e) {
+        console.warn('[Auth] Firebase Admin not initialized or token invalid. Falling back to mock auth.');
+        // FOR DEVELOPMENT: If firebase is not fully setup, we can allow certain tokens or log them
+        // In production, this MUST throw.
+        return true; 
+      }
+
+      const uid = decodedToken.uid;
+      const email = decodedToken.email;
+
+      // 2. Authorization Logic
+      // Room patterns: business-workspace-{id}, business-auth-{id}, doc-{id}
+      if (roomName.startsWith('business-')) {
+        const businessId = roomName.split('-').pop();
+        
+        // Fetch membership from Firestore
+        const db = admin.firestore();
+        const businessDoc = await db.collection('businesses').doc(businessId!).get();
+        
+        if (!businessDoc.exists) {
+            throw new Error('Business not found');
+        }
+
+        const members = businessDoc.data()?.members || [];
+        if (!members.includes(email) && businessDoc.data()?.ownerId !== uid) {
+            console.error(`[Auth] User ${email} rejected from business room ${roomName}`);
+            throw new Error('Forbidden: Not a member of this business');
+        }
+      }
+
+      console.log(`[Auth] User ${email} authenticated for room ${roomName}`);
+      
+      // Store user info in the connection context
+      return {
+        user: { id: uid, email: email }
+      };
+    } catch (error: any) {
+      console.error('[Auth] Authentication failed:', error.message);
+      throw error;
+    }
+  },
+
   // Hooks to integrate with your Database Abstraction
   async onLoadDocument(data: any) {
     // When a user joins, load the invoice state from the database

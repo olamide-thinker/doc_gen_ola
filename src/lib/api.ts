@@ -5,11 +5,16 @@ import { type TemplateDefinition, TEMPLATES } from "./templates";
 
 // Helper to save to local storage (for templates only)
 const saveToStorage = (key: string, data: any) => {
-  localStorage.setItem(`shan_${key}`, JSON.stringify(data));
+  localStorage.setItem(`invsys_${key}`, JSON.stringify(data));
 };
 
 const getFromStorage = (key: string, fallback: any) => {
-  const data = localStorage.getItem(`shan_${key}`);
+  // Check new brand first, fallback to old brand for migration
+  let data = localStorage.getItem(`invsys_${key}`);
+  if (!data) {
+    data = localStorage.getItem(`shan_${key}`);
+    if (data) localStorage.setItem(`invsys_${key}`, data); // Migrate
+  }
   return data ? JSON.parse(data) : fallback;
 };
 
@@ -219,26 +224,26 @@ export const api = {
 
   // --- Counters ---
   getNextReceiptNumber: (): string => {
-    const counter = Number(localStorage.getItem("shan_receipt_counter") || "0") + 1;
-    localStorage.setItem("shan_receipt_counter", String(counter));
-    return `REC/IS/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
+    const counter = Number(localStorage.getItem("invsys_receipt_counter") || localStorage.getItem("shan_receipt_counter") || "0") + 1;
+    localStorage.setItem("invsys_receipt_counter", String(counter));
+    return `REC/IP/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
   },
 
   peekNextInvoiceNumber: (): string => {
-    const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
-    return `INV/IS/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
+    const counter = Number(localStorage.getItem("invsys_invoice_counter") || localStorage.getItem("shan_invoice_counter") || "0") + 1;
+    return `INV/IP/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
   },
 
   getNextInvoiceNumber: (): InvoiceCode => {
-    const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
-    localStorage.setItem("shan_invoice_counter", String(counter));
+    const counter = Number(localStorage.getItem("invsys_invoice_counter") || localStorage.getItem("shan_invoice_counter") || "0") + 1;
+    localStorage.setItem("invsys_invoice_counter", String(counter));
     const year = new Date().getFullYear();
     const count = String(counter).padStart(4, "0");
-    return { text: `INV/IS/${count}/${year}`, prefix: "INV", count, year: String(year), x: 600, y: 100, color: "#503D36" };
+    return { text: `INV/IP/${count}/${year}`, prefix: "INV", count, year: String(year), x: 600, y: 100, color: "#503D36" };
   },
 
   getNextInvoiceCount: (): string => {
-    return String(localStorage.getItem("shan_invoice_counter") || "0").padStart(4, "0");
+    return String(localStorage.getItem("invsys_invoice_counter") || localStorage.getItem("shan_invoice_counter") || "0").padStart(4, "0");
   },
 
   searchAll: async (query: string): Promise<WorkspaceDocument[]> => {

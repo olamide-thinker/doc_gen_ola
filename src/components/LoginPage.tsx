@@ -88,7 +88,7 @@ const LoginPage: React.FC = () => {
       
       {/* Footer Branding */}
       <div className="absolute bottom-10 left-0 w-full flex justify-center opacity-30">
-         <span className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">Shan Doc System ● 2026</span>
+         <span className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">INV-SYS Pro ● 2026</span>
       </div>
     </div>
   );

@@ -3,6 +3,9 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { 
   Folder, 
   FileText, 
+  Check,
+  ShieldCheck,
+  X,
   Plus, 
   Search, 
   MoreHorizontal, 
@@ -23,7 +26,8 @@ import {
   PinOff,
   Users,
   Shield,
-  AlertTriangle
+  AlertTriangle,
+  LogOut
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
@@ -33,7 +37,7 @@ import { type InvoiceCode } from "../types";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore, authStore, authProvider } from "../store";
+import { workspaceStore, authStore, connectWorkspace, workspaceProvider, authProvider } from "../store";
 import { useQueryClient } from "@tanstack/react-query";
 import { EditTemplateModal } from "./EditTemplateModal";
 import CreateInvoiceModal, { type CreateInvoiceFormData } from "./CreateInvoiceModal";
@@ -72,8 +76,24 @@ const Dashboard: React.FC = () => {
   const [clipboard, setClipboard] = useState<{ id: string, name: string, type: 'document' | 'folder' } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
-  const { user: currentUser } = useAuth();
+  const [isManageTeamOpen, setIsManageTeamOpen] = useState(false);
+  const { user: currentUser, logout, businessId, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
+
+  const [businessName, setBusinessName] = useState("Your Business");
+
+  useEffect(() => {
+    const fetchBusinessName = async () => {
+        if (!businessId) return;
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+        const bDoc = await getDoc(doc(db, "businesses", businessId));
+        if (bDoc.exists()) {
+            setBusinessName(bDoc.data().name);
+        }
+    };
+    fetchBusinessName();
+  }, [businessId]);
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -95,42 +115,49 @@ const Dashboard: React.FC = () => {
 
   // --- Presence / Awareness ---
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
-  const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
+  const [isWorkspaceReady, setIsWorkspaceReady] = useState(false);
+  const [myClientId, setMyClientId] = useState<string>("unknown");
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !businessId) return;
 
-    const updatePresence = () => {
-      const states = authProvider.awareness?.getStates();
-      if (!states) return;
-      const clients: any[] = [];
-      states.forEach((state: any, clientId: number) => {
-        // Only track users with an authenticated email address
-        if (state.user && state.user.email) {
-          clients.push({
-            id: clientId.toString(),
-            user: state.user
-          });
-        }
+    let cleanup: (() => void) | undefined;
+
+    const startSync = async () => {
+      const token = await currentUser.getIdToken();
+      const providers = connectWorkspace(businessId, token);
+      
+      const updatePresence = () => {
+        const states = providers.authProvider.awareness?.getStates();
+        if (!states) return;
+        const clients: any[] = [];
+        states.forEach((state: any, clientId: number) => {
+          if (state.user && state.user.email) {
+            clients.push({ id: clientId.toString(), user: state.user });
+          }
+        });
+        setConnectedClients(clients);
+      };
+
+      providers.authProvider.awareness?.on('change', updatePresence);
+      setMyClientId(providers.authProvider.awareness?.clientID.toString() || "unknown");
+      providers.authProvider.awareness?.setLocalStateField('user', { 
+        name: currentUser.displayName || "Anonymous",
+        email: currentUser.email || "guest@system.com",
+        photo: currentUser.photoURL,
+        id: currentUser.uid,
+        color: '#' + Math.floor(Math.random()*16777215).toString(16)
       });
-      setConnectedClients(clients);
+
+      setIsWorkspaceReady(true);
+      cleanup = () => {
+        providers.authProvider.awareness?.off('change', updatePresence);
+      };
     };
 
-    authProvider.awareness?.on('change', updatePresence);
-    
-    // Set identity from Google Auth
-    authProvider.awareness?.setLocalStateField('user', { 
-      name: currentUser.displayName || "Anonymous",
-      email: currentUser.email || "guest@system.com",
-      photo: currentUser.photoURL,
-      id: currentUser.uid,
-      color: '#' + Math.floor(Math.random()*16777215).toString(16)
-    });
-    
-    return () => {
-      authProvider.awareness?.off('change', updatePresence);
-    };
-  }, [myClientId, currentUser]);
+    startSync();
+    return () => cleanup?.();
+  }, [currentUser, businessId]);
 
   // --- Auto-Kick Security Logic ---
   useEffect(() => {
@@ -293,19 +320,35 @@ const Dashboard: React.FC = () => {
           <div className="p-2 bg-primary rounded-lg shadow-sm">
             <FileText size={20} className="text-primary-foreground" strokeWidth={2.5} />
           </div>
-          <h1 className="text-sm font-bold tracking-tight uppercase text-foreground">Shan Docs</h1>
+          <h1 className="text-sm font-bold tracking-tight uppercase text-foreground">INV-SYS Pro</h1>
         </div>
         <nav className="flex-1 space-y-0.5">
           <SidebarItem icon={<Clock size={18} />} label="All Files" active onClick={() => navigate("/dashboard")} />
           <SidebarItem icon={<Folder size={18} />} label="Trash" onClick={() => alert("Trash feature coming soon")} />
         </nav>
-        <div className="pt-6 border-t border-border">
-          <div className="flex items-center gap-3 px-3 py-3 rounded-lg bg-muted/40 border border-border/50">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center"><UserIcon className="text-primary" size={14} /></div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold truncate">Olamide</p>
-              <p className="text-[10px] text-muted-foreground truncate opacity-70">Admin Account</p>
+        <div className="pt-6 mt-auto">
+          <div 
+            onClick={() => setIsCollaboratorsOpen(true)}
+            className="flex items-center gap-3 px-3 py-3 rounded-xl bg-muted/40 group relative overflow-hidden transition-all hover:bg-muted/60 cursor-pointer"
+          >
+            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
+               {currentUser?.photoURL ? (
+                 <img src={currentUser.photoURL} alt="" className="w-full h-full object-cover" />
+               ) : (
+                 <UserIcon className="text-primary" size={16} />
+               )}
             </div>
+            <div className="flex-1 min-w-0 pr-8">
+              <p className="text-[11px] font-black truncate text-foreground">{currentUser?.displayName || 'Olamide'}</p>
+              <p className="text-[9px] text-muted-foreground truncate uppercase tracking-widest font-bold opacity-60">Admin Account</p>
+            </div>
+            <button 
+              onClick={() => logout()}
+              className="absolute right-2 p-2 hover:bg-destructive/10 hover:text-destructive rounded-lg transition-all text-muted-foreground group-hover:opacity-100"
+              title="Sign Out"
+            >
+              <LogOut size={14} />
+            </button>
           </div>
         </div>
       </aside>
@@ -326,7 +369,7 @@ const Dashboard: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-foreground transition-colors" size={14} />
               <input 
                 type="text" 
-                placeholder="Search documents..." 
+                placeholder="e.g. Acme Tech Solutions" 
                 className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-border focus:border-primary/50 focus:bg-card rounded-md outline-none text-xs transition-all" 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
@@ -335,6 +378,15 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
+            {role === 'super-admin' && (
+              <button 
+                onClick={() => setIsManageTeamOpen(true)}
+                className="flex items-center gap-2 px-3 py-1.5 h-8 bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-all text-[11px] font-black uppercase tracking-wider"
+              >
+                <Users size={14} />
+                Manage Team
+              </button>
+            )}
             {/* Session Owners & Presence */}
             <div className="flex items-center -space-x-1 overflow-hidden mr-2">
               {connectedClients.map((client) => {
@@ -482,7 +534,7 @@ const Dashboard: React.FC = () => {
                   {searchInvoices.length > 0 && (
                     <div>
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Invoices</span>
+                        <span className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">INV-SYS Pro ● 2026</span>
                         <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/10 text-primary">{searchInvoices.length}</span>
                       </div>
                       <div className="space-y-2">
@@ -705,7 +757,6 @@ const Dashboard: React.FC = () => {
           isLoading={false}
         />
       )}
-
       {/* Collaborators Sheet */}
       <CollaboratorsSheet
         isOpen={isCollaboratorsOpen}
@@ -721,6 +772,14 @@ const Dashboard: React.FC = () => {
         onMakeOwner={(email) => {
           authAction.governance.ownerId = email;
         }}
+      />
+
+      {/* Manage Team Modal */}
+      <ManageTeamModal 
+        isOpen={isManageTeamOpen} 
+        onClose={() => setIsManageTeamOpen(false)} 
+        businessId={businessId}
+        businessName={businessName}
       />
     </div>
   );
@@ -888,7 +947,19 @@ const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, isFolder }: any)
   </div>
 );
 
-const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {
+const TemplateCard = ({ 
+  template, 
+  onClick, 
+  onEdit, 
+  onDelete, 
+  onPin 
+}: { 
+  template: TemplateDefinition;
+  onClick: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onPin: () => void;
+}) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -1033,4 +1104,167 @@ const ItemSkeleton = ({ mode }: { mode: "grid" | "list" }) => {
   );
 };
 
+interface ManageTeamModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  businessId: string | null;
+  businessName: string;
+}
+
+const ManageTeamModal = ({ isOpen, onClose, businessId, businessName }: ManageTeamModalProps) => {
+  const { user } = useAuth();
+  const [members, setMembers] = useState<string[]>([]);
+  const [newEmail, setNewEmail] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && businessId) {
+      const fetchMembers = async () => {
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+        const bDoc = await getDoc(doc(db, "businesses", businessId));
+        if (bDoc.exists()) {
+          setMembers(bDoc.data().members || []);
+        }
+      };
+      fetchMembers();
+    }
+  }, [isOpen, businessId]);
+
+  const handleAddMember = async () => {
+    if (newEmail.includes("@gmail.com")) {
+      if (newEmail === user?.email) {
+        alert("You are already the owner of this business.");
+        return;
+      }
+    } else {
+      alert("Only Gmail addresses are allowed.");
+      return;
+    }
+    if (members.includes(newEmail)) return;
+    
+    setIsLoading(true);
+    try {
+      const { doc, updateDoc, arrayUnion } = await import("firebase/firestore");
+      const { db } = await import("../lib/firebase");
+      await updateDoc(doc(db, "businesses", businessId!), {
+        members: arrayUnion(newEmail)
+      });
+      setMembers([...members, newEmail]);
+      setNewEmail("");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const copyJoinLink = () => {
+    const link = `${window.location.origin}/onboarding?join=${businessId}`;
+    navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 bg-background/80 backdrop-blur-sm"
+      />
+      
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="relative w-full max-w-lg bg-card border border-border shadow-2xl rounded-3xl overflow-hidden flex flex-col max-h-[90vh]"
+      >
+        <div className="p-8 border-b border-border flex items-center justify-between bg-muted/30">
+          <div>
+            <h1 className="text-sm font-black text-foreground tracking-tight uppercase">INV-SYS Pro</h1>
+            <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-1">Manage Workspace Team</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-muted rounded-full text-muted-foreground transition-all">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-8 overflow-y-auto space-y-8">
+          {/* Add Section */}
+          <div className="space-y-4">
+            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Invite Member (Gmail Only)</label>
+            <div className="flex gap-2">
+              <input 
+                type="email" 
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value.toLowerCase())}
+                placeholder="colleague@gmail.com"
+                className="flex-1 px-4 h-11 bg-muted/40 border border-border focus:border-primary/50 focus:bg-card rounded-xl outline-none text-xs transition-all font-medium"
+              />
+              <button 
+                onClick={handleAddMember}
+                disabled={isLoading || !newEmail}
+                className="px-6 h-11 bg-primary text-primary-foreground rounded-xl font-black text-[11px] uppercase tracking-wider hover:opacity-90 transition-all shadow-lg shadow-primary/10 disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {/* Members List */}
+          <div className="space-y-4">
+            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Current Members ({members.length})</label>
+            <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 scrollbar-thin">
+              {members.map(m => (
+                <div key={m} className="flex items-center justify-between p-3 bg-muted/20 border border-border/40 rounded-xl">
+                  <span className="text-xs font-bold text-foreground">{m}</span>
+                  <div className="px-2 py-1 bg-muted/40 rounded-md text-[8px] font-black uppercase tracking-wide text-muted-foreground">Member</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Share Link */}
+          <div className="p-6 bg-primary/5 border border-primary/10 rounded-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="text-primary" size={18} />
+              <div>
+                <h4 className="text-[11px] font-black text-foreground uppercase tracking-widest">Shareable Join Link</h4>
+                <p className="text-[9px] text-muted-foreground font-medium mt-0.5">Allow anyone with this link to join your business.</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1 px-4 h-10 bg-card border border-primary/10 rounded-xl flex items-center text-[10px] font-medium text-muted-foreground truncate opacity-70">
+                {window.location.origin}/onboarding?join={businessId}
+              </div>
+              <button 
+                onClick={copyJoinLink}
+                className="px-4 h-10 border border-primary/20 bg-primary/10 text-primary hover:bg-primary/20 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 bg-muted/20 border-t border-border flex justify-end">
+          <button 
+            onClick={onClose}
+            className="px-8 h-10 bg-foreground text-background rounded-xl font-black text-[11px] uppercase tracking-wider hover:opacity-90 transition-all shadow-xl shadow-foreground/5"
+          >
+            Done
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 export default Dashboard;
+

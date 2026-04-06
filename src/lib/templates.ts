@@ -46,8 +46,8 @@ export const TEMPLATES: TemplateDefinition[] = [
       footer: {
         notes: "<p>Fees are billed per phase upon completion of the stated percentage. A <strong>50% advance</strong> is required before commencing the next phase. All design revisions beyond 2 rounds per stage attract additional fees at ₦15,000/hr. Final drawings and files are released upon full settlement.</p>",
         emphasis: [
-          { key: "Bank",    value: "Zenith Bank — Shan Interiors Ltd" },
-          { key: "Account", value: "1234567890" },
+          { key: "Bank",    value: "Zenith Bank — INV-SYS Pro Ltd" },
+          { key: "Account", value: "0000000000" },
         ],
       },
     },
@@ -249,7 +249,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       footer: {
         notes: "<p>This progress invoice reflects the value of works completed to date as certified by the project designer. Payment is due within <strong>7 days</strong> of invoice. Works will be paused if payment is not received within the stipulated period.</p>",
         emphasis: [
-          { key: "Certifier",     value: "Shan Interiors Ltd" },
+          { key: "Certifier",     value: "INV-SYS Pro" },
           { key: "Claim Period",  value: "Weeks 1–8 of Construction" },
         ],
       },
@@ -287,7 +287,7 @@ export const TEMPLATES: TemplateDefinition[] = [
         ],
       },
       footer: {
-        notes: "<p>All variation items marked <strong>Approved</strong> have been authorised by the client in writing. Items marked <strong>Pending</strong> are subject to client sign-off before works commence. Approved variations will be incorporated into the next progress certificate. Shan Interiors reserves the right to withhold execution of pending items until formal approval is received.</p>",
+        notes: "<p>All variation items marked <strong>Approved</strong> have been authorised by the client in writing. Items marked <strong>Pending</strong> are subject to client sign-off before works commence. Approved variations will be incorporated into the next progress certificate. INV-SYS Pro reserves the right to withhold execution of pending items until formal approval is received.</p>",
         emphasis: [
           { key: "VO Reference", value: "VO-003" },
           { key: "Authorised",   value: "Items 1, 2, 3 & 6 only" },
@@ -364,7 +364,7 @@ export const TEMPLATES: TemplateDefinition[] = [
         ],
       },
       footer: {
-        notes: "<p>This retainer invoice covers all standard maintenance services for the month as listed. Services are performed by certified technicians under the supervision of Shan Interiors. Any repair works identified during routine checks will be quoted separately. Retainer agreement is renewable on a <strong>3-month or 12-month basis</strong> at a discounted rate.</p>",
+        notes: "<p>This retainer invoice covers all standard maintenance services for the month as listed. Services are performed by certified technicians under the supervision of INV-SYS Pro. Any repair works identified during routine checks will be quoted separately. Retainer agreement is renewable on a <strong>3-month or 12-month basis</strong> at a discounted rate.</p>",
         emphasis: [
           { key: "Contract Term",  value: "Monthly — auto-renews unless cancelled" },
           { key: "Response Time",  value: "Emergency calls attended within 24hrs"   },
@@ -426,7 +426,7 @@ export const TEMPLATES: TemplateDefinition[] = [
       amountPaid: 1500000,
       outstandingBalance: 1000000,
       footer: {
-        notes: "<p>Thank you for your payment. This receipt serves as official proof of payment for the amount stated above. Please retain for your records. For queries, contact us at hello@shaninteriordesign.com</p>",
+        notes: "<p>Thank you for your payment. This receipt serves as official proof of payment for the amount stated above. Please retain for your records. For queries, contact us at support@inv-sys.pro</p>",
         emphasis: [],
       },
     },

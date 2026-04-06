@@ -1,8 +1,27 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Lock down all documents since all read/writes flow through our Node.js Backend Admin SDK
+    // Users can only read/write their own profile
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Businesses metadata
+    match /businesses/{businessId} {
+      // Authenticated users can create a business
+      allow create: if request.auth != null;
+      
+      // Members or owners can read/update the business metadata
+      allow read, update: if request.auth != null && 
+        (resource.data.ownerId == request.auth.uid || 
+         request.auth.token.email in resource.data.members);
+         
+      // Allow reading business name by anyone who has the join link (joinId)
+      // This is a special case for the 'Accept Invite' screen
+      allow get: if request.auth != null;
+    }
+
+    // Default deny for all other collections
     match /{document=**} {
       allow read, write: if false;
     }

@@ -10,14 +10,16 @@ import {
   LayoutGrid, 
   List, 
   Users,
-  Shield 
+  Shield,
+  X,
+  Check
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore, authStore, authProvider } from "../store";
+import { authStore, workspaceStore, connectWorkspace, workspaceProvider, authProvider } from "../store";
+import { type DocData, type SummaryItem, type TableRow } from "../types";
 import { api } from "../lib/api";
-import { DocData, TableRow } from "../types";
 import { InvoicePage } from "./InvoicePage";
 import { ReceiptPage } from "./ReceiptPage";
 import { DndContext, closestCenter } from "@dnd-kit/core";
@@ -291,29 +293,48 @@ const InvoicePreviewPage: React.FC = () => {
     }
   }, [authAction.bannedClients, currentUser, navigate]);
 
+  const { businessId } = useAuth();
+  const [isWorkspaceReady, setIsWorkspaceReady] = useState(false);
+
   useEffect(() => {
-    if (!currentUser) return;
-    const updatePresence = () => {
-      const states = authProvider.awareness?.getStates();
-      if (!states) return;
-      const clients: any[] = [];
-      states.forEach((state: any, clientId: number) => {
-        if (state.user && state.user.email) {
-          clients.push({ id: clientId.toString(), user: state.user });
-        }
+    if (!currentUser || !businessId) return;
+
+    let cleanup: (() => void) | undefined;
+
+    const startSync = async () => {
+      const token = await currentUser.getIdToken();
+      const providers = connectWorkspace(businessId, token);
+      
+      const updatePresence = () => {
+        const states = providers.authProvider.awareness?.getStates();
+        if (!states) return;
+        const clients: any[] = [];
+        states.forEach((state: any, clientId: number) => {
+          if (state.user && state.user.email) {
+            clients.push({ id: clientId.toString(), user: state.user });
+          }
+        });
+        setConnectedClients(clients);
+      };
+
+      providers.authProvider.awareness?.on('change', updatePresence);
+      providers.authProvider.awareness?.setLocalStateField('user', { 
+        name: currentUser.displayName || "Anonymous",
+        email: currentUser.email || "guest@system.com",
+        photo: currentUser.photoURL,
+        id: currentUser.uid,
+        color: '#' + Math.floor(Math.random()*16777215).toString(16)
       });
-      setConnectedClients(clients);
+
+      setIsWorkspaceReady(true);
+      cleanup = () => {
+        providers.authProvider.awareness?.off('change', updatePresence);
+      };
     };
-    authProvider.awareness?.on('change', updatePresence);
-    authProvider.awareness?.setLocalStateField('user', { 
-      name: currentUser.displayName || "Anonymous",
-      email: currentUser.email || "guest@system.com",
-      photo: currentUser.photoURL,
-      id: currentUser.uid,
-      color: '#' + Math.floor(Math.random()*16777215).toString(16)
-    });
-    return () => { authProvider.awareness?.off('change', updatePresence); };
-  }, [currentUser]);
+
+    startSync();
+    return () => cleanup?.();
+  }, [currentUser, businessId]);
 
   const invoiceDoc = workspaceAction.documents?.find((d: any) => d.id === id);
   const receipts = workspaceAction.documents?.filter((d: any) => d.folderId === null && (d as any).invoiceId === id) || [];

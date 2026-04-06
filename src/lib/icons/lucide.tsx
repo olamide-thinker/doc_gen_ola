@@ -42,7 +42,13 @@ import {
   Sun as LucideSun,
   Moon as LucideMoon,
   Pin as LucidePin,
-  PinOff as LucidePinOff
+  PinOff as LucidePinOff,
+  LogOut as LucideLogOut,
+  Briefcase as LucideBriefcase,
+  ArrowRight as LucideArrowRight,
+  Mail as LucideMail,
+  ShieldCheck as LucideShieldCheck,
+  X as LucideX
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -91,3 +97,9 @@ export const Sun = wrapIcon(LucideSun);
 export const Moon = wrapIcon(LucideMoon);
 export const Pin = wrapIcon(LucidePin);
 export const PinOff = wrapIcon(LucidePinOff);
+export const LogOut = wrapIcon(LucideLogOut);
+export const Briefcase = wrapIcon(LucideBriefcase);
+export const ArrowRight = wrapIcon(LucideArrowRight);
+export const Mail = wrapIcon(LucideMail);
+export const ShieldCheck = wrapIcon(LucideShieldCheck);
+export const X = wrapIcon(LucideX);

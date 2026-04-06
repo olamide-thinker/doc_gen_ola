@@ -62,30 +62,52 @@ export const authStore = syncedStore({
   bannedClients: [] as string[] 
 });
 
-// 3. Connect to the Backend (Hocuspocus)
+// 3. Dynamic Connection Factory
 const WS_URL = "ws://localhost:1235";
 
-// Main Invoice Provider (for the current file being edited)
-export const provider = new HocuspocusProvider({
-  url: WS_URL,
-  name: "invoice-demo-123", 
-  document: getYjsDoc(store),
-});
+// We'll manage providers dynamically now
+export let provider: HocuspocusProvider | null = null;
+export let workspaceProvider: HocuspocusProvider | null = null;
+export let authProvider: HocuspocusProvider | null = null;
 
-// Workspace Provider (for the dashboard file tree)
-export const workspaceProvider = new HocuspocusProvider({
-  url: WS_URL,
-  name: "global-workspace",
-  document: getYjsDoc(workspaceStore),
-});
+export const connectWorkspace = (businessId: string, token: string) => {
+  // Cleanup old ones if they exist
+  if (workspaceProvider) workspaceProvider.destroy();
+  if (authProvider) authProvider.destroy();
 
-// Auth Provider (for session management)
-export const authProvider = new HocuspocusProvider({
-  url: WS_URL,
-  name: "session-auth",
-  document: getYjsDoc(authStore),
-});
+  workspaceProvider = new HocuspocusProvider({
+    url: WS_URL,
+    name: `business-workspace-${businessId}`,
+    document: getYjsDoc(workspaceStore),
+    token, // Send Firebase ID Token for backend auth
+  });
 
-provider.on('status', (event: any) => {
-  console.log('[Hocuspocus] Connection status:', event.status);
-});
+  authProvider = new HocuspocusProvider({
+    url: WS_URL,
+    name: `business-auth-${businessId}`,
+    document: getYjsDoc(authStore),
+    token,
+  });
+
+  return { workspaceProvider, authProvider };
+};
+
+export const connectEditor = (docId: string, token: string) => {
+  if (provider) provider.destroy();
+  
+  provider = new HocuspocusProvider({
+    url: WS_URL,
+    name: `doc-${docId}`,
+    document: getYjsDoc(store),
+    token,
+  });
+
+  return provider;
+};
+
+// Optional status logging
+export const logStatus = (p: HocuspocusProvider) => {
+  p.on('status', (event: any) => {
+    console.log(`[Hocuspocus] Room ${p.configuration.name} status:`, event.status);
+  });
+};
