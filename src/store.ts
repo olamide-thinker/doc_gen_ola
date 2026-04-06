@@ -17,12 +17,13 @@ export type InvoiceState = {
 
 // 2. Create the SyncedStore
 // This creates a Y.Map under the hood named "invoiceStore"
-export const store = syncedStore({ invoiceStore: {} as InvoiceState });
+// SyncedStore strictly requires `{}` or `[]` as initializers
+export const store = syncedStore({ invoiceStore: {} as Partial<InvoiceState> });
 
 // 3. Connect to the new NodeJS Backend (Hocuspocus)
-// By default, it connects to localhost:1234. Update this for production.
+// We moved Hocuspocus to port 1235 to ensure pure WebSocket connections without Express wrapper issues.
 export const provider = new HocuspocusProvider({
-  url: "ws://127.0.0.1:1234/collaboration",
+  url: "ws://localhost:1235",
   name: "invoice-demo-123", // This is the ID that gets passed to dbUtil.fetchOne(id)
   document: getYjsDoc(store),
 });

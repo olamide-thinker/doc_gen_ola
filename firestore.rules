@@ -1,0 +1,10 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Lock down all documents since all read/writes flow through our Node.js Backend Admin SDK
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

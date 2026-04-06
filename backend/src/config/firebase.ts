@@ -10,16 +10,26 @@ export const initializeFirebase = () => {
   if (isFirebaseInitialized) return;
 
   try {
-    // If you have a service account file, place it in backend/src/config/serviceAccountKey.json
-    // const serviceAccount = require('./serviceAccountKey.json');
-    // admin.initializeApp({
-    //   credential: admin.credential.cert(serviceAccount)
-    // });
+    // You provided the "Client SDK" configuration. 
+    // To connect a Node.js Backend securely, Firebase requires a "Service Account Key".
     
-    // For now, we won't throw an error, we will just log it
-    console.log('[Firebase] Waiting for serviceAccountKey.json to actually authenticate.');
-    console.log('[Firebase] Until then, db operations will be mocked or will fail if hit directly.');
+    // 1. Go to Firebase Console -> Project Settings -> Service Accounts
+    // 2. Click "Generate new private key"
+    // 3. Save the downloaded file as `backend/src/config/serviceAccountKey.json`
+    
+    // Uncomment the following once you have that file:
+    /*
+    const serviceAccount = require('./serviceAccountKey.json');
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId: "invoice-crdt-sys"
+    });
+    console.log('[Firebase] ✅ Admin SDK successfully initialized!');
     isFirebaseInitialized = true;
+    */
+
+    // For now, it remains mocked to prevent crashes
+    console.log('[Firebase] ⚠️ Waiting for serviceAccountKey.json. DB calls are mocked.');
   } catch (error) {
     console.error('[Firebase] Failed to initialize admin SDK', error);
   }

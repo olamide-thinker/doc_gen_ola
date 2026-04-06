@@ -16,7 +16,7 @@ app.use(express.json());
 
 // 3. Configure Hocuspocus (CRDT WebSocket Server)
 // @ts-ignore
-const hocuspocusServer = Server.configure({
+const hocuspocusServer = new Server({
   // The name of your server
   name: 'shan-doc-printer-backend',
 
@@ -29,9 +29,9 @@ const hocuspocusServer = Server.configure({
     // fetch from our dbUtil layer
     const invoiceJson = await dbUtil.fetchOne('invoices', data.documentName);
     
-    // We must return the raw Yjs Uint8Array document if we are storing the binary
-    // OR we just return the document and let the frontend initialize it if it's empty
-    return data.document; // For now returning the blank/in-memory document to allow clients to sync
+    // We can inject database content into the CRDT here later via Y.applyUpdate
+    // Do NOT return data.document, it crashes the Hocuspocus pipeline.
+    return;
   },
 
   async onStoreDocument(data: any) {
@@ -48,13 +48,7 @@ const hocuspocusServer = Server.configure({
   },
 });
 
-// 4. Mount Hocuspocus to a WebSocket route on Express
-app.ws('/collaboration', (websocket: any, request: any) => {
-  // @ts-ignore
-  hocuspocusServer.handleConnection(websocket, request);
-});
-
-// 5. Standard REST APIs (Using same dbUtil)
+// 4. Standard REST APIs (Using same dbUtil)
 app.get('/api/invoices/:id', async (req: express.Request, res: express.Response) => {
   try {
     const data = await dbUtil.fetchOne('invoices', req.params.id as string);
@@ -75,9 +69,13 @@ app.post('/api/invoices', async (req: express.Request, res: express.Response) =>
   }
 });
 
-// 6. Start the server
-const PORT = process.env.PORT || 1234;
-app.listen(PORT, () => {
-  console.log(`✅ Backend running on http://localhost:${PORT}`);
-  console.log(`✅ CRDT WebSocket Server running on ws://localhost:${PORT}/collaboration`);
+// 5. Start both servers
+const EXPRESS_PORT = process.env.PORT || 1234;
+app.listen(EXPRESS_PORT, () => {
+  console.log(`✅ Express backend running on http://localhost:${EXPRESS_PORT}`);
+});
+
+// Start Hocuspocus independently on port 1235
+hocuspocusServer.listen(1235).then(() => {
+  console.log(`✅ CRDT WebSocket Server running securely on ws://localhost:1235`);
 });
