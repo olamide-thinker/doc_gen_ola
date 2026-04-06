@@ -151,32 +151,32 @@ const SortableSummaryItem = ({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex flex-col items-center gap-2 p-2 border bg-slate-50 border-slate-200 rounded-xl group/summary"
+      className="flex flex-col items-center gap-2 p-2 border bg-muted/40 border-border/60 rounded-xl group/summary"
     >
       <div className="flex items-center w-full gap-2">
         <div
           {...attributes}
           {...listeners}
-          className="transition-colors cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 no-print"
+          className="transition-colors cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground no-print"
         >
           <GripVertical size={14} />
         </div>
-        <div className="w-6 h-6 flex items-center justify-center bg-slate-200/50 rounded text-[10px] font-black text-slate-500">
+        <div className="w-6 h-6 flex items-center justify-center bg-muted rounded text-[10px] font-black text-muted-foreground">
           {letterId}
         </div>
-        <div className="flex items-center min-w-0 gap-2">
-          <div className="relative min-w-0 overflow-hidden bg-white border rounded-md h-7 border-slate-200">
+        <div className="flex items-center min-w-0 gap-2 flex-1">
+          <div className="relative min-w-0 overflow-hidden bg-background border rounded-lg h-8 border-border flex-1">
             <input
-              className="w-full h-full px-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 outline-none focus:bg-amber-50/30"
+              className="w-full h-full px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-transparent outline-none focus:bg-primary/5 transition-colors"
               value={item.label}
               placeholder="Label"
               onChange={(e) => onUpdate({ label: e.target.value })}
             />
           </div>
-          <div className="text-slate-400 font-bold text-[10px]">:</div>
-          <div className="relative min-w-0 overflow-hidden bg-white border rounded-md h-7 border-slate-200">
+          <div className="text-muted-foreground/40 font-bold text-[10px]">:</div>
+          <div className="relative min-w-0 overflow-hidden bg-background border rounded-lg h-8 border-border flex-[1.5]">
             <input
-              className="w-full h-full px-2 text-[10px] font-lexend text-slate-500 outline-none focus:bg-amber-50/30"
+              className="w-full h-full px-2 text-[10px] font-lexend text-muted-foreground/70 bg-transparent outline-none focus:bg-primary/5 transition-colors"
               value={item.formula || ""}
               placeholder="Formula (e.g. prev * 0.1)"
               onChange={(e) => onUpdate({ formula: e.target.value })}
@@ -185,12 +185,12 @@ const SortableSummaryItem = ({
         </div>
       </div>
       <div className="flex items-center justify-end w-full gap-2">
-        <div className="text-[16px] font-lexend font-bold text-slate-400 min-w-[40px] text-right">
+        <div className="text-[12px] font-lexend font-black text-muted-foreground/80 min-w-[40px] text-right">
           ₦{Math.round(calculatedValue).toLocaleString()}
         </div>
         <button
           onClick={onRemove}
-          className="px-1 transition-colors text-slate-300 hover:text-red-400"
+          className="p-1 transition-colors text-muted-foreground/30 hover:text-destructive"
         >
           <Trash2 size={12} />
         </button>
@@ -667,8 +667,8 @@ const Editor: React.FC = () => {
 
   if (isLoadingDoc || !docData)
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <RefreshCw className="animate-spin text-primary" size={32} />
+      <div className="flex items-center justify-center h-screen bg-background text-muted-foreground">
+        <RefreshCw className="animate-spin text-muted-foreground/30" size={32} />
       </div>
     );
 
@@ -737,77 +737,51 @@ const Editor: React.FC = () => {
     <div className="app-root flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
       <div className="flex flex-1 overflow-hidden app-main">
         {!isPreview && (
-          <div className="w-full lg:w-[380px] flex flex-col border-r border-border bg-card pb-5 px-5 overflow-y-auto scrollbar-none no-print">
-            <div className="sticky top-0 z-10 flex items-center justify-between pt-5 pb-4 mb-8 bg-card border-b border-border">
-              <button
-                onClick={() => navigate(`/invoice-preview/${id}`, { state: { fromFolder } })}
-                className="flex items-center gap-2 transition-colors text-slate-500 hover:text-slate-900 group"
-              >
-                <ArrowLeft
-                  size={16}
-                  className="group-hover:-translate-x-0.5 transition-transform"
-                />
-                <span className="text-[10px] font-semibold uppercase tracking-widest font-lexend">
-                  Invoice
-                </span>
-              </button>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={undo}
-                  disabled={history.length === 0}
-                  className="p-2 transition-all border rounded-lg bg-muted hover:bg-accent text-muted-foreground hover:text-foreground border-border disabled:opacity-30 active:scale-95"
-                  title="Undo (Ctrl+Z)"
-                >
-                  <Undo2 size={16} />
-                </button>
-                <button
-                  onClick={redo}
-                  disabled={future.length === 0}
-                  className="p-2 transition-all border rounded-lg bg-muted hover:bg-accent text-muted-foreground hover:text-foreground border-border disabled:opacity-30 active:scale-95"
-                  title="Redo (Ctrl+Y)"
-                >
-                  <Redo2 size={16} />
-                </button>
-                <div className="w-px h-6 mx-1 bg-slate-200" />
-                <button
-                  onClick={() => setIsPreview(true)}
-                  className="p-2 transition-all border bg-muted hover:bg-accent text-foreground rounded-xl border-border active:scale-95"
-                  title="Preview"
-                >
-                  <Layout size={18} />
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="p-2 transition-all border bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border-slate-200/60 active:scale-95"
-                  title="Download"
-                >
-                  <Download size={18} />
-                </button>
-                <button
-                  onClick={() => window.print()}
-                  className="p-2 transition-all border bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border-slate-200/60 active:scale-95"
-                  title="Print"
-                >
-                  <Printer size={18} />
-                </button>
-              </div>
+          <div className="w-[380px] border-r border-border bg-card overflow-y-auto scrollbar-thin z-10 flex flex-col no-print">
+            {/* Header / Brand */}
+            <div className="p-6 border-b border-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-muted rounded-lg text-muted-foreground shadow-sm">
+                        <FileText size={18} strokeWidth={2.5} />
+                    </div>
+                    <div>
+                        <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Editor</h2>
+                        <p className="text-[9px] text-muted-foreground/40 font-bold tracking-widest uppercase">Doc-Printer Pro</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button 
+                        onClick={undo}
+                        disabled={history.length === 0}
+                        className="p-2 bg-muted/40 text-muted-foreground rounded-lg hover:text-foreground disabled:opacity-30 transition-all"
+                    >
+                        <Undo2 size={14} />
+                    </button>
+                    <button 
+                        onClick={redo}
+                        disabled={future.length === 0}
+                        className="p-2 bg-muted/40 text-muted-foreground rounded-lg hover:text-foreground disabled:opacity-30 transition-all"
+                    >
+                        <Redo2 size={14} />
+                    </button>
+                </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="p-6 space-y-10">
               <section className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend">
-                    Raw context
+                <div className="flex items-center justify-between px-1">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50">
+                    Quick Import
                   </label>
                   <button
                     onClick={handleRawImport}
-                    className="text-[10px] font-bold px-3 py-1 rounded-full bg-secondary/10 text-primary/75 uppercase border border-primary/20 hover:bg-primary/20 transition-all"
+                    className="text-[9px] font-black px-3 py-1.5 rounded-full bg-muted text-muted-foreground uppercase tracking-widest hover:bg-muted/80 transition-all border border-border"
                   >
                     Sync Data
                   </button>
                 </div>
                 <textarea
-                  className="w-full h-40 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-[10px] font-lexend focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none resize-none scrollbar-thin text-slate-700 transition-all shadow-sm"
+                  className="w-full h-32 bg-background border border-border/60 rounded-2xl p-5 text-[10px] font-lexend focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-none scrollbar-thin text-muted-foreground transition-all shadow-sm placeholder:text-muted-foreground/30"
                   placeholder="Paste contact, title, and content bullets here..."
                   value={rawInput}
                   onChange={(e) => setRawInput(e.target.value)}
@@ -815,40 +789,32 @@ const Editor: React.FC = () => {
               </section>
 
               {showAdvanced && (
-                <section className="pt-4 space-y-4 border-t border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] font-lexend">
-                      Data Status
+                <section className="pt-6 space-y-4 border-t border-border/40">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50">
+                      Developer Area
                     </label>
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleApplyJson}
-                        className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-900 text-white uppercase border border-slate-900 hover:bg-slate-800 transition-all shadow-sm"
-                      >
-                        Apply JSON
-                      </button>
+                        <button
+                          onClick={handleApplyJson}
+                          className="text-[9px] font-black px-3 py-1.5 rounded-lg bg-muted text-muted-foreground uppercase tracking-widest hover:bg-muted/80 transition-all border border-border"
+                        >
+                          Apply JSON
+                        </button>
                         <button
                           onClick={() => setIsCollaboratorsOpen(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm relative group"
+                          className="flex items-center gap-2 px-3 py-1.5 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 hover:text-foreground transition-all text-[9px] font-black uppercase tracking-widest shadow-sm relative group"
                         >
                           <Users size={12} />
                           {connectedClients.length > 1 && (
-                            <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-white" />
+                            <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border-2 border-card" />
                           )}
                           Collabs
-                        </button>
-
-                        <button
-                          onClick={() => api.updateDocument(id!, docData!)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
-                        >
-                          <Edit size={12} />
-                          Save Changes
                         </button>
                     </div>
                   </div>
                   <textarea
-                    className="w-full h-80 bg-slate-50 border border-slate-200/60 rounded-2xl p-5 text-[10px] font-lexend focus:ring-2 focus:ring-slate-900/5 focus:border-slate-900 outline-none resize-none scrollbar-thin text-slate-700 transition-all shadow-sm"
+                    className="w-full h-64 bg-background border border-border/80 rounded-2xl p-5 text-[10px] font-mono focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none resize-none scrollbar-thin text-muted-foreground transition-all shadow-sm"
                     value={jsonInput}
                     onChange={(e) => setJsonInput(e.target.value)}
                   />
@@ -856,23 +822,23 @@ const Editor: React.FC = () => {
               )}
 
               <section className="space-y-4">
-                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Invoice Notes
+                <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50 px-1">
+                  Footer Notes
                 </label>
-                <div className="border border-slate-200/60 rounded-xl p-4 min-h-[120px]">
+                <div className="border border-muted-foreground/20 bg-muted/10 rounded-2xl p-5 min-h-[140px] focus-within:ring-2 focus-within:ring-muted-foreground/10 focus-within:border-muted-foreground/40 transition-all">
                   <EditorContent
                     editor={editor}
-                    className="text-slate-700 font-lexend"
+                    className="text-muted-foreground font-lexend text-xs prose-p:text-muted-foreground"
                   />
                 </div>
               </section>
 
               <section className="space-y-4">
-                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Summary Calculations
+                <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50 px-1">
+                  Financial Adjustments
                 </label>
-                <div className="p-3 border border-slate-200/60 rounded-xl">
-                  <div className="flex flex-col gap-2">
+                <div className="p-4 bg-muted/20 border border-border/60 rounded-3xl space-y-4">
+                  <div className="flex flex-col gap-3">
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
@@ -933,7 +899,7 @@ const Editor: React.FC = () => {
                           table: { ...docData.table, summary: newSummary },
                         });
                       }}
-                      className="w-full py-2.5 border border-dashed border-slate-200 rounded-xl text-[10px] font-bold uppercase text-slate-400 hover:text-primary hover:border-primary/30 transition-all flex items-center justify-center gap-2 mt-2"
+                      className="w-full py-3 border-2 border-dashed border-border/60 rounded-2xl text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/10 transition-all flex items-center justify-center gap-2 mt-2"
                     >
                       <Plus size={14} /> Add Calculation
                     </button>
@@ -942,19 +908,19 @@ const Editor: React.FC = () => {
               </section>
 
               <section className="space-y-4">
-                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Emphasis Management
+                <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50 px-1">
+                  Emphasis Details
                 </label>
-                <div className="p-3 border border-slate-200/60 rounded-xl">
+                <div className="p-4 bg-muted/20 border border-border/60 rounded-3xl space-y-4">
                   <div className="flex flex-col gap-3">
                     {(docData.footer.emphasis || []).map((item, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center gap-2 p-2 border bg-slate-50 rounded-xl border-slate-200/60"
+                        className="flex items-center gap-3 p-3 bg-background border border-border rounded-xl"
                       >
                         <input
                           type="text"
-                          className="bg-transparent border-none outline-none font-bold text-[9px] uppercase tracking-wider text-slate-500 w-24"
+                          className="bg-transparent border-none outline-none font-black text-[9px] uppercase tracking-widest text-muted-foreground/60 w-24"
                           value={item.key}
                           placeholder="KEY"
                           onChange={(e) => {
@@ -971,10 +937,10 @@ const Editor: React.FC = () => {
                             });
                           }}
                         />
-                        <div className="w-px h-4 bg-slate-200" />
+                        <div className="w-px h-4 bg-border/60" />
                         <input
                           type="text"
-                          className="bg-transparent border-none outline-none text-[11px] text-slate-700 w-full"
+                          className="bg-transparent border-none outline-none text-[11px] font-bold text-muted-foreground w-full placeholder:text-muted-foreground/30"
                           value={item.value}
                           placeholder="Value"
                           onChange={(e) => {
@@ -1007,7 +973,7 @@ const Editor: React.FC = () => {
                               },
                             });
                           }}
-                          className="px-1 transition-colors text-slate-300 hover:text-red-400"
+                          className="p-1 transition-colors text-muted-foreground/30 hover:text-destructive"
                         >
                           <Trash2 size={12} />
                         </button>
@@ -1017,14 +983,14 @@ const Editor: React.FC = () => {
                       onClick={() => {
                         const newEmphasis = [
                           ...(docData.footer.emphasis || []),
-                          { key: "New Label", value: "Value" },
+                          { key: "Label", value: "Value" },
                         ];
                         updateDocData({
                           ...docData,
                           footer: { ...docData.footer, emphasis: newEmphasis },
                         });
                       }}
-                      className="w-full py-2.5 border border-dashed border-slate-200 rounded-xl text-[10px] font-bold uppercase text-slate-400 hover:text-primary hover:border-primary/30 transition-all flex items-center justify-center gap-2"
+                      className="w-full py-3 border-2 border-dashed border-border/60 rounded-2xl text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/10 transition-all flex items-center justify-center gap-2"
                     >
                       <Plus size={14} /> Add Emphasis
                     </button>
@@ -1033,49 +999,49 @@ const Editor: React.FC = () => {
               </section>
 
               <section className="space-y-4">
-                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Invoice Settings
+                <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50 px-1">
+                  Document Identity
                 </label>
-                <div className="p-3 space-y-3 border border-slate-200/60 rounded-xl">
+                <div className="p-4 bg-muted/20 border border-border/60 rounded-3xl space-y-4">
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-col gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Invoice Code (Prefix / Company / Count / Year)
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60">
+                        Invoice Code Structure
                       </span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          className="w-10 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
+                          className="w-12 h-9 p-2 text-[10px] font-black text-center bg-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-muted-foreground"
                           value={docData.invoiceCode?.prefix || "INV"}
                           placeholder="INV"
                           onChange={(e) =>
                             onUpdateInvoiceCode({ prefix: e.target.value })
                           }
                         />
-                        <span className="text-slate-300">/</span>
+                        <span className="text-muted-foreground opacity-30 font-bold">/</span>
                         <input
                           type="text"
-                          className="w-10 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
+                          className="w-12 h-9 p-2 text-[10px] font-black text-center bg-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-muted-foreground"
                           value={docData.invoiceCode?.company || "IS"}
                           placeholder="IS"
                           onChange={(e) =>
                             onUpdateInvoiceCode({ company: e.target.value })
                           }
                         />
-                        <span className="text-slate-300">/</span>
+                        <span className="text-muted-foreground opacity-30 font-bold">/</span>
                         <input
                           type="text"
-                          className="w-12 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
+                          className="w-16 h-9 p-2 text-[10px] font-black text-center bg-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-muted-foreground/10 focus:border-muted-foreground/40 text-muted-foreground font-lexend"
                           value={docData.invoiceCode?.count || "0001"}
                           placeholder="0001"
                           onChange={(e) =>
                             onUpdateInvoiceCode({ count: e.target.value })
                           }
                         />
-                        <span className="text-slate-300">/</span>
+                        <span className="text-muted-foreground opacity-30 font-bold">/</span>
                         <input
                           type="text"
-                          className="w-12 h-8 p-2 text-xs text-center border rounded-md outline-none border-slate-200 focus:border-slate-400 font-lexend"
+                          className="w-16 h-9 p-2 text-[10px] font-black text-center bg-background border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-foreground font-lexend"
                           value={
                             docData.invoiceCode?.year ||
                             String(new Date().getFullYear())
@@ -1087,36 +1053,36 @@ const Editor: React.FC = () => {
                         />
                       </div>
                     </div>
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
+                    <div className="flex items-center justify-between mt-2 pt-4 border-t border-border/40">
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60">
                         Use Sections
                       </span>
                       <button
                         onClick={() => updateDocData(prev => prev ? { ...prev, useSections: !useSections } : null)}
                         className={cn(
-                          "px-2 py-1 text-[9px] font-black uppercase rounded-full border transition-all",
+                          "px-3 py-1.5 text-[9px] font-black uppercase rounded-lg border transition-all",
                           useSections
-                            ? "bg-primary text-white border-primary"
-                            : "bg-slate-100 text-slate-400 border-slate-200",
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                            : "bg-muted text-muted-foreground border-border",
                         )}
                       >
-                        {useSections ? "Enabled" : "Disabled"}
+                        {useSections ? "ON" : "OFF"}
                       </button>
                     </div>
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">
-                        Show BOQ Summary
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60">
+                        BOQ Summary
                       </span>
                       <button
                         onClick={() => updateDocData(prev => prev ? { ...prev, showBOQSummary: !showBOQSummary } : null)}
                         className={cn(
-                          "px-2 py-1 text-[9px] font-black uppercase rounded-full border transition-all",
+                          "px-3 py-1.5 text-[9px] font-black uppercase rounded-lg border transition-all",
                           showBOQSummary
-                            ? "bg-primary text-white border-primary"
-                            : "bg-slate-100 text-slate-400 border-slate-200",
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                            : "bg-muted text-muted-foreground border-border",
                         )}
                       >
-                        {showBOQSummary ? "Enabled" : "Disabled"}
+                        {showBOQSummary ? "Visible" : "Hidden"}
                       </button>
                     </div>
                   </div>
@@ -1124,16 +1090,16 @@ const Editor: React.FC = () => {
               </section>
 
               <section className="space-y-4">
-                <label className="block text-[11px] font-black text-slate-400 uppercase font-lexend tracking-[0.2em]">
-                  Table Columns
+                <label className="block text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50 px-1">
+                  Table Schema
                 </label>
-                <div className="p-3 space-y-2 border border-slate-200/60 rounded-xl">
+                <div className="p-4 bg-muted/20 border border-border/60 rounded-3xl space-y-2">
                   {docData.table.columns.map((col) => (
                     <div
                       key={col.id}
-                      className="flex items-center justify-between"
+                      className="flex items-center justify-between px-1"
                     >
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60">
                         {col.label}
                       </span>
                       <button
@@ -1150,13 +1116,13 @@ const Editor: React.FC = () => {
                           })
                         }
                         className={cn(
-                          "px-2 py-1 text-[9px] font-black uppercase rounded-full border transition-all",
+                          "px-3 py-1.5 text-[9px] font-black uppercase rounded-lg border transition-all",
                           col.hidden
-                            ? "bg-slate-100 text-slate-400 border-slate-200"
-                            : "bg-primary/10 text-primary border-primary/20",
+                            ? "bg-muted text-muted-foreground border-border"
+                            : "bg-foreground text-background border-foreground shadow-sm",
                         )}
                       >
-                        {col.hidden ? "Hidden" : "Visible"}
+                        {col.hidden ? "HIDDEN" : "VISIBLE"}
                       </button>
                     </div>
                   ))}
@@ -1165,16 +1131,16 @@ const Editor: React.FC = () => {
 
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors border-t border-slate-100 flex items-center justify-center gap-2"
+                className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground transition-colors border-t border-border/40 flex items-center justify-center gap-2"
               >
                 {showAdvanced
                   ? "Hide Advanced Settings"
                   : "Show Advanced Settings"}
               </button>
 
-              {/* <button
-                onClick={() => navigate("/dashboard")}
-                className="flex items-center justify-center gap-2 py-2 transition-colors text-slate-400 hover:text-slate-600 group"
+              <button
+                onClick={() => navigate(`/invoice-preview/${id}`, { state: { fromFolder } })}
+                className="flex items-center gap-2 transition-colors text-muted-foreground/60 hover:text-foreground group"
               >
                 <ArrowLeft
                   size={14}
@@ -1183,7 +1149,7 @@ const Editor: React.FC = () => {
                 <span className="text-[10px] font-black uppercase tracking-widest font-lexend">
                   Back to Dashboard
                 </span>
-              </button> */}
+              </button>
             </div>
           </div>
         )}
@@ -1289,13 +1255,13 @@ const Editor: React.FC = () => {
         .font-luzia { font-family: 'Lora', serif; }
 
         .ProseMirror {
-          color: #334155;
+          color: hsl(var(--muted-foreground));
           font-size: 12px;
           line-height: 1.6;
           outline: none;
         }
         .ProseMirror p { margin: 0 0 1em 0; }
-        .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { color: #0f172a; font-weight: 700; }
+        .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { color: hsl(var(--foreground)); font-weight: 700; }
         
         @media print {
           @page {

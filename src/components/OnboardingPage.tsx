@@ -12,6 +12,7 @@ const OnboardingPage: React.FC = () => {
   const [businessName, setBusinessName] = useState('');
   const [members, setMembers] = useState<string[]>([]);
   const [currentEmail, setCurrentEmail] = useState('');
+  const [projectName, setProjectName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [joinBusinessName, setJoinBusinessName] = useState<string | null>(null);
   
@@ -123,6 +124,11 @@ const OnboardingPage: React.FC = () => {
     if (!user) return;
     setIsSubmitting(true);
     try {
+      // If project name provided, we'll handle it via API once in dashboard or 
+      // we can save it to localStorage for the API to pick up during migration
+      if (projectName.trim()) {
+        localStorage.setItem('invsys_initial_project', projectName.trim());
+      }
       await refreshBusiness();
       navigate('/dashboard');
     } catch (error) {
@@ -178,11 +184,12 @@ const OnboardingPage: React.FC = () => {
         <div className="flex items-center justify-between mb-12">
             <div className="flex flex-col gap-1">
                 <h1 className="text-2xl font-black text-foreground tracking-tight">Onboarding</h1>
-                <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Step {step} of 2</p>
+                <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Step {step} of 3</p>
             </div>
             <div className="flex gap-2">
                 <div className={cn("w-8 h-1 rounded-full transition-all", step >= 1 ? "bg-primary" : "bg-muted")} />
                 <div className={cn("w-8 h-1 rounded-full transition-all", step >= 2 ? "bg-primary" : "bg-muted")} />
+                <div className={cn("w-8 h-1 rounded-full transition-all", step >= 3 ? "bg-primary" : "bg-muted")} />
             </div>
         </div>
 
@@ -261,7 +268,7 @@ const OnboardingPage: React.FC = () => {
                 </button>
               </div>
             </motion.div>
-          ) : (
+          ) : step === 2 ? (
             <motion.div 
               key="step2"
               initial={{ opacity: 0, x: 20 }}
@@ -312,6 +319,42 @@ const OnboardingPage: React.FC = () => {
                 </div>
                 
                 <button 
+                  onClick={() => setStep(3)}
+                  disabled={isSubmitting}
+                  className="w-full h-12 bg-primary text-primary-foreground rounded-xl font-black text-[13px] uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-primary/20"
+                >
+                  Next Step <ArrowRight size={16} />
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="step3"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="bg-card rounded-3xl shadow-2xl p-8 border border-border/50"
+            >
+              <div className="w-12 h-12 bg-lime-500/10 rounded-2xl flex items-center justify-center mb-6">
+                <Plus className="text-lime-600" size={24} />
+              </div>
+              <h2 className="text-xl font-black text-foreground mb-2">Launch Your First Project</h2>
+              <p className="text-sm text-muted-foreground mb-8">Give your project a name to stay organized. You can always use the Playground.</p>
+              
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Project Name</label>
+                  <input 
+                    type="text" 
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    placeholder="e.g. Pipeline Construction for NNPC"
+                    className="w-full px-4 h-12 bg-muted/30 border border-border focus:border-primary/50 focus:bg-card rounded-xl outline-none text-sm transition-all font-medium"
+                    autoFocus
+                  />
+                </div>
+                
+                <button 
                   onClick={finalizeOnboarding}
                   disabled={isSubmitting}
                   className="w-full h-12 bg-primary text-primary-foreground rounded-xl font-black text-[13px] uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-primary/20"
@@ -319,7 +362,7 @@ const OnboardingPage: React.FC = () => {
                   {isSubmitting ? (
                     <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                   ) : (
-                    <>{members.length > 0 ? 'Finish Setup' : 'Skip & Finish'} <Check size={16} /></>
+                    <>{projectName.trim() ? 'Create Project & Finish' : 'Skip & Start Playground'} <Check size={16} /></>
                   )}
                 </button>
               </div>

@@ -27,7 +27,10 @@ import {
   Users,
   Shield,
   AlertTriangle,
-  LogOut
+  LogOut,
+  Boxes,
+  Calculator,
+  ScrollText
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
@@ -44,6 +47,9 @@ import CreateInvoiceModal, { type CreateInvoiceFormData } from "./CreateInvoiceM
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
+import { ProjectSwitcher } from "./ProjectSwitcher";
+import { CreateProjectModal } from "./CreateProjectModal";
+import { TemplatePickerModal } from "./TemplatePickerModal";
 import {
   DndContext, 
   closestCenter,
@@ -77,6 +83,15 @@ const Dashboard: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
+  
+  const [activeProjectId, setActiveProjectId] = useState<string>(() => {
+    return localStorage.getItem("invsys_active_project") || "playground";
+  });
+  const [activeModule, setActiveModule] = useState<"documents" | "inventory" | "accounting">("documents");
+  const [activeView, setActiveView] = useState<"home" | "templates">("home");
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
+  
   const { user: currentUser, logout, businessId, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
@@ -171,8 +186,11 @@ const Dashboard: React.FC = () => {
   // --- Derived State ---
   const folders = workspaceAction.folders || [];
   const documents = workspaceAction.documents || [];
-  const folderItems = folders.filter(f => f.parentId === currentFolderId);
-  const docItems = documents.filter(d => d.folderId === currentFolderId);
+  const projects = (workspaceAction.projects || []) as any[];
+
+  // Filter items by project AND current folder
+  const folderItems = folders.filter(f => f.projectId === activeProjectId && f.parentId === currentFolderId);
+  const docItems = documents.filter(d => d.projectId === activeProjectId && d.folderId === currentFolderId);
   
   const currentFolder = currentFolderId 
     ? workspaceAction.folders.find(f => f.id === currentFolderId)
@@ -207,8 +225,10 @@ const Dashboard: React.FC = () => {
 
   const searchResults = isSearching 
     ? workspaceAction.documents.filter(d => 
-        d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-        d.content?.contact?.name?.toLowerCase().includes(searchQuery.toLowerCase())
+        d.projectId === activeProjectId && (
+          d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+          d.content?.contact?.name?.toLowerCase().includes(searchQuery.toLowerCase())
+        )
       )
     : [];
 
@@ -226,7 +246,7 @@ const Dashboard: React.FC = () => {
   const handleCreateFolder = async () => {
     const name = prompt("Folder Name:");
     if (!name) return;
-    await api.createFolder(name, currentFolderId);
+    await api.createFolder(name, activeProjectId, currentFolderId);
   };
 
   const handleCreateDocument = async (template?: TemplateDefinition) => {
@@ -267,7 +287,7 @@ const Dashboard: React.FC = () => {
       _templateColor: createModal.template?.color
     };
 
-    const newDoc = await api.createDocument(name, content, currentFolderId);
+    const newDoc = await api.createDocument(name, content, activeProjectId, currentFolderId);
     setCreateModal({ open: false });
     navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
   };
@@ -316,25 +336,82 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-background text-foreground transition-all duration-300 font-lexend overflow-hidden">
-      {/* Sidebar */}
+      {/* Unified Sidebar */}
       <aside className="w-64 border-r border-border bg-card hidden md:flex flex-col p-6 space-y-8">
+        {/* Brand */}
         <div className="flex items-center gap-3 px-2">
           <div className="p-2 bg-primary rounded-lg shadow-sm">
             <FileText size={20} className="text-primary-foreground" strokeWidth={2.5} />
           </div>
           <h1 className="text-sm font-bold tracking-tight uppercase text-foreground">INV-SYS Pro</h1>
         </div>
-        <nav className="flex-1 space-y-0.5">
-          <SidebarItem icon={<Clock size={18} />} label="All Files" active onClick={() => navigate("/dashboard")} />
-          <SidebarItem icon={<Folder size={18} />} label="Trash" onClick={() => alert("Trash feature coming soon")} />
-        </nav>
-        <div className="pt-6 mt-auto">
+
+        {/* Navigation Sections */}
+        <div className="flex-1 space-y-10">
+          {/* Library Section */}
+          <div className="space-y-4">
+            <h3 className="px-2 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-50 flex items-center gap-2">
+              <Folder size={12} /> Library
+            </h3>
+            <nav className="space-y-1">
+              <SidebarItem 
+                icon={<Clock size={18} />} 
+                label="Home" 
+                active={activeView === "home" && !currentFolderId} 
+                onClick={() => { setActiveView("home"); navigate("/dashboard"); }} 
+              />
+              <SidebarItem 
+                icon={<ScrollText size={18} />} 
+                label="Templates" 
+                active={activeView === "templates"} 
+                onClick={() => setActiveView("templates")} 
+              />
+              <SidebarItem icon={<Users size={18} />} label="Manage Team" onClick={() => {
+                  setActiveCollaboratorTab('team');
+                  setIsCollaboratorsOpen(true);
+              }} />
+              <SidebarItem icon={<Trash size={18} />} label="Trash bin" onClick={() => alert("Trash feature coming soon")} />
+            </nav>
+          </div>
+
+          {/* Modules Section */}
+          <div className="space-y-4">
+            <h3 className="px-2 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-50 flex items-center gap-2">
+              <Boxes size={12} /> Modules
+            </h3>
+            <nav className="space-y-1">
+              <SidebarItem 
+                icon={<FileText size={18} />} 
+                label="Documents" 
+                active={activeModule === "documents"} 
+                onClick={() => setActiveModule("documents")} 
+              />
+              <SidebarItem 
+                icon={<Boxes size={18} />} 
+                label="Project Scope" 
+                active={false} 
+                onClick={() => setIsProjectModalOpen(true)} 
+              />
+              <SidebarItem 
+                icon={<LayoutGrid size={18} />} 
+                label="Inventory" 
+                active={activeModule === "inventory"} 
+                onClick={() => setActiveModule("inventory")} 
+              />
+              <SidebarItem 
+                icon={<Calculator size={18} />} 
+                label="Accounting" 
+                active={activeModule === "accounting"} 
+                onClick={() => setActiveModule("accounting")} 
+              />
+            </nav>
+          </div>
+        </div>
+
+        {/* Footer / User */}
+        <div className="pt-6 border-t border-border/50">
           <div 
-            onClick={() => {
-              setActiveCollaboratorTab('team');
-              setIsCollaboratorsOpen(true);
-            }}
-            className="flex items-center gap-3 px-3 py-3 rounded-xl bg-muted/40 group relative overflow-hidden transition-all hover:bg-muted/60 cursor-pointer"
+            className="flex items-center gap-3 px-3 py-3 rounded-2xl bg-muted/20 group relative overflow-hidden transition-all hover:bg-muted/40 cursor-pointer"
           >
             <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
                {currentUser?.photoURL ? (
@@ -361,42 +438,43 @@ const Dashboard: React.FC = () => {
       <main className="flex-1 flex flex-col bg-background relative overflow-hidden">
         {/* Header */}
         <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background sticky top-0 z-10">
-          <div className="flex items-center gap-6 flex-1">
-            {currentFolderId && (
-              <button 
-                onClick={() => navigate(-1)} 
-                className="p-2 h-8 w-8 flex items-center justify-center hover:bg-muted rounded-md transition-all border border-border"
-              >
-                <ArrowLeft size={16} />
-              </button>
-            )}
+          <div className="flex items-center gap-2 flex-1">
             <div className="relative w-full max-w-sm group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-foreground transition-colors" size={14} />
               <input 
                 type="text" 
                 placeholder="e.g. Acme Tech Solutions" 
-                className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-border focus:border-primary/50 focus:bg-card rounded-md outline-none text-xs transition-all" 
+                className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-transparent focus:border-border focus:bg-card rounded-xl outline-none text-xs transition-all" 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
               />
             </div>
+            {currentFolderId && (
+              <button 
+                onClick={() => navigate(-1)} 
+                className="p-2 h-8 px-3 flex items-center gap-2 hover:bg-muted rounded-lg transition-all text-xs font-bold text-muted-foreground"
+              >
+                <ArrowLeft size={14} /> Back
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
-            {role === 'super-admin' && (
-              <button 
-                onClick={() => {
-                  setActiveCollaboratorTab('team');
-                  setIsCollaboratorsOpen(true);
+            <ProjectSwitcher 
+                projects={projects}
+                activeProjectId={activeProjectId}
+                onSelect={(id) => {
+                    setActiveProjectId(id);
+                    localStorage.setItem("invsys_active_project", id);
+                    navigate("/dashboard"); // Reset folder view on switch
                 }}
-                className="flex items-center gap-2 group px-4 py-2 hover:bg-muted rounded-xl transition-all border border-border/50 text-muted-foreground hover:text-foreground"
-              >
-                <Users size={16} className="group-hover:scale-110 transition-transform" />
-                <span className="text-[11px] font-black uppercase tracking-wider">Manage Team</span>
-              </button>
-            )}
+                onCreateNew={() => setIsProjectModalOpen(true)}
+            />
+
+            <div className="w-px h-8 bg-border opacity-50" />
+
             {/* Session Owners & Presence */}
-            <div className="flex items-center -space-x-1 overflow-hidden mr-2">
+            <div className="flex items-center -space-x-1.5 overflow-hidden">
               {connectedClients.map((client) => {
                 const isOwner = authAction.governance.ownerId === client.id;
                 const isMe = client.id === myClientId;
@@ -405,13 +483,13 @@ const Dashboard: React.FC = () => {
                     key={client.id}
                     title={`${client.user.name}${isOwner ? ' (Store Owner)' : ''}${isMe ? ' (You)' : ''}`}
                     className={cn(
-                      "w-6 h-6 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group",
+                      "w-7 h-7 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group",
                       isOwner ? "bg-amber-500 z-10" : "bg-slate-400"
                     )}
                     style={{ backgroundColor: client.user.color }}
                   >
                     {client.user.name.charAt(0)}
-                    {isOwner && <div className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full border border-white shadow-sm" />}
+                    {isOwner && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border border-white shadow-sm" />}
                     
                     {/* Admin Kick Tooltip */}
                     {authAction.governance.ownerId === myClientId && !isMe && (
@@ -430,67 +508,27 @@ const Dashboard: React.FC = () => {
               })}
             </div>
             
-            {/* Owner Control */}
-            <div className="flex items-center gap-2">
-                {authAction.governance.ownerId && (
-                  <div className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all",
-                    authAction.governance.ownerId === currentUser?.email 
-                      ? "bg-amber-500/10 text-amber-600" 
-                      : "bg-muted text-muted-foreground"
-                  )}>
-                    <Shield size={14} className={authAction.governance.ownerId === currentUser?.email ? "fill-amber-500" : ""} />
-                    <span className="text-[10px] font-black uppercase tracking-wider">
-                      {authAction.governance.ownerId === currentUser?.email ? "Owner View" : "Public View"}
-                    </span>
-                  </div>
-                )}
-
+            <div className="flex items-center gap-1.5">
                 <button
                   onClick={toggleTheme}
-                  className="p-3 text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
+                  className="w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
                 >
-                  {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-foreground text-background text-[9px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-                    Switch to {theme === "light" ? "Dark" : "Light"} Mode
-                  </span>
+                  {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
                 </button>
                 
-                <div className="w-px h-8 bg-border mx-2" />
-
                 <button
                   onClick={() => {
                     setActiveCollaboratorTab('live');
                     setIsCollaboratorsOpen(true);
                   }}
-                  className="p-3 text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
+                  className="w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
                 >
-                  <Users size={20} />
+                  <Users size={18} />
                   {connectedClients.length > 1 && (
                     <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-card" />
                   )}
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-foreground text-background text-[9px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-                    {connectedClients.length} Online
-                  </span>
                 </button>
               </div>
-
-            <div className="flex p-0.5 bg-muted rounded-md">
-              <button 
-                onClick={() => setViewMode("grid")} 
-                className={cn("p-1.5 rounded-sm transition-all shadow-none", viewMode === "grid" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
-              ><LayoutGrid size={14} /></button>
-              <button 
-                onClick={() => setViewMode("list")} 
-                className={cn("p-1.5 rounded-sm transition-all shadow-none", viewMode === "list" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
-              ><List size={14} /></button>
-            </div>
-            <button 
-              onClick={() => setCreateModal({ open: true })}
-              className="flex items-center gap-2 px-4 h-9 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-all text-[11px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"
-            >
-              <Plus size={16} /> New Doc
-            </button>
           </div>
         </header>
 
@@ -500,23 +538,14 @@ const Dashboard: React.FC = () => {
           onClick={() => setSelectedId(null)}
         >
 
-          {!isSearching && !currentFolderId && (
+          {activeView === "templates" && (
             <div className="mb-12">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex flex-col gap-0.5">
-                  <h2 className="text-xs font-bold text-foreground uppercase tracking-widest opacity-80">Start with a Template</h2>
-                  <p className="text-[10px] text-muted-foreground font-medium">Choose a preset structure for your invoice</p>
-                </div>
-              </div>
-              <div className="flex overflow-x-auto gap-4 pb-4 scrollbar-thin">
-                {isLoadingTemplates ? (
-                  <div className="flex gap-4">
-                    {[1, 2, 3, 4].map(i => (
-                      <TemplateSkeleton key={i} />
-                    ))}
-                  </div>
-                ) : (
-                  templates.map((template: TemplateDefinition) => (
+               <div className="flex flex-col gap-2 mb-8">
+                 <h2 className="text-xl font-bold text-foreground">Template Library</h2>
+                 <p className="text-xs text-muted-foreground">Select a template to serve as the structure for your new document.</p>
+               </div>
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+                 {templates.map((template: TemplateDefinition) => (
                     <TemplateCard 
                       key={template.id} 
                       template={template} 
@@ -525,10 +554,13 @@ const Dashboard: React.FC = () => {
                       onDelete={() => api.deleteTemplate(template.id)}
                       onPin={() => api.togglePinTemplate(template.id)}
                     />
-                  ))
-                )}
-              </div>
+                  ))}
+               </div>
             </div>
+          )}
+
+          {activeView === "home" && !isSearching && !currentFolderId && (
+            <div className="h-4" />
           )}
 
           {/* ── Deep Search Results ── */}
@@ -655,16 +687,6 @@ const Dashboard: React.FC = () => {
                  <Folder size={18} className="text-primary/70 shrink-0" />
                  {currentFolder ? currentFolder.name : "Library"}
                </h2>
-               {clipboard && (
-                 <div className="flex items-center gap-2 mt-1 px-2 py-1 bg-primary/5 border border-primary/20 rounded-md w-fit animate-in slide-in-from-left-2 duration-300">
-                   <Copy size={10} className="text-primary/60" />
-                   <span className="text-[10px] text-primary/80 font-medium">Copied: <span className="font-bold">{clipboard.name}</span></span>
-                   <button 
-                     onClick={() => setClipboard(null)}
-                     className="ml-2 text-[10px] text-slate-400 hover:text-slate-600 font-bold"
-                   >Cancel</button>
-                 </div>
-               )}
                
                {/* Breadcrumbs */}
                <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
@@ -688,10 +710,41 @@ const Dashboard: React.FC = () => {
                  ))}
                </div>
             </div>
-            <button
-              onClick={handleCreateFolder}
-              className="px-3 py-1.5 border border-border bg-white text-[10px] font-bold tracking-widest text-foreground rounded-md transition-all hover:bg-muted"
-            >+ NEW FOLDER</button>
+
+            <div className="flex items-center gap-4">
+              {/* View Switcher */}
+              <div className="flex p-0.5 bg-muted/50 rounded-lg">
+                <button 
+                  onClick={() => setViewMode("grid")} 
+                  className={cn(
+                    "p-1.5 rounded-md transition-all", 
+                    viewMode === "grid" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                ><LayoutGrid size={14} /></button>
+                <button 
+                  onClick={() => setViewMode("list")} 
+                  className={cn(
+                    "p-1.5 rounded-md transition-all", 
+                    viewMode === "list" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  )}
+                ><List size={14} /></button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCreateFolder}
+                  className="px-4 py-2 border border-border bg-card text-[10px] font-bold tracking-widest text-foreground rounded-xl transition-all hover:bg-muted/50 flex items-center gap-2"
+                >
+                  <Plus size={14} /> FOLDER
+                </button>
+                <button 
+                  onClick={() => setIsTemplatePickerOpen(true)}
+                  className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"
+                >
+                  <Plus size={14} /> NEW DOC
+                </button>
+              </div>
+            </div>
           </div>}
 
           {!isSearching && isLoading ? (
@@ -769,6 +822,15 @@ const Dashboard: React.FC = () => {
         />
       )}
       {/* Collaborators Sheet */}
+      <TemplatePickerModal 
+        isOpen={isTemplatePickerOpen}
+        onClose={() => setIsTemplatePickerOpen(false)}
+        onSelect={(template) => {
+            setIsTemplatePickerOpen(false);
+            handleCreateDocument(template);
+        }}
+      />
+
       <CollaboratorsSheet
         isOpen={isCollaboratorsOpen}
         onClose={() => setIsCollaboratorsOpen(false)}
@@ -790,13 +852,6 @@ const Dashboard: React.FC = () => {
     </div>
   );
 };
-
-const SidebarItem = ({ icon, label, active = false, onClick }: { icon: any, label: string, active?: boolean, onClick: () => void }) => (
-  <button onClick={onClick} className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all group", active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground")}>
-    <span className={cn("transition-all duration-300", active ? "text-primary" : "text-muted-foreground group-hover:text-primary")}>{icon}</span>
-    <span className="text-xs font-semibold tracking-tight">{label}</span>
-  </button>
-);
 
 const SortableItem = (props: any) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.item.id });
@@ -1271,6 +1326,28 @@ const ManageTeamModal = ({ isOpen, onClose, businessId, businessName }: ManageTe
     </div>
   );
 };
+
+const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) => (
+  <button 
+    onClick={onClick}
+    className={cn(
+      "w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group relative overflow-hidden",
+      active 
+        ? "bg-primary/5 text-primary shadow-sm shadow-primary/5" 
+        : "text-slate-400 hover:text-slate-200"
+    )}
+  >
+    <div className={cn("shrink-0 transition-transform group-hover:scale-110", active && "scale-105")}>
+      {icon}
+    </div>
+    <span className={cn("text-xs font-black tracking-tight", active ? "text-primary" : "text-muted-foreground")}>
+      {label}
+    </span>
+    {active && (
+      <div className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-full" />
+    )}
+  </button>
+);
 
 export default Dashboard;
 

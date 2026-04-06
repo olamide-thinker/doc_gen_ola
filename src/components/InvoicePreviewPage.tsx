@@ -402,7 +402,7 @@ const InvoicePreviewPage: React.FC = () => {
 
     setIsCreatingReceipt(true);
     try {
-      const newDoc = await api.createDocument(receiptNumber, receiptData, null);
+      const newDoc = await api.createDocument(receiptNumber, receiptData, invoiceDoc.projectId || "playground", null);
       (newDoc as any).invoiceId = id;
       navigate(`/receipt-editor/${newDoc.id}`);
     } finally { setIsCreatingReceipt(false); }

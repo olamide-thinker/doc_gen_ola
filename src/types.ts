@@ -77,6 +77,12 @@ export interface DocData {
   _templateName?: string;
 }
 
+export interface WorkspaceProject {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface TotalPrice {
   subTotal: number;
   summaries: SummaryItem[];

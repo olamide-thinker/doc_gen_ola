@@ -1,5 +1,5 @@
 import { syncedStore } from "@syncedstore/core";
-import { workspaceStore, authStore, authProvider, type WorkspaceFolder, type WorkspaceDocument } from "../store";
+import { workspaceStore, authStore, authProvider, type WorkspaceFolder, type WorkspaceDocument, type WorkspaceProject } from "../store";
 import { type DocData, type InvoiceCode } from "../types";
 import { type TemplateDefinition, TEMPLATES } from "./templates";
 
@@ -23,11 +23,41 @@ const migrateData = () => {
   const folders = getFromStorage("folders", []);
   const documents = getFromStorage("documents", []);
 
-  if (workspaceStore.folders.length === 0 && folders.length > 0) {
-    workspaceStore.folders.push(...folders);
+  // Ensure Playground project exists
+  if (workspaceStore.projects.length === 0) {
+    const initialProjectName = localStorage.getItem('invsys_initial_project');
+    if (initialProjectName) {
+      workspaceStore.projects.push({
+        id: crypto.randomUUID(),
+        name: initialProjectName,
+        createdAt: new Date().toISOString()
+      });
+      localStorage.removeItem('invsys_initial_project');
+    }
+
+    workspaceStore.projects.push({
+      id: "playground",
+      name: "Playground",
+      createdAt: new Date().toISOString()
+    });
   }
+
+  if (workspaceStore.folders.length === 0 && folders.length > 0) {
+    workspaceStore.folders.push(...folders.map((f: any) => ({ ...f, projectId: f.projectId || "playground" })));
+  } else {
+    // Migrate existing synced folders
+    workspaceStore.folders.forEach(f => {
+        if (!f.projectId) f.projectId = "playground";
+    });
+  }
+
   if (workspaceStore.documents.length === 0 && documents.length > 0) {
-    workspaceStore.documents.push(...documents);
+    workspaceStore.documents.push(...documents.map((d: any) => ({ ...d, projectId: d.projectId || "playground" })));
+  } else {
+    // Migrate existing synced documents
+    workspaceStore.documents.forEach(d => {
+        if (!d.projectId) d.projectId = "playground";
+    });
   }
 };
 
@@ -35,8 +65,8 @@ migrateData();
 
 export const api = {
   // --- Folders ---
-  getFolders: async (parentId: string | null = null): Promise<WorkspaceFolder[]> => {
-    return workspaceStore.folders.filter(f => f.parentId === parentId) as WorkspaceFolder[];
+  getFolders: async (projectId: string, parentId: string | null = null): Promise<WorkspaceFolder[]> => {
+    return workspaceStore.folders.filter(f => f.projectId === projectId && f.parentId === parentId) as WorkspaceFolder[];
   },
 
   getFolder: async (id: string): Promise<WorkspaceFolder | null> => {
@@ -61,11 +91,12 @@ export const api = {
     return path;
   },
 
-  createFolder: async (name: string, parentId: string | null = null): Promise<WorkspaceFolder> => {
+  createFolder: async (name: string, projectId: string, parentId: string | null = null): Promise<WorkspaceFolder> => {
     const newFolder: WorkspaceFolder = {
       id: crypto.randomUUID(),
       name,
       parentId,
+      projectId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -121,27 +152,28 @@ export const api = {
 
     // Duplicate documents in folder
     documents.filter(d => d.folderId === id).forEach(d => {
-      api.createDocument(d.name, d.content, newFolderId);
+      api.createDocument(d.name, d.content, d.projectId || "playground", newFolderId);
     });
 
     return newFolder;
   },
 
   // --- Documents ---
-  getDocuments: async (folderId: string | null = null): Promise<WorkspaceDocument[]> => {
-    return workspaceStore.documents.filter(d => d.folderId === folderId) as unknown as WorkspaceDocument[];
+  getDocuments: async (projectId: string, folderId: string | null = null): Promise<WorkspaceDocument[]> => {
+    return workspaceStore.documents.filter(d => d.projectId === projectId && d.folderId === folderId) as unknown as WorkspaceDocument[];
   },
 
   getDocument: async (id: string): Promise<WorkspaceDocument | null> => {
     return (workspaceStore.documents.find(d => d.id === id) as unknown as WorkspaceDocument) || null;
   },
 
-  createDocument: async (name: string, content: any, folderId: string | null = null): Promise<WorkspaceDocument> => {
+  createDocument: async (name: string, content: any, projectId: string, folderId: string | null = null): Promise<WorkspaceDocument> => {
     const newDoc: WorkspaceDocument = {
       id: crypto.randomUUID(),
       name,
       content,
       folderId,
+      projectId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -184,13 +216,13 @@ export const api = {
   duplicateDocument: async (id: string): Promise<WorkspaceDocument> => {
     const original = workspaceStore.documents.find(d => d.id === id);
     if (!original) throw new Error("Document not found");
-    return api.createDocument(`${original.name} (Copy)`, original.content, original.folderId);
+    return api.createDocument(`${original.name} (Copy)`, original.content, original.projectId || "playground", original.folderId);
   },
 
   duplicateDocumentToFolder: async (id: string, targetFolderId: string | null): Promise<WorkspaceDocument> => {
     const original = workspaceStore.documents.find(d => d.id === id);
     if (!original) throw new Error("Document not found");
-    return api.createDocument(`${original.name} (Copy)`, original.content, targetFolderId);
+    return api.createDocument(`${original.name} (Copy)`, original.content, original.projectId || "playground", targetFolderId);
   },
 
   // --- Templates ---
@@ -284,6 +316,36 @@ export const api = {
         docs.splice(overIdx, 0, moved);
         workspaceStore.documents.splice(0, workspaceStore.documents.length, ...docs);
       }
+    }
+  },
+
+  // --- Projects ---
+  getProjects: async (): Promise<WorkspaceProject[]> => {
+    return workspaceStore.projects as WorkspaceProject[];
+  },
+
+  createProject: async (name: string): Promise<WorkspaceProject> => {
+    const newProj: WorkspaceProject = {
+      id: crypto.randomUUID(),
+      name,
+      createdAt: new Date().toISOString(),
+    };
+    workspaceStore.projects.push(newProj);
+    return newProj;
+  },
+
+  deleteProject: async (id: string): Promise<void> => {
+    const idx = workspaceStore.projects.findIndex(p => p.id === id);
+    if (idx !== -1) workspaceStore.projects.splice(idx, 1);
+
+    // Cleanup project items
+    const folders = workspaceStore.folders;
+    for (let i = folders.length - 1; i >= 0; i--) {
+        if (folders[i].projectId === id) folders.splice(i, 1);
+    }
+    const docs = workspaceStore.documents;
+    for (let i = docs.length - 1; i >= 0; i--) {
+        if (docs[i].projectId === id) docs.splice(i, 1);
     }
   },
 };

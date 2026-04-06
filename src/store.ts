@@ -1,6 +1,8 @@
 import { syncedStore, getYjsDoc } from "@syncedstore/core";
 import { HocuspocusProvider } from "@hocuspocus/provider";
-import { DocData } from "./types";
+import { DocData, WorkspaceProject } from "./types";
+
+export { type WorkspaceProject };
 
 // 1. Define the shape of your Invoice/BOQ
 export type InvoiceItem = {
@@ -21,6 +23,7 @@ export interface WorkspaceFolder {
   id: string;
   name: string;
   parentId: string | null;
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +33,7 @@ export interface WorkspaceDocument {
   name: string;
   content: any;
   folderId: string | null;
+  projectId?: string;
   createdAt: string;
   updatedAt: string;
   invoiceId?: string | null;
@@ -38,6 +42,7 @@ export interface WorkspaceDocument {
 export type WorkspaceState = {
   folders: WorkspaceFolder[];
   documents: WorkspaceDocument[];
+  projects: WorkspaceProject[];
 };
 
 // --- Authorization & Governance ---
@@ -54,7 +59,8 @@ export const store = syncedStore({
 
 export const workspaceStore = syncedStore({ 
   folders: [] as WorkspaceFolder[], 
-  documents: [] as WorkspaceDocument[] 
+  documents: [] as WorkspaceDocument[],
+  projects: [] as WorkspaceProject[]
 });
 
 export const authStore = syncedStore({ 
@@ -71,20 +77,35 @@ export let workspaceProvider: HocuspocusProvider | null = null;
 export let authProvider: HocuspocusProvider | null = null;
 
 export const connectWorkspace = (businessId: string, token: string) => {
-  // Cleanup old ones if they exist
+  const workspaceRoom = `business-workspace-${businessId}`;
+  const authRoom = `business-auth-${businessId}`;
+
+  // Idempotency check: don't reconnect if already connected to same rooms with same token
+  if (
+    workspaceProvider && 
+    workspaceProvider.configuration.name === workspaceRoom && 
+    workspaceProvider.configuration.token === token &&
+    authProvider &&
+    authProvider.configuration.name === authRoom &&
+    authProvider.configuration.token === token
+  ) {
+    return { workspaceProvider, authProvider };
+  }
+
+  // Cleanup old ones if they exist and are different
   if (workspaceProvider) workspaceProvider.destroy();
   if (authProvider) authProvider.destroy();
 
   workspaceProvider = new HocuspocusProvider({
     url: WS_URL,
-    name: `business-workspace-${businessId}`,
+    name: workspaceRoom,
     document: getYjsDoc(workspaceStore),
     token, // Send Firebase ID Token for backend auth
   });
 
   authProvider = new HocuspocusProvider({
     url: WS_URL,
-    name: `business-auth-${businessId}`,
+    name: authRoom,
     document: getYjsDoc(authStore),
     token,
   });
@@ -93,11 +114,21 @@ export const connectWorkspace = (businessId: string, token: string) => {
 };
 
 export const connectEditor = (docId: string, token: string) => {
+  const roomName = `doc-${docId}`;
+
+  if (
+    provider && 
+    provider.configuration.name === roomName && 
+    provider.configuration.token === token
+  ) {
+    return provider;
+  }
+
   if (provider) provider.destroy();
   
   provider = new HocuspocusProvider({
     url: WS_URL,
-    name: `doc-${docId}`,
+    name: roomName,
     document: getYjsDoc(store),
     token,
   });

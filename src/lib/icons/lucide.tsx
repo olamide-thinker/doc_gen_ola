@@ -52,7 +52,11 @@ import {
   UserPlus as LucideUserPlus,
   UserMinus as LucideUserMinus,
   Link as LucideLink,
-  X as LucideX
+  Boxes as LucideBoxes,
+  Calculator as LucideCalculator,
+  FolderOpen as LucideFolderOpen,
+  X as LucideX,
+  ScrollText as LucideScrollText
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -110,4 +114,8 @@ export const UserCheck = wrapIcon(LucideUserCheck);
 export const UserPlus = wrapIcon(LucideUserPlus);
 export const UserX = wrapIcon(LucideUserMinus);
 export const Link = wrapIcon(LucideLink);
+export const Boxes = wrapIcon(LucideBoxes);
+export const Calculator = wrapIcon(LucideCalculator);
+export const FolderOpen = wrapIcon(LucideFolderOpen);
 export const X = wrapIcon(LucideX);
+export const ScrollText = wrapIcon(LucideScrollText);
