@@ -48,6 +48,10 @@ import {
   ArrowRight as LucideArrowRight,
   Mail as LucideMail,
   ShieldCheck as LucideShieldCheck,
+  UserCheck as LucideUserCheck,
+  UserPlus as LucideUserPlus,
+  UserMinus as LucideUserMinus,
+  Link as LucideLink,
   X as LucideX
 } from "lucide-react";
 import { wrapIcon } from "../utils";
@@ -102,4 +106,8 @@ export const Briefcase = wrapIcon(LucideBriefcase);
 export const ArrowRight = wrapIcon(LucideArrowRight);
 export const Mail = wrapIcon(LucideMail);
 export const ShieldCheck = wrapIcon(LucideShieldCheck);
+export const UserCheck = wrapIcon(LucideUserCheck);
+export const UserPlus = wrapIcon(LucideUserPlus);
+export const UserX = wrapIcon(LucideUserMinus);
+export const Link = wrapIcon(LucideLink);
 export const X = wrapIcon(LucideX);

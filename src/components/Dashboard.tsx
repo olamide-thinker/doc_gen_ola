@@ -76,23 +76,25 @@ const Dashboard: React.FC = () => {
   const [clipboard, setClipboard] = useState<{ id: string, name: string, type: 'document' | 'folder' } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
-  const [isManageTeamOpen, setIsManageTeamOpen] = useState(false);
+  const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
   const { user: currentUser, logout, businessId, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const [businessName, setBusinessName] = useState("Your Business");
+  const [businessOwnerId, setBusinessOwnerId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchBusinessName = async () => {
+    const fetchBusinessInfo = async () => {
         if (!businessId) return;
         const { doc, getDoc } = await import("firebase/firestore");
         const { db } = await import("../lib/firebase");
         const bDoc = await getDoc(doc(db, "businesses", businessId));
         if (bDoc.exists()) {
             setBusinessName(bDoc.data().name);
+            setBusinessOwnerId(bDoc.data().ownerId);
         }
     };
-    fetchBusinessName();
+    fetchBusinessInfo();
   }, [businessId]);
 
   const params = new URLSearchParams(location.search);
@@ -328,7 +330,10 @@ const Dashboard: React.FC = () => {
         </nav>
         <div className="pt-6 mt-auto">
           <div 
-            onClick={() => setIsCollaboratorsOpen(true)}
+            onClick={() => {
+              setActiveCollaboratorTab('team');
+              setIsCollaboratorsOpen(true);
+            }}
             className="flex items-center gap-3 px-3 py-3 rounded-xl bg-muted/40 group relative overflow-hidden transition-all hover:bg-muted/60 cursor-pointer"
           >
             <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
@@ -380,11 +385,14 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center gap-4">
             {role === 'super-admin' && (
               <button 
-                onClick={() => setIsManageTeamOpen(true)}
-                className="flex items-center gap-2 px-3 py-1.5 h-8 bg-primary/10 text-primary hover:bg-primary/20 rounded-md transition-all text-[11px] font-black uppercase tracking-wider"
+                onClick={() => {
+                  setActiveCollaboratorTab('team');
+                  setIsCollaboratorsOpen(true);
+                }}
+                className="flex items-center gap-2 group px-4 py-2 hover:bg-muted rounded-xl transition-all border border-border/50 text-muted-foreground hover:text-foreground"
               >
-                <Users size={14} />
-                Manage Team
+                <Users size={16} className="group-hover:scale-110 transition-transform" />
+                <span className="text-[11px] font-black uppercase tracking-wider">Manage Team</span>
               </button>
             )}
             {/* Session Owners & Presence */}
@@ -451,7 +459,10 @@ const Dashboard: React.FC = () => {
                 <div className="w-px h-8 bg-border mx-2" />
 
                 <button
-                  onClick={() => setIsCollaboratorsOpen(true)}
+                  onClick={() => {
+                    setActiveCollaboratorTab('live');
+                    setIsCollaboratorsOpen(true);
+                  }}
                   className="p-3 text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
                 >
                   <Users size={20} />
@@ -762,8 +773,11 @@ const Dashboard: React.FC = () => {
         isOpen={isCollaboratorsOpen}
         onClose={() => setIsCollaboratorsOpen(false)}
         collaborators={connectedClients}
-        ownerId={authAction.governance.ownerId || null}
+        ownerId={businessOwnerId || authAction.governance.ownerId || null}
         bannedClients={authAction.bannedClients}
+        businessId={businessId}
+        businessName={businessName}
+        initialTab={activeCollaboratorTab}
         onBanClient={(email) => {
           if (!authAction.bannedClients.includes(email)) {
             authAction.bannedClients.push(email);
@@ -772,14 +786,6 @@ const Dashboard: React.FC = () => {
         onMakeOwner={(email) => {
           authAction.governance.ownerId = email;
         }}
-      />
-
-      {/* Manage Team Modal */}
-      <ManageTeamModal 
-        isOpen={isManageTeamOpen} 
-        onClose={() => setIsManageTeamOpen(false)} 
-        businessId={businessId}
-        businessName={businessName}
       />
     </div>
   );

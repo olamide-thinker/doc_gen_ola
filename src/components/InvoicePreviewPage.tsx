@@ -286,14 +286,23 @@ const InvoicePreviewPage: React.FC = () => {
 
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
-
-  useEffect(() => {
-    if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
-      navigate("/denied");
-    }
-  }, [authAction.bannedClients, currentUser, navigate]);
+  const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
+  const [businessName, setBusinessName] = useState("Your Business");
 
   const { businessId } = useAuth();
+
+  useEffect(() => {
+    const fetchBusinessName = async () => {
+        if (!businessId) return;
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+        const bDoc = await getDoc(doc(db, "businesses", businessId));
+        if (bDoc.exists()) {
+            setBusinessName(bDoc.data().name);
+        }
+    };
+    fetchBusinessName();
+  }, [businessId]);
   const [isWorkspaceReady, setIsWorkspaceReady] = useState(false);
 
   useEffect(() => {
@@ -556,6 +565,9 @@ const InvoicePreviewPage: React.FC = () => {
       <CollaboratorsSheet
         isOpen={isCollaboratorsOpen} onClose={() => setIsCollaboratorsOpen(false)}
         collaborators={connectedClients} ownerId={authAction.governance.ownerId || null}
+        businessId={businessId}
+        businessName={businessName}
+        initialTab={activeCollaboratorTab}
         bannedClients={authAction.bannedClients}
         onBanClient={(email) => { if (!authAction.bannedClients.includes(email)) authAction.bannedClients.push(email); }}
         onMakeOwner={(email) => { authAction.governance.ownerId = email; }}

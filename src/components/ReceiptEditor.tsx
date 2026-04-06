@@ -46,7 +46,22 @@ const ReceiptEditor: React.FC = () => {
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
   const [isSyncReady, setIsSyncReady] = useState(false);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+  const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
   const [myClientId, setMyClientId] = useState<string>("unknown");
+  const [businessName, setBusinessName] = useState("Your Business");
+
+  useEffect(() => {
+    const fetchBusinessName = async () => {
+        if (!businessId) return;
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+        const bDoc = await getDoc(doc(db, "businesses", businessId));
+        if (bDoc.exists()) {
+            setBusinessName(bDoc.data().name);
+        }
+    };
+    fetchBusinessName();
+  }, [businessId]);
 
   useEffect(() => {
     if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
@@ -519,6 +534,9 @@ const ReceiptEditor: React.FC = () => {
         onClose={() => setIsCollaboratorsOpen(false)}
         collaborators={connectedClients}
         ownerId={authAction.governance.ownerId || null}
+        businessId={businessId}
+        businessName={businessName}
+        initialTab={activeCollaboratorTab}
         bannedClients={authAction.bannedClients}
         onBanClient={(email) => {
           if (!authAction.bannedClients.includes(email)) {
