@@ -1,159 +1,53 @@
-import { DocData, InvoiceCode } from "../types";
-import { TEMPLATES, TemplateDefinition } from "./templates";
+import { syncedStore } from "@syncedstore/core";
+import { workspaceStore, authStore, authProvider, type WorkspaceFolder, type WorkspaceDocument } from "../store";
+import { type DocData, type InvoiceCode } from "../types";
+import { type TemplateDefinition, TEMPLATES } from "./templates";
 
-export interface Folder {
-  id: string;
-  name: string;
-  parentId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Document {
-  id: string;
-  name: string;
-  content: DocData;
-  folderId: string | null;
-  invoiceId?: string | null;
-  thumbnail?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Simulated latency
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Helper to get from localStorage
-const getFromStorage = <T>(key: string): T[] => {
-  try {
-    const data = localStorage.getItem(key);
-    if (!data) return [];
-    const parsed = JSON.parse(data);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (e) {
-    console.error(`Failed to parse ${key} from localStorage:`, e);
-    return [];
-  }
+// Helper to save to local storage (for templates only)
+const saveToStorage = (key: string, data: any) => {
+  localStorage.setItem(`shan_${key}`, JSON.stringify(data));
 };
 
-// Helper to save to localStorage
-const saveToStorage = <T>(key: string, data: T[]) => {
-  localStorage.setItem(key, JSON.stringify(data));
+const getFromStorage = (key: string, fallback: any) => {
+  const data = localStorage.getItem(`shan_${key}`);
+  return data ? JSON.parse(data) : fallback;
 };
 
-// --- Initialization ---
-const seedIfEmpty = () => {
-  const folders = getFromStorage<Folder>("folders");
-  const documents = getFromStorage<Document>("documents");
-  const templates = getFromStorage<TemplateDefinition>("templates");
-  
-  if (folders.length === 0 && documents.length === 0) {
-    const welcomeDoc: Document = {
-      id: crypto.randomUUID(),
-      name: "Welcome to Shan Docs",
-      content: {
-        contact: { name: "OLUWAKEMI ISINKAYE", address1: "Prime Waters Garden II", address2: "Lekki Phase 1" },
-        title: "Welcome to Shan Docs",
-        date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
-        table: { 
-          columns: [
-            { id: "A", label: "S/N", type: "index", width: "60px" },
-            { id: "B", label: "Description", type: "text" },
-            { id: "C", label: "Qty", type: "number", width: "80px" },
-            { id: "D", label: "Price", type: "number", width: "140px" },
-            { id: "E", label: "Total", type: "formula", formula: "C * D", width: "140px" }
-          ], 
-          rows: [{ id: "welcome-row-1", rowType: "row", B: "Introduction to your new DMS", C: 1, D: 0 }], 
-          summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }] 
-        },
-        footer: { notes: "<p>Welcome! This is your first document. You can create folders and more documents from the dashboard.</p>", emphasis: [] }
-      },
-      folderId: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    saveToStorage("documents", [welcomeDoc]);
-  }
-
-  const missingTemplates = TEMPLATES.filter(
-    (bt) => !templates.some((t) => t.id === bt.id),
-  );
-  if (missingTemplates.length > 0) {
-    saveToStorage("templates", [...templates, ...missingTemplates]);
-  }
-};
-
+// Initial data migration from localStorage to SyncedStore
 const migrateData = () => {
-  const documents = getFromStorage<Document>("documents");
-  let migrationNeeded = false;
-  
-  const updatedDocuments = documents.map(doc => {
-    if (!doc.content?.table?.rows) return doc;
-    
-    let docChanged = false;
-    const updatedRows = doc.content.table.rows.map(row => {
-      if (row.rowType === ("stage-header" as any)) {
-        docChanged = true;
-        migrationNeeded = true;
-        return { ...row, rowType: "section-header" as const };
-      }
-      if (row.rowType === ("section-header" as any)) {
-        docChanged = true;
-        migrationNeeded = true;
-        return { ...row, rowType: "sub-section-header" as const };
-      }
-      return row;
-    });
-    
-    if (docChanged) {
-      return {
-        ...doc,
-        content: {
-          ...doc.content,
-          table: {
-            ...doc.content.table,
-            rows: updatedRows
-          }
-        }
-      };
-    }
-    return doc;
-  });
+  const folders = getFromStorage("folders", []);
+  const documents = getFromStorage("documents", []);
 
-  if (migrationNeeded) {
-    console.log("Migrating Stage/Section types in documents...");
-    saveToStorage("documents", updatedDocuments);
+  if (workspaceStore.folders.length === 0 && folders.length > 0) {
+    workspaceStore.folders.push(...folders);
+  }
+  if (workspaceStore.documents.length === 0 && documents.length > 0) {
+    workspaceStore.documents.push(...documents);
   }
 };
 
-seedIfEmpty();
 migrateData();
 
 export const api = {
   // --- Folders ---
-  getFolders: async (parentId: string | null = null): Promise<Folder[]> => {
-    await delay(300);
-    const folders = getFromStorage<Folder>("folders");
-    return folders.filter(f => f.parentId === parentId);
+  getFolders: async (parentId: string | null = null): Promise<WorkspaceFolder[]> => {
+    return workspaceStore.folders.filter(f => f.parentId === parentId) as WorkspaceFolder[];
   },
 
-  getFolder: async (id: string): Promise<Folder | null> => {
-    await delay(100);
-    const folders = getFromStorage<Folder>("folders");
-    return folders.find(f => f.id === id) || null;
+  getFolder: async (id: string): Promise<WorkspaceFolder | null> => {
+    return (workspaceStore.folders.find(f => f.id === id) as WorkspaceFolder) || null;
   },
 
-  getFolderPath: async (id: string | null): Promise<Folder[]> => {
+  getFolderPath: async (id: string | null): Promise<WorkspaceFolder[]> => {
     if (!id) return [];
-    await delay(100);
-    const allFolders = getFromStorage<Folder>("folders");
-    const path: Folder[] = [];
+    const allFolders = workspaceStore.folders;
+    const path: WorkspaceFolder[] = [];
     let currentId: string | null = id;
 
     while (currentId) {
       const folder = allFolders.find(f => f.id === currentId);
       if (folder) {
-        path.unshift(folder);
+        path.unshift(folder as WorkspaceFolder);
         currentId = folder.parentId;
       } else {
         currentId = null;
@@ -162,58 +56,55 @@ export const api = {
     return path;
   },
 
-  createFolder: async (name: string, parentId: string | null = null): Promise<Folder> => {
-    await delay(300);
-    const folders = getFromStorage<Folder>("folders");
-    const newFolder: Folder = {
+  createFolder: async (name: string, parentId: string | null = null): Promise<WorkspaceFolder> => {
+    const newFolder: WorkspaceFolder = {
       id: crypto.randomUUID(),
       name,
       parentId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    saveToStorage("folders", [...folders, newFolder]);
+    workspaceStore.folders.push(newFolder);
     return newFolder;
   },
 
-  renameFolder: async (id: string, name: string): Promise<Folder> => {
-    await delay(300);
-    const folders = getFromStorage<Folder>("folders");
+  renameFolder: async (id: string, name: string): Promise<WorkspaceFolder> => {
+    const folders = workspaceStore.folders;
     const index = folders.findIndex(f => f.id === id);
     if (index === -1) throw new Error("Folder not found");
-    folders[index] = { ...folders[index], name, updatedAt: new Date().toISOString() };
-    saveToStorage("folders", folders);
-    return folders[index];
+    folders[index].name = name;
+    folders[index].updatedAt = new Date().toISOString();
+    return folders[index] as WorkspaceFolder;
   },
 
   deleteFolder: async (id: string): Promise<void> => {
-    await delay(300);
-    const folders = getFromStorage<Folder>("folders").filter(f => f.id !== id);
-    const documents = getFromStorage<Document>("documents").filter(d => d.folderId !== id);
-    saveToStorage("folders", folders);
-    saveToStorage("documents", documents);
-  },
-
-  moveFolder: async (id: string, newParentId: string | null): Promise<Folder> => {
-    await delay(300);
-    const folders = getFromStorage<Folder>("folders");
-    const index = folders.findIndex(f => f.id === id);
-    if (index === -1) throw new Error("Folder not found");
-    folders[index] = { ...folders[index], parentId: newParentId, updatedAt: new Date().toISOString() };
-    saveToStorage("folders", folders);
-    return folders[index];
-  },
-
-  duplicateFolderToFolder: async (id: string, targetParentId: string | null): Promise<Folder> => {
-    await delay(500);
-    const folders = getFromStorage<Folder>("folders");
-    const documents = getFromStorage<Document>("documents");
-    const index = folders.findIndex(f => f.id === id);
-    if (index === -1) throw new Error("Folder not found");
+    const fIdx = workspaceStore.folders.findIndex(f => f.id === id);
+    if (fIdx !== -1) workspaceStore.folders.splice(fIdx, 1);
     
-    const original = folders[index];
+    // Cleanup documents in this folder 
+    const docs = workspaceStore.documents;
+    for (let i = docs.length - 1; i >= 0; i--) {
+        if (docs[i].folderId === id) docs.splice(i, 1);
+    }
+  },
+
+  moveFolder: async (id: string, newParentId: string | null): Promise<WorkspaceFolder> => {
+    const folders = workspaceStore.folders;
+    const index = folders.findIndex(f => f.id === id);
+    if (index === -1) throw new Error("Folder not found");
+    folders[index].parentId = newParentId;
+    folders[index].updatedAt = new Date().toISOString();
+    return folders[index] as WorkspaceFolder;
+  },
+
+  duplicateFolderToFolder: async (id: string, targetParentId: string | null): Promise<WorkspaceFolder> => {
+    const folders = workspaceStore.folders;
+    const documents = workspaceStore.documents;
+    const original = folders.find(f => f.id === id);
+    if (!original) throw new Error("Folder not found");
+    
     const newFolderId = crypto.randomUUID();
-    const newFolder: Folder = {
+    const newFolder: WorkspaceFolder = {
       ...original,
       id: newFolderId,
       name: `${original.name} (Copy)`,
@@ -221,60 +112,27 @@ export const api = {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    
-    const duplicateRecursive = (oldParentId: string, newParentId: string) => {
-      const docsInFolder = documents.filter(d => d.folderId === oldParentId);
-      docsInFolder.forEach(d => {
-        documents.push({
-          ...d,
-          id: crypto.randomUUID(),
-          name: d.name,
-          folderId: newParentId,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      });
-      
-      const subFolders = folders.filter(f => f.parentId === oldParentId);
-      subFolders.forEach(sf => {
-        const nextFolderId = crypto.randomUUID();
-        folders.push({
-          ...sf,
-          id: nextFolderId,
-          name: sf.name,
-          parentId: newParentId,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        duplicateRecursive(sf.id, nextFolderId);
-      });
-    };
-    
-    folders.splice(index + 1, 0, newFolder);
-    duplicateRecursive(id, newFolderId);
-    
-    saveToStorage("folders", folders);
-    saveToStorage("documents", documents);
+    folders.push(newFolder);
+
+    // Duplicate documents in folder
+    documents.filter(d => d.folderId === id).forEach(d => {
+      api.createDocument(d.name, d.content, newFolderId);
+    });
+
     return newFolder;
   },
 
   // --- Documents ---
-  getDocuments: async (folderId: string | null = null): Promise<Document[]> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    return documents.filter(d => d.folderId === folderId);
+  getDocuments: async (folderId: string | null = null): Promise<WorkspaceDocument[]> => {
+    return workspaceStore.documents.filter(d => d.folderId === folderId) as unknown as WorkspaceDocument[];
   },
 
-  getDocument: async (id: string): Promise<Document | null> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    return documents.find(d => d.id === id) || null;
+  getDocument: async (id: string): Promise<WorkspaceDocument | null> => {
+    return (workspaceStore.documents.find(d => d.id === id) as unknown as WorkspaceDocument) || null;
   },
 
-  createDocument: async (name: string, content: DocData, folderId: string | null = null): Promise<Document> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    const newDoc: Document = {
+  createDocument: async (name: string, content: any, folderId: string | null = null): Promise<WorkspaceDocument> => {
+    const newDoc: WorkspaceDocument = {
       id: crypto.randomUUID(),
       name,
       content,
@@ -282,226 +140,144 @@ export const api = {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    saveToStorage("documents", [...documents, newDoc]);
+    workspaceStore.documents.push(newDoc);
     return newDoc;
   },
 
-  updateDocument: async (id: string, updates: Partial<Document>): Promise<Document> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    const index = documents.findIndex(d => d.id === id);
+  updateDocument: async (id: string, content: any): Promise<WorkspaceDocument> => {
+    const docs = workspaceStore.documents;
+    const index = docs.findIndex(d => d.id === id);
     if (index === -1) throw new Error("Document not found");
-    documents[index] = { ...documents[index], ...updates, updatedAt: new Date().toISOString() };
-    saveToStorage("documents", documents);
-    return documents[index];
+    docs[index].content = content;
+    docs[index].updatedAt = new Date().toISOString();
+    return docs[index] as unknown as WorkspaceDocument;
+  },
+
+  renameDocument: async (id: string, name: string): Promise<WorkspaceDocument> => {
+    const docs = workspaceStore.documents;
+    const index = docs.findIndex(d => d.id === id);
+    if (index === -1) throw new Error("Document not found");
+    docs[index].name = name;
+    docs[index].updatedAt = new Date().toISOString();
+    return docs[index] as unknown as WorkspaceDocument;
   },
 
   deleteDocument: async (id: string): Promise<void> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents").filter(d => d.id !== id);
-    saveToStorage("documents", documents);
+    const idx = workspaceStore.documents.findIndex(d => d.id === id);
+    if (idx !== -1) workspaceStore.documents.splice(idx, 1);
   },
 
-  duplicateDocument: async (id: string): Promise<Document> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    const index = documents.findIndex(d => d.id === id);
+  moveDocument: async (id: string, newFolderId: string | null): Promise<WorkspaceDocument> => {
+    const docs = workspaceStore.documents;
+    const index = docs.findIndex(d => d.id === id);
     if (index === -1) throw new Error("Document not found");
-    const original = documents[index];
-    const newDoc: Document = {
-      ...original,
-      id: crypto.randomUUID(),
-      name: `${original.name} (Copy)`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    // Insert right after the original
-    documents.splice(index + 1, 0, newDoc);
-    saveToStorage("documents", documents);
-    return newDoc;
+    docs[index].folderId = newFolderId;
+    docs[index].updatedAt = new Date().toISOString();
+    return docs[index] as unknown as WorkspaceDocument;
   },
 
-  duplicateDocumentToFolder: async (id: string, folderId: string | null): Promise<Document> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    const index = documents.findIndex(d => d.id === id);
-    if (index === -1) throw new Error("Document not found");
-    const original = documents[index];
-    const newDoc: Document = {
-      ...original,
-      id: crypto.randomUUID(),
-      name: `${original.name} (Copy)`,
-      folderId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    if (original.folderId === folderId) {
-      documents.splice(index + 1, 0, newDoc);
-    } else {
-      documents.push(newDoc);
-    }
-    saveToStorage("documents", documents);
-    return newDoc;
+  duplicateDocument: async (id: string): Promise<WorkspaceDocument> => {
+    const original = workspaceStore.documents.find(d => d.id === id);
+    if (!original) throw new Error("Document not found");
+    return api.createDocument(`${original.name} (Copy)`, original.content, original.folderId);
   },
 
-  moveDocument: async (id: string, newFolderId: string | null): Promise<Document> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    const index = documents.findIndex(d => d.id === id);
-    if (index === -1) throw new Error("Document not found");
-    documents[index] = { ...documents[index], folderId: newFolderId, updatedAt: new Date().toISOString() };
-    saveToStorage("documents", documents);
-    return documents[index];
+  duplicateDocumentToFolder: async (id: string, targetFolderId: string | null): Promise<WorkspaceDocument> => {
+    const original = workspaceStore.documents.find(d => d.id === id);
+    if (!original) throw new Error("Document not found");
+    return api.createDocument(`${original.name} (Copy)`, original.content, targetFolderId);
   },
 
   // --- Templates ---
   getTemplates: async (): Promise<TemplateDefinition[]> => {
-    await delay(300);
-    const templates = getFromStorage<TemplateDefinition>("templates");
-    // Sort pinned templates to the front
-    return templates.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+    return getFromStorage("templates", TEMPLATES);
   },
 
-  saveTemplate: async (template: TemplateDefinition): Promise<TemplateDefinition> => {
-    await delay(300);
-    const templates = getFromStorage<TemplateDefinition>("templates");
-    const index = templates.findIndex(t => t.id === template.id);
-    if (index === -1) {
-      templates.push(template);
-    } else {
-      templates[index] = template;
-    }
-    saveToStorage("templates", templates);
-    return template;
-  },
-
-  deleteTemplate: async (id: string): Promise<void> => {
-    await delay(300);
-    const templates = getFromStorage<TemplateDefinition>("templates").filter(t => t.id !== id);
-    saveToStorage("templates", templates);
-  },
-
-  togglePinTemplate: async (id: string): Promise<TemplateDefinition> => {
-    await delay(300);
-    const templates = getFromStorage<TemplateDefinition>("templates");
+  updateTemplate: async (id: string, updates: Partial<TemplateDefinition>): Promise<TemplateDefinition> => {
+    const templates = await api.getTemplates();
     const index = templates.findIndex(t => t.id === id);
     if (index === -1) throw new Error("Template not found");
-    templates[index] = { ...templates[index], isPinned: !templates[index].isPinned };
+    templates[index] = { ...templates[index], ...updates };
     saveToStorage("templates", templates);
     return templates[index];
   },
 
-  // --- Global Counters ---
+  deleteTemplate: async (id: string): Promise<void> => {
+    const templates = await api.getTemplates();
+    const filtered = templates.filter(t => t.id !== id);
+    saveToStorage("templates", filtered);
+  },
+
+  togglePinTemplate: async (id: string): Promise<TemplateDefinition> => {
+    const templates = await api.getTemplates();
+    const index = templates.findIndex(t => t.id === id);
+    if (index === -1) throw new Error("Template not found");
+    templates[index].isPinned = !templates[index].isPinned;
+    saveToStorage("templates", templates);
+    return templates[index];
+  },
+
+  // --- Counters ---
   getNextReceiptNumber: (): string => {
     const counter = Number(localStorage.getItem("shan_receipt_counter") || "0") + 1;
     localStorage.setItem("shan_receipt_counter", String(counter));
-    const year = new Date().getFullYear();
-    return `REC/IS/${String(counter).padStart(4, "0")}/${year}`;
+    return `REC/IS/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
   },
 
-  /** Read what the next invoice number will be WITHOUT consuming it (for form previews). */
   peekNextInvoiceNumber: (): string => {
     const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
-    const year = new Date().getFullYear();
-    return `INV/IS/${String(counter).padStart(4, "0")}/${year}`;
+    return `INV/IS/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
   },
 
-  /** Returns a full InvoiceCode object with a globally unique number assigned at creation time. */
   getNextInvoiceNumber: (): InvoiceCode => {
     const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
     localStorage.setItem("shan_invoice_counter", String(counter));
     const year = new Date().getFullYear();
     const count = String(counter).padStart(4, "0");
-    return {
-      text: `INV/IS/${count}/${year}`,
-      prefix: "INV",
-      count,
-      year: String(year),
-      x: 600,
-      y: 100,
-      color: "#503D36",
-    };
+    return { text: `INV/IS/${count}/${year}`, prefix: "INV", count, year: String(year), x: 600, y: 100, color: "#503D36" };
   },
 
-  /** Legacy: returns just the padded count string. Used as editor fallback for old documents. */
   getNextInvoiceCount: (): string => {
-    const counter = Number(localStorage.getItem("shan_invoice_counter") || "0") + 1;
-    localStorage.setItem("shan_invoice_counter", String(counter));
-    return String(counter).padStart(4, "0");
+    return String(localStorage.getItem("shan_invoice_counter") || "0").padStart(4, "0");
   },
 
-  // --- Invoice-Receipt Linking ---
-  getReceiptsForInvoice: async (invoiceId: string): Promise<Document[]> => {
-    await delay(200);
-    const documents = getFromStorage<Document>("documents");
-    return documents.filter(d => d.invoiceId === invoiceId && d.content?.isReceipt);
-  },
-
-  /** Search all documents across all folders by name, number, title, client, reference, date. */
-  searchAll: async (query: string): Promise<Document[]> => {
+  searchAll: async (query: string): Promise<WorkspaceDocument[]> => {
     if (!query.trim()) return [];
-    await delay(150);
-    const documents = getFromStorage<Document>("documents");
+    const documents = workspaceStore.documents;
     const q = query.toLowerCase().trim();
-    return documents.filter((d) =>
+    return documents.filter((d) => 
       d.name.toLowerCase().includes(q) ||
-      (d.content?.title || "").toLowerCase().includes(q) ||
       (d.content?.invoiceCode?.text || "").toLowerCase().includes(q) ||
-      (d.content?.contact?.name || "").toLowerCase().includes(q) ||
-      (d.content?.reference || "").toLowerCase().includes(q) ||
-      (d.content?.date || "").toLowerCase().includes(q)
-    );
+      (d.content?.contact?.name || "").toLowerCase().includes(q)
+    ) as unknown as WorkspaceDocument[];
   },
 
-  /** Fetch every document regardless of folder (for ID lookups). */
-  getAllDocuments: async (): Promise<Document[]> => {
-    await delay(100);
-    return getFromStorage<Document>("documents");
-  },
-
-  createReceiptDocument: async (data: DocData, invoiceId: string): Promise<Document> => {
-    await delay(300);
-    const documents = getFromStorage<Document>("documents");
-    const newDoc: Document = {
-      id: crypto.randomUUID(),
-      name: data.invoiceCode?.text || "Receipt",
-      content: data,
-      folderId: null,
-      invoiceId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    saveToStorage("documents", [...documents, newDoc]);
-    return newDoc;
+  getAllDocuments: async (): Promise<WorkspaceDocument[]> => {
+    return workspaceStore.documents as unknown as WorkspaceDocument[];
   },
 
   reorderItems: async (folderId: string | null, activeId: string, overId: string): Promise<void> => {
-    await delay(100);
-    
-    // Determine type (folder or document) based on the ID prefix in the UI
-    const isActiveFolder = activeId.startsWith('f-');
-    const isOverFolder = overId.startsWith('f-');
-    const realActiveId = activeId.replace(/^[fd]-/, '');
-    const realOverId = overId.replace(/^[fd]-/, '');
+    const isFolder = activeId.startsWith('f-');
+    const realActiveId = activeId.replace(isFolder ? 'f-' : 'd-', '');
+    const realOverId = overId.replace(isFolder ? 'f-' : 'd-', '');
 
-    // Reordering within the SAME type group
-    if (isActiveFolder && isOverFolder) {
-      const folders = getFromStorage<Folder>("folders");
+    if (isFolder) {
+      const folders = [...workspaceStore.folders];
       const activeIdx = folders.findIndex(f => f.id === realActiveId);
       const overIdx = folders.findIndex(f => f.id === realOverId);
       if (activeIdx !== -1 && overIdx !== -1) {
         const [moved] = folders.splice(activeIdx, 1);
         folders.splice(overIdx, 0, moved);
-        saveToStorage("folders", folders);
+        workspaceStore.folders.splice(0, workspaceStore.folders.length, ...folders);
       }
-    } else if (!isActiveFolder && !isOverFolder) {
-      const documents = getFromStorage<Document>("documents");
-      const activeIdx = documents.findIndex(d => d.id === realActiveId);
-      const overIdx = documents.findIndex(d => d.id === realOverId);
+    } else {
+      const docs = [...workspaceStore.documents];
+      const activeIdx = docs.findIndex(d => d.id === realActiveId);
+      const overIdx = docs.findIndex(d => d.id === realOverId);
       if (activeIdx !== -1 && overIdx !== -1) {
-        const [moved] = documents.splice(activeIdx, 1);
-        documents.splice(overIdx, 0, moved);
-        saveToStorage("documents", documents);
+        const [moved] = docs.splice(activeIdx, 1);
+        docs.splice(overIdx, 0, moved);
+        workspaceStore.documents.splice(0, workspaceStore.documents.length, ...docs);
       }
     }
   },

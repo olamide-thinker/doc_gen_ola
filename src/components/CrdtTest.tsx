@@ -7,12 +7,8 @@ export default function CrdtTest() {
   const state = useSyncedStore(store);
 
   const handleAddItem = () => {
-    if (!state.invoiceStore.items) {
-      // @ts-ignore - Initialize if undefined
-      state.invoiceStore.items = [];
-    }
     // We mutate the store directly, Yjs handles the sync!
-    state.invoiceStore.items!.push({
+    state.items.push({
       id: Math.random().toString(36).substring(2, 11),
       description: "New Item",
       quantity: 1,
@@ -33,10 +29,10 @@ export default function CrdtTest() {
         <label className="block text-sm font-semibold mb-2">Customer Name</label>
         <input
           className="w-full p-3 bg-background border border-border rounded-md focus:ring-2 focus:ring-primary outline-none transition-shadow"
-          value={state.invoiceStore.customerName || ""}
+          value={state.metadata.customerName || ""}
           onChange={(e) => {
             // Instant mutation! No setState needed, SyncedStore handles it.
-            state.invoiceStore.customerName = e.target.value;
+            state.metadata.customerName = e.target.value;
           }}
           placeholder="Start typing..."
         />
@@ -54,11 +50,11 @@ export default function CrdtTest() {
         </div>
 
         <div className="space-y-3">
-          {state.invoiceStore.items && state.invoiceStore.items.length === 0 && (
+          {state.items.length === 0 && (
             <div className="text-sm text-muted-foreground italic">No items yet...</div>
           )}
           
-          {state.invoiceStore.items?.map((item, index) => (
+          {state.items.map((item, index) => (
             <div key={item.id} className="flex gap-4 items-center bg-background p-3 rounded-md border border-border">
               <input
                 className="flex-1 p-2 bg-transparent border-b border-border outline-none focus:border-primary"
@@ -73,7 +69,7 @@ export default function CrdtTest() {
                 onChange={(e) => (item.quantity = Number(e.target.value))}
               />
               <button 
-                onClick={() => state.invoiceStore.items!.splice(index, 1)}
+                onClick={() => state.items.splice(index, 1)}
                 className="text-destructive hover:underline text-sm font-medium"
               >
                 Remove

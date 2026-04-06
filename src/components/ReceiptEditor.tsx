@@ -6,7 +6,11 @@ import {
   ArrowLeft,
   RefreshCw,
   Check,
+  Users,
+  Shield,
 } from "../lib/icons/lucide";
+import { useAuth } from "../context/AuthContext";
+import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import {
   DndContext,
   closestCenter,
@@ -25,6 +29,8 @@ import { api } from "../lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ReceiptPage } from "./ReceiptPage";
 import { resolveSectionTotal, resolveSectionTotalBackward } from "../lib/documentUtils";
+import { useSyncedStore } from "@syncedstore/react";
+import { workspaceStore, authStore, authProvider } from "../store";
 
 const ReceiptEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -33,7 +39,61 @@ const ReceiptEditor: React.FC = () => {
   const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
 
-  const [docData, setDocData] = useState<DocData | null>(null);
+  const workspaceAction = useSyncedStore(workspaceStore);
+  const authAction = useSyncedStore(authStore);
+  const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
+  const { user: currentUser } = useAuth();
+  
+  const [connectedClients, setConnectedClients] = useState<any[]>([]);
+  const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+
+  useEffect(() => {
+    if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
+      navigate("/denied");
+    }
+  }, [authAction.bannedClients, currentUser, navigate]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const updatePresence = () => {
+      const states = authProvider.awareness?.getStates();
+      if (!states) return;
+      const clients: any[] = [];
+      states.forEach((state: any, clientId: number) => {
+        // Only track users with an authenticated email address
+        if (state.user && state.user.email) {
+          clients.push({
+            id: clientId.toString(),
+            user: state.user
+          });
+        }
+      });
+      setConnectedClients(clients);
+    };
+
+    authProvider.awareness?.on('change', updatePresence);
+    
+    authProvider.awareness?.setLocalStateField('user', { 
+      name: currentUser.displayName || "Anonymous",
+      email: currentUser.email || "guest@system.com",
+      photo: currentUser.photoURL,
+      id: currentUser.uid,
+      color: '#' + Math.floor(Math.random()*16777215).toString(16)
+    });
+    
+    return () => {
+      authProvider.awareness?.off('change', updatePresence);
+    };
+  }, [myClientId, currentUser]);
+
+  const docMetadata = workspaceAction.documents?.find((d: any) => d.id === id);
+  const docData = docMetadata?.content;
+
+  // Fetch parent invoice for breadcrumb
+  const parentInvoice = workspaceAction.documents?.find(d => d.id === docMetadata?.invoiceId);
+
+  const isLoadingDoc = !docMetadata;
   const [headerHeight, setHeaderHeight] = useState<number>(
     () => Number(localStorage.getItem("headerHeight")) || 128,
   );
@@ -62,48 +122,20 @@ const ReceiptEditor: React.FC = () => {
     }),
   );
 
-  const { data: docMetadata, isLoading: isLoadingDoc } = useQuery({
-    queryKey: ["document", id],
-    queryFn: () => api.getDocument(id!),
-    enabled: !!id,
-  });
-
-  // Fetch parent invoice for breadcrumb
-  const { data: parentInvoice } = useQuery({
-    queryKey: ["document", docMetadata?.invoiceId],
-    queryFn: () => api.getDocument(docMetadata!.invoiceId!),
-    enabled: !!docMetadata?.invoiceId,
-  });
-
-  useEffect(() => {
-    if (docMetadata && !docData) {
-      setDocData(docMetadata.content);
-    }
-  }, [docMetadata]);
-
-  const saveMutation = useMutation({
-    mutationFn: (updates: DocData) =>
-      api.updateDocument(id!, { content: updates }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["document", id] });
-    },
-  });
-
+  // --- Real-time content management ---
   useEffect(() => {
     if (!id || !docData) return;
-    const timer = setTimeout(() => {
-      saveMutation.mutate(docData);
-    }, 1500);
-    return () => clearTimeout(timer);
   }, [docData, id]);
 
   const updateDocData = (
     newData: DocData | ((prev: DocData | null) => DocData | null),
   ) => {
-    setDocData((prev) => {
-      const next = typeof newData === "function" ? newData(prev) : newData;
-      return next;
-    });
+    if (!docMetadata) return;
+    const next = typeof newData === "function" ? newData(docData as any) : newData;
+    if (next) {
+      // Direct mutation of the synced store
+      Object.assign(docMetadata.content, next);
+    }
   };
 
   if (isLoadingDoc || !docData)
@@ -240,8 +272,8 @@ const ReceiptEditor: React.FC = () => {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id && docData) {
-      const oldIndex = docData.table.rows.findIndex((r) => r.id === active.id);
-      const newIndex = docData.table.rows.findIndex((r) => r.id === over.id);
+      const oldIndex = docData.table.rows.findIndex((r: any) => r.id === active.id);
+      const newIndex = docData.table.rows.findIndex((r: any) => r.id === over.id);
       const updatedRows = arrayMove(docData.table.rows, oldIndex, newIndex);
       updateDocData({
         ...docData,
@@ -310,15 +342,9 @@ const ReceiptEditor: React.FC = () => {
 
         {/* Save indicator */}
         <div className="ml-auto flex items-center gap-3">
-          {saveMutation.isPending ? (
-            <span className="text-[10px] font-bold tracking-widest uppercase text-slate-400 flex items-center gap-1.5">
-              <RefreshCw size={11} className="animate-spin" /> Saving…
-            </span>
-          ) : saveMutation.isSuccess ? (
             <span className="text-[10px] font-bold tracking-widest uppercase text-emerald-500 flex items-center gap-1.5">
-              <Check size={11} /> Saved
+              <Check size={11} /> Real-time Sync
             </span>
-          ) : null}
           <button
             onClick={() => updateDocData(prev => prev ? { ...prev, showBOQSummary: !prev.showBOQSummary } : null)}
             className={cn(
@@ -338,6 +364,9 @@ const ReceiptEditor: React.FC = () => {
               >
                 <ArrowLeft size={12} /> Edit Mode
               </button>
+              <div className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-50 text-slate-400 uppercase flex items-center gap-2 border border-slate-200">
+                Real-time Sync Active
+              </div>
               <button
                 onClick={() => window.print()}
                 className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all flex items-center gap-1.5"
@@ -346,12 +375,27 @@ const ReceiptEditor: React.FC = () => {
               </button>
             </>
           ) : (
-            <button
-              onClick={() => setIsPreview(true)}
-              className="px-3 py-1.5 text-xs font-bold bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-all flex items-center gap-1.5"
-            >
-              <Printer size={12} /> Preview & Print
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsCollaboratorsOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-all text-[11px] font-bold uppercase tracking-widest shadow-sm relative group"
+              >
+                <Users size={12} />
+                {connectedClients.length > 1 && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-white" />
+                )}
+                Collabs
+              </button>
+              <button
+                onClick={() => setIsPreview(!isPreview)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-[11px] font-bold uppercase tracking-widest shadow-sm",
+                  isPreview ? "bg-slate-900 text-white" : "bg-white text-slate-700 border border-slate-200"
+                )}
+              >
+                {isPreview ? "Exit Preview" : "Preview"}
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -460,6 +504,22 @@ const ReceiptEditor: React.FC = () => {
           }
         }
       `}</style>
+      {/* Collaborators Sheet */}
+      <CollaboratorsSheet
+        isOpen={isCollaboratorsOpen}
+        onClose={() => setIsCollaboratorsOpen(false)}
+        collaborators={connectedClients}
+        ownerId={authAction.governance.ownerId || null}
+        bannedClients={authAction.bannedClients}
+        onBanClient={(email) => {
+          if (!authAction.bannedClients.includes(email)) {
+            authAction.bannedClients.push(email);
+          }
+        }}
+        onMakeOwner={(email) => {
+          authAction.governance.ownerId = email;
+        }}
+      />
     </div>
   );
 };

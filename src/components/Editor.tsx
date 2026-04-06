@@ -16,11 +16,17 @@ import {
   Share,
   Undo2,
   Redo2,
+  AlertTriangle,
+  Users,
+  Shield,
   GripVertical,
+  Edit,
   MoreVertical,
   Table,
   Type
 } from "../lib/icons/lucide";
+import { useAuth } from "../context/AuthContext";
+import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import {
   DndContext,
   closestCenter,
@@ -46,6 +52,9 @@ import { DocData, TableRow, Contact, TotalPrice, InvoiceCode } from "../types";
 import { api } from "../lib/api";
 import { cn } from "../lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSyncedStore } from "@syncedstore/react";
+import { workspaceStore, authStore, authProvider } from "../store";
+import { EditTemplateModal } from "./EditTemplateModal";
 import {
   resolveFormula,
   computeTotalPrice,
@@ -194,7 +203,57 @@ const Editor: React.FC = () => {
   const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
 
-  const [docData, setDocData] = useState<DocData | null>(null);
+  const workspaceAction = useSyncedStore(workspaceStore);
+  const authAction = useSyncedStore(authStore);
+  const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
+  const { user: currentUser } = useAuth();
+
+  const [connectedClients, setConnectedClients] = useState<any[]>([]);
+  const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+
+  useEffect(() => {
+    if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
+      navigate("/denied");
+    }
+  }, [authAction.bannedClients, currentUser, navigate]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const updatePresence = () => {
+      const states = authProvider.awareness?.getStates();
+      if (!states) return;
+      const clients: any[] = [];
+      states.forEach((state: any, clientId: number) => {
+        // Only track users with an authenticated email address
+        if (state.user && state.user.email) {
+          clients.push({
+            id: clientId.toString(),
+            user: state.user
+          });
+        }
+      });
+      setConnectedClients(clients);
+    };
+
+    authProvider.awareness?.on('change', updatePresence);
+
+    authProvider.awareness?.setLocalStateField('user', { 
+      name: currentUser.displayName || "Anonymous",
+      email: currentUser.email || "guest@system.com",
+      photo: currentUser.photoURL,
+      id: currentUser.uid,
+      color: '#' + Math.floor(Math.random()*16777215).toString(16)
+    });
+
+    return () => {
+      authProvider.awareness?.off('change', updatePresence);
+    };
+  }, [myClientId, currentUser]);
+
+  const docMetadata = workspaceAction.documents?.find((d: any) => d.id === id);
+  const docData = docMetadata?.content as DocData | undefined;
+
   const [jsonInput, setJsonInput] = useState<string>("");
   const [headerImage, setHeaderImage] = useState<string>(
     () => localStorage.getItem("headerImage") || "/Shan-Invoice.png",
@@ -218,33 +277,18 @@ const Editor: React.FC = () => {
     }),
   );
 
-  // --- Queries ---
-  const { data: docMetadata, isLoading: isLoadingDoc } = useQuery({
-    queryKey: ["document", id],
-    queryFn: () => api.getDocument(id!),
-    enabled: !!id,
-  });
-
-  useEffect(() => {
-    if (docMetadata) {
-      if (!docData) {
-        setDocData(docMetadata.content);
-        setJsonInput(JSON.stringify(docMetadata.content, null, 2));
-      }
-    }
-  }, [docMetadata]);
+  const isLoadingDoc = !docMetadata;
 
   const updateDocData = (
     newData: DocData | ((prev: DocData | null) => DocData | null),
   ) => {
-    setDocData((prev) => {
-      const next = typeof newData === "function" ? newData(prev) : newData;
-      if (prev && next && JSON.stringify(prev) !== JSON.stringify(next)) {
-        setHistory((h) => [...h, prev].slice(-50));
-        setFuture([]);
-      }
-      return next;
-    });
+    if (!docMetadata) return;
+    const next = typeof newData === "function" ? newData(docData as any) : newData;
+    if (next) {
+      // Direct mutation of the synced store content
+      // Note: For full CRDT benefit, we should mutate sub-properties, but Object.assign is a good first pass
+      Object.assign(docMetadata.content, next);
+    }
   };
 
   const undo = () => {
@@ -252,7 +296,7 @@ const Editor: React.FC = () => {
     const prev = history[history.length - 1];
     setHistory((h) => h.slice(0, -1));
     setFuture((f) => [docData, ...f]);
-    setDocData(prev);
+    updateDocData(prev);
   };
 
   const redo = () => {
@@ -260,49 +304,20 @@ const Editor: React.FC = () => {
     const next = future[0];
     setFuture((f) => f.slice(1));
     setHistory((h) => [...h, docData]);
-    setDocData(next);
+    updateDocData(next);
   };
 
-  // --- Mutations ---
-  const saveMutation = useMutation({
-    mutationFn: (updates: DocData) =>
-      api.updateDocument(id!, { content: updates }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["document", id] });
-    },
-  });
-
-  // Undo/Redo shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === "y") {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [history, future, docData]);
-
-  // Auto-save logic
+  // --- Real-time content management ---
   useEffect(() => {
     if (!id || !docData) return;
     setJsonInput(JSON.stringify(docData, null, 2));
-    const timer = setTimeout(() => {
-      saveMutation.mutate(docData);
-    }, 1500);
-    return () => clearTimeout(timer);
   }, [docData, id]);
 
   const editor = useEditor({
     extensions: [StarterKit],
     content: docData?.footer.notes || "",
     onUpdate: ({ editor }) => {
-      setDocData((prev: DocData | null) =>
+      updateDocData((prev: DocData | null) =>
         prev
           ? { ...prev, footer: { ...prev.footer, notes: editor.getHTML() } }
           : null,
@@ -341,7 +356,7 @@ const Editor: React.FC = () => {
   }, [docData]);
 
   const onUpdateInvoiceCode = (updates: Partial<InvoiceCode>) => {
-    setDocData((prev) => {
+    updateDocData((prev) => {
       if (!prev) return null;
       const current = prev.invoiceCode || {
         text: "",
@@ -420,7 +435,7 @@ const Editor: React.FC = () => {
           rows: newRows.length > 0 ? [...newRows] : docData.table.rows,
         },
       };
-      setDocData(updated);
+      updateDocData(updated);
       setJsonInput(JSON.stringify(updated, null, 2));
     }
   };
@@ -429,8 +444,7 @@ const Editor: React.FC = () => {
     try {
       if (!jsonInput.trim()) return;
       const parsed = JSON.parse(jsonInput);
-      setDocData(parsed);
-      saveMutation.mutate(parsed);
+      updateDocData(parsed);
     } catch (e) {
       alert("Invalid JSON format. Please check your syntax.");
     }
@@ -782,17 +796,24 @@ const Editor: React.FC = () => {
                       >
                         Apply JSON
                       </button>
-                      <div
-                        className={cn(
-                          "text-[10px] font-bold px-3 py-1 rounded-full bg-slate-50 text-slate-400 uppercase flex items-center gap-2 border border-slate-200",
-                          saveMutation.isPending &&
-                            "text-blue-500 animate-pulse",
-                        )}
-                      >
-                        {saveMutation.isPending
-                          ? "Local Sync..."
-                          : "Local Storage Sync"}
-                      </div>
+                        <button
+                          onClick={() => setIsCollaboratorsOpen(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm relative group"
+                        >
+                          <Users size={12} />
+                          {connectedClients.length > 1 && (
+                            <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-white" />
+                          )}
+                          Collabs
+                        </button>
+
+                        <button
+                          onClick={() => api.updateDocument(id!, docData!)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
+                        >
+                          <Edit size={12} />
+                          Save Changes
+                        </button>
                     </div>
                   </div>
                   <textarea
@@ -1285,6 +1306,23 @@ const Editor: React.FC = () => {
           }
         }
       `}</style>
+      
+      {/* Collaborators Sheet */}
+      <CollaboratorsSheet
+        isOpen={isCollaboratorsOpen}
+        onClose={() => setIsCollaboratorsOpen(false)}
+        collaborators={connectedClients}
+        ownerId={authAction.governance.ownerId || null}
+        bannedClients={authAction.bannedClients}
+        onBanClient={(email) => {
+          if (!authAction.bannedClients.includes(email)) {
+            authAction.bannedClients.push(email);
+          }
+        }}
+        onMakeOwner={(email) => {
+          authAction.governance.ownerId = email;
+        }}
+      />
     </div>
   );
 };

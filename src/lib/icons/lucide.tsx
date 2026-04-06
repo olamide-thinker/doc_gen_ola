@@ -32,7 +32,13 @@ import {
   Upload as LucideUpload,
   Undo2 as LucideUndo2,
   Redo2 as LucideRedo2,
-  GripVertical as LucideGripVertical
+  GripVertical as LucideGripVertical,
+  AlertTriangle as LucideAlertTriangle,
+  LayoutDashboard as LucideLayoutDashboard,
+  FileEdit as LucideFileEdit,
+  Receipt as LucideReceipt,
+  Users as LucideUsers,
+  Shield as LucideShield
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -72,3 +78,8 @@ export const Upload = wrapIcon(LucideUpload);
 export const Undo2 = wrapIcon(LucideUndo2);
 export const Redo2 = wrapIcon(LucideRedo2);
 export const GripVertical = wrapIcon(LucideGripVertical);
+export const AlertTriangle = wrapIcon(LucideAlertTriangle);
+export const ShieldAlert = wrapIcon(LucideAlertTriangle);
+export const Users = wrapIcon(LucideUsers);
+export const Shield = wrapIcon(LucideShield);
+export const Receipt = wrapIcon(LucideReceipt);

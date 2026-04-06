@@ -1,20 +1,35 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { cn } from "../lib/utils";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, FileText, Edit, RefreshCw, LayoutGrid, List } from "../lib/icons/lucide";
+import { 
+  ArrowLeft, 
+  Plus, 
+  FileText, 
+  Edit, 
+  RefreshCw, 
+  LayoutGrid, 
+  List, 
+  AlertTriangle,
+  Printer,
+  Users,
+  Shield 
+} from "../lib/icons/lucide";
+import { useAuth } from "../context/AuthContext";
+import { CollaboratorsSheet } from "./CollaboratorsSheet";
+import { useSyncedStore } from "@syncedstore/react";
+import { workspaceStore, authStore, authProvider } from "../store";
 import { api } from "../lib/api";
-import { DocData, TableRow, TotalPrice } from "../types";
+import { DocData, TableRow } from "../types";
 import { InvoicePage } from "./InvoicePage";
 import { ReceiptPage } from "./ReceiptPage";
-import { cn } from "../lib/utils";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import {
-  resolveFormula as resolveFormulaUtil,
   computeTotalPrice as computeTotalPriceForData,
   getRowNumbering,
   calculateChunks,
   resolveSectionTotalBackward,
-  resolveSectionTotal
+  resolveSectionTotal,
+  resolveFormula as resolveFormulaUtil
 } from "../lib/documentUtils";
 
 // ─── No-op handlers for read-only previews ───────────────────────────────────
@@ -290,56 +305,86 @@ const InvoicePreviewPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const fromFolder = location.state?.fromFolder;
-  const queryClient = useQueryClient();
   const [receiptView, setReceiptView] = useState<"list" | "card">("list");
   const [selectedPageIndex, setSelectedPageIndex] = useState<number | null>(null);
 
-  const { data: invoiceDoc, isLoading } = useQuery({
-    queryKey: ["document", id],
-    queryFn: () => api.getDocument(id!),
-    enabled: !!id,
-  });
+  const workspaceAction = useSyncedStore(workspaceStore);
+  const authAction = useSyncedStore(authStore);
+  const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
+  const { user: currentUser } = useAuth();
 
-  const { data: receipts = [], isLoading: isLoadingReceipts } = useQuery({
-    queryKey: ["receipts-for-invoice", id],
-    queryFn: () => api.getReceiptsForInvoice(id!),
-    enabled: !!id,
-  });
+  const [connectedClients, setConnectedClients] = useState<any[]>([]);
+  const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+
+  useEffect(() => {
+    if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
+      navigate("/denied");
+    }
+  }, [authAction.bannedClients, currentUser, navigate]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const updatePresence = () => {
+      const states = authProvider.awareness?.getStates();
+      if (!states) return;
+      const clients: any[] = [];
+      states.forEach((state: any, clientId: number) => {
+        // Only track users with an authenticated email address
+        if (state.user && state.user.email) {
+          clients.push({
+            id: clientId.toString(),
+            user: state.user
+          });
+        }
+      });
+      setConnectedClients(clients);
+    };
+
+    authProvider.awareness?.on('change', updatePresence);
+
+    authProvider.awareness?.setLocalStateField('user', { 
+      name: currentUser.displayName || "Anonymous",
+      email: currentUser.email || "guest@system.com",
+      photo: currentUser.photoURL,
+      id: currentUser.uid,
+      color: '#' + Math.floor(Math.random()*16777215).toString(16)
+    });
+
+    return () => {
+      authProvider.awareness?.off('change', updatePresence);
+    };
+  }, [myClientId, currentUser]);
+
+  const invoiceDoc = workspaceAction.documents?.find((d: any) => d.id === id);
+  const receipts = workspaceAction.documents?.filter((d: any) => d.folderId === null && (d as any).invoiceId === id) || [];
+
+  const isLoading = !invoiceDoc;
+  const isLoadingReceipts = false;
 
   const docContent = invoiceDoc?.content || null;
   const pages = usePagination(docContent);
 
-  const createReceiptMutation = useMutation({
-    mutationFn: (receiptData: DocData) =>
-      api.createReceiptDocument(receiptData, id!),
-    onSuccess: (newDoc) => {
-      queryClient.invalidateQueries({ queryKey: ["receipts-for-invoice", id] });
-      navigate(`/receipt-editor/${newDoc.id}`);
-    },
-  });
+  const sortedReceipts = useMemo(() => {
+    return [...receipts].sort((a, b) => 
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }, [receipts]);
 
   const invoiceGrandTotal = useMemo(() => {
-    if (!invoiceDoc) return 0;
-    return computeTotalPriceForData(invoiceDoc.content).grandTotal;
-  }, [invoiceDoc]);
+    if (!docContent) return 0;
+    return computeTotalPriceForData(docContent).grandTotal;
+  }, [docContent]);
 
-  const sortedReceipts = useMemo(
-    () =>
-      [...receipts].sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      ),
-    [receipts],
-  );
+  const totalPaid = useMemo(() => {
+    return sortedReceipts.reduce((sum, r) => sum + (r.content.amountPaid || 0), 0);
+  }, [sortedReceipts]);
 
-  const totalPaid = useMemo(
-    () => sortedReceipts.reduce((sum, r) => sum + (r.content.amountPaid || 0), 0),
-    [sortedReceipts],
-  );
+  const totalOutstanding = Math.max(0, invoiceGrandTotal - totalPaid);
 
-  const totalOutstanding = invoiceGrandTotal - totalPaid;
+  const [isCreatingReceipt, setIsCreatingReceipt] = useState(false);
 
-  const handleAddReceipt = () => {
+  const handleAddReceipt = async () => {
     if (!invoiceDoc) return;
     const invoice = invoiceDoc.content;
     const prevReceipt = sortedReceipts[sortedReceipts.length - 1];
@@ -364,54 +409,42 @@ const InvoicePreviewPage: React.FC = () => {
 
     const receiptData: DocData = {
       isReceipt: true,
-      // Received From — inherit from previous receipt if exists, else from invoice
       contact: {
-        name: prevReceipt
-          ? prevReceipt.content.contact.name
-          : invoice.contact.name,
-        address1: prevReceipt
-          ? prevReceipt.content.contact.address1
-          : invoice.contact.address1,
-        // Location always comes from the invoice address
+        name: prevReceipt ? prevReceipt.content.contact.name : invoice.contact.name,
+        address1: prevReceipt ? prevReceipt.content.contact.address1 : invoice.contact.address1,
         address2: invoice.contact.address2,
       },
-      // Description — inherit from previous receipt or invoice title
       title: prevReceipt ? prevReceipt.content.title : invoice.title,
-      // Date is always fresh
       date: now,
       table: invoice.table,
       footer: invoice.footer,
       invoiceCode: {
         text: receiptNumber,
         prefix: "REC",
-        count: receiptNumber.split("/")[2],  // REC/IS/0001/2026 → index 2 = "0001"
-        year: receiptNumber.split("/")[3],   // index 3 = "2026"
-        x: 600,
-        y: 100,
-        color: "#503D36",
+        count: receiptNumber.split("/")[2],
+        year: receiptNumber.split("/")[3],
+        x: 600, y: 100, color: "#503D36",
       },
-      // Invoice reference always from the invoice number
       reference: invoice.invoiceCode?.text || "",
-      // Financial summary — dynamic per receipt
       totalInvoiceAmount,
       amountPaid: 0,
       outstandingBalance: totalInvoiceAmount,
-      // Transaction ID is always fresh
       transactionId: "TRX-000000000",
-      // Inherit from previous receipt if exists
-      paymentMethod: prevReceipt
-        ? prevReceipt.content.paymentMethod
-        : "Transfer",
-      acknowledgement: prevReceipt
-        ? prevReceipt.content.acknowledgement
-        : "I hereby acknowledge receipt of the above payment.",
+      paymentMethod: prevReceipt ? prevReceipt.content.paymentMethod : "Transfer",
+      acknowledgement: prevReceipt ? prevReceipt.content.acknowledgement : "I hereby acknowledge receipt of the above payment.",
       signature: prevReceipt ? prevReceipt.content.signature : undefined,
-      receiptMessage: prevReceipt
-        ? prevReceipt.content.receiptMessage
-        : "Thank you for your patronage!",
+      receiptMessage: prevReceipt ? prevReceipt.content.receiptMessage : "Thank you for your patronage!",
     };
 
-    createReceiptMutation.mutate(receiptData);
+    setIsCreatingReceipt(true);
+    try {
+      const newDoc = await api.createDocument(receiptNumber, receiptData, null);
+      // Link as receipt (Yjs mutation)
+      (newDoc as any).invoiceId = id;
+      navigate(`/receipt-editor/${newDoc.id}`);
+    } finally {
+      setIsCreatingReceipt(false);
+    }
   };
 
   if (isLoading || !invoiceDoc) {
@@ -462,12 +495,22 @@ const InvoicePreviewPage: React.FC = () => {
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-                <button
-                  onClick={() => navigate(`/editor/${id}`, { state: { fromFolder } })}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
-                >
-                  <Edit size={12} /> Edit Document
-                </button>
+          <button
+            onClick={() => setIsCollaboratorsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm relative group"
+          >
+            <Users size={12} />
+            {connectedClients.length > 1 && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-white" />
+            )}
+            Collabs
+          </button>
+          <button
+            onClick={() => navigate(`/editor/${id}`, { state: { fromFolder } })}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
+          >
+            <Edit size={12} /> Edit Document
+          </button>
         </div>
       </header>
 
@@ -634,7 +677,7 @@ const InvoicePreviewPage: React.FC = () => {
             </div>
             <button
               onClick={handleAddReceipt}
-              disabled={createReceiptMutation.isPending}
+              disabled={isCreatingReceipt}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-primary text-white rounded-md text-[10px] font-bold hover:bg-primary/90 transition-all disabled:opacity-50 active:scale-95"
             >
               <Plus size={12} /> Add
@@ -724,7 +767,7 @@ const InvoicePreviewPage: React.FC = () => {
                           <div>
                             <p className={cn("text-[8px] uppercase tracking-wider font-bold", outstanding > 0 ? "text-amber-400" : "text-slate-400")}>Bal.</p>
                             <p className={cn("text-[10px] font-bold", outstanding > 0 ? "text-amber-600" : "text-slate-400")}>
-                              ₦{Math.round(outstanding).toLocaleString()}
+                               ₦{Math.round(outstanding).toLocaleString()}
                             </p>
                           </div>
                         </div>
@@ -815,6 +858,23 @@ const InvoicePreviewPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Collaborators Sheet */}
+      <CollaboratorsSheet
+        isOpen={isCollaboratorsOpen}
+        onClose={() => setIsCollaboratorsOpen(false)}
+        collaborators={connectedClients}
+        ownerId={authAction.governance.ownerId || null}
+        bannedClients={authAction.bannedClients}
+        onBanClient={(email) => {
+          if (!authAction.bannedClients.includes(email)) {
+            authAction.bannedClients.push(email);
+          }
+        }}
+        onMakeOwner={(email) => {
+          authAction.governance.ownerId = email;
+        }}
+      />
     </div>
   );
 };

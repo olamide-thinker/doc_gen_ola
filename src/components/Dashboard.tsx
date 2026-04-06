@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { 
   Folder, 
@@ -14,18 +14,25 @@ import {
   Edit,
   ArrowLeft,
   UserIcon,
-  RefreshCw
+  RefreshCw,
+  Table,
+  Type
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
-import { api, type Folder as FolderType, type Document as DocumentType } from "../lib/api";
-import { type TemplateDefinition } from "../lib/templates";
+import { api } from "../lib/api";
+import { type WorkspaceFolder as FolderType, type WorkspaceDocument as DocumentType } from "../store";
+import { type TemplateDefinition, TEMPLATES } from "../lib/templates";
 import { type InvoiceCode } from "../types";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSyncedStore } from "@syncedstore/react";
+import { workspaceStore, authStore, authProvider } from "../store";
+import { useQueryClient } from "@tanstack/react-query";
 import { EditTemplateModal } from "./EditTemplateModal";
 import CreateInvoiceModal, { type CreateInvoiceFormData } from "./CreateInvoiceModal";
-import { Pin, PinOff } from "lucide-react";
+import { Pin, PinOff, AlertTriangle, Users, LogOut, Shield } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
+import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import {
   DndContext, 
   closestCenter,
@@ -57,6 +64,8 @@ const Dashboard: React.FC = () => {
   const [createModal, setCreateModal] = useState<{ open: boolean; template?: TemplateDefinition }>({ open: false });
   const [clipboard, setClipboard] = useState<{ id: string, name: string, type: 'document' | 'folder' } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
+  const { user: currentUser } = useAuth();
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -72,318 +81,176 @@ const Dashboard: React.FC = () => {
     })
   );
 
-  // --- Queries ---
-  const { data: folderItems = [], isLoading: isLoadingFolders } = useQuery({
-    queryKey: ["folders", currentFolderId],
-    queryFn: () => api.getFolders(currentFolderId),
-  });
+  // --- Synced Stores ---
+  const workspaceAction = useSyncedStore(workspaceStore);
+  const authAction = useSyncedStore(authStore);
 
-  const { data: docItems = [], isLoading: isLoadingDocs } = useQuery({
-    queryKey: ["documents", currentFolderId],
-    queryFn: () => api.getDocuments(currentFolderId),
-  });
+  // --- Presence / Awareness ---
+  const [connectedClients, setConnectedClients] = useState<any[]>([]);
+  const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
 
-  const { data: currentFolder } = useQuery({
-    queryKey: ["folder-metadata", currentFolderId],
-    queryFn: () => api.getFolder(currentFolderId!),
-    enabled: !!currentFolderId,
-  });
+  useEffect(() => {
+    if (!currentUser) return;
 
-  const { data: folderPath = [] } = useQuery({
-    queryKey: ["folder-path", currentFolderId],
-    queryFn: () => api.getFolderPath(currentFolderId),
-  });
+    const updatePresence = () => {
+      const states = authProvider.awareness?.getStates();
+      if (!states) return;
+      const clients: any[] = [];
+      states.forEach((state: any, clientId: number) => {
+        // Only track users with an authenticated email address
+        if (state.user && state.user.email) {
+          clients.push({
+            id: clientId.toString(),
+            user: state.user
+          });
+        }
+      });
+      setConnectedClients(clients);
+    };
 
-  const { data: templates = [], isLoading: isLoadingTemplates } = useQuery({
-    queryKey: ["templates"],
-    queryFn: () => api.getTemplates(),
-    enabled: !currentFolderId
-  });
+    authProvider.awareness?.on('change', updatePresence);
+    
+    // Set identity from Google Auth
+    authProvider.awareness?.setLocalStateField('user', { 
+      name: currentUser.displayName || "Anonymous",
+      email: currentUser.email || "guest@system.com",
+      photo: currentUser.photoURL,
+      id: currentUser.uid,
+      color: '#' + Math.floor(Math.random()*16777215).toString(16)
+    });
+    
+    return () => {
+      authProvider.awareness?.off('change', updatePresence);
+    };
+  }, [myClientId, currentUser]);
+
+  // --- Auto-Kick Security Logic ---
+  useEffect(() => {
+    if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
+      navigate("/denied");
+    }
+  }, [authAction.bannedClients, currentUser, navigate]);
+
+  // --- Derived State ---
+  const folders = workspaceAction.folders || [];
+  const documents = workspaceAction.documents || [];
+  const folderItems = folders.filter(f => f.parentId === currentFolderId);
+  const docItems = documents.filter(d => d.folderId === currentFolderId);
+  
+  const currentFolder = currentFolderId 
+    ? workspaceAction.folders.find(f => f.id === currentFolderId)
+    : null;
+
+  const getFolderPath = (id: string | null): FolderType[] => {
+    if (!id) return [];
+    const allFolders = workspaceAction.folders;
+    const path: FolderType[] = [];
+    let curr = id;
+    while (curr) {
+      const folder = allFolders.find(f => f.id === curr);
+      if (folder) {
+        path.unshift(folder as FolderType);
+        curr = folder.parentId || "";
+      } else curr = "";
+    }
+    return path;
+  };
+  const folderPath = getFolderPath(currentFolderId);
+
+  const docById = useMemo(() => {
+    const map = new Map<string, DocumentType>();
+    documents.forEach(d => map.set(d.id, d));
+    return map;
+  }, [documents]);
+
+  const templates = TEMPLATES; 
+  const isLoadingTemplates = false;
 
   const isSearching = searchQuery.trim().length >= 2;
 
-  const { data: searchResults = [] } = useQuery({
-    queryKey: ["search", searchQuery],
-    queryFn: () => api.searchAll(searchQuery),
-    enabled: isSearching,
-    staleTime: 3000,
-  });
+  const searchResults = isSearching 
+    ? workspaceAction.documents.filter(d => 
+        d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        d.content?.contact?.name?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
 
-  const { data: allDocs = [] } = useQuery({
-    queryKey: ["all-documents"],
-    queryFn: () => api.getAllDocuments(),
-    enabled: isSearching,
-    staleTime: 5000,
-  });
-
-  // Build a lookup map: docId → document (for parent invoice resolution)
-  const docById = React.useMemo(() => {
-    const map = new Map<string, typeof allDocs[0]>();
-    allDocs.forEach(d => map.set(d.id, d));
-    return map;
-  }, [allDocs]);
-
-  // Split search results into invoices and receipts
-  const searchInvoices = React.useMemo(
-    () => searchResults.filter(d => !d.content?.isReceipt),
-    [searchResults]
-  );
-  const searchReceipts = React.useMemo(
-    () => searchResults.filter(d => d.content?.isReceipt),
-    [searchResults]
-  );
+  const searchInvoices = searchResults.filter(d => !d.content?.isReceipt);
+  const searchReceipts = searchResults.filter(d => d.content?.isReceipt);
 
   const items = [
     ...folderItems.map(f => ({ ...f, id: `f-${f.id}`, _type: 'folder' as const, _realId: f.id })),
     ...docItems.map(d => ({ ...d, id: `d-${d.id}`, _type: 'document' as const, _realId: d.id }))
   ];
 
-  const isLoading = isLoadingFolders || isLoadingDocs;
+  const isLoading = false; // Sync is instant now
 
-  // --- Mutations ---
-  const createFolderMutation = useMutation({
-    mutationFn: ({ name, parentId }: { name: string, parentId: string | null }) => api.createFolder(name, parentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] }),
-  });
-
-  const createDocMutation = useMutation({
-    mutationFn: ({ name, folderId, template, formData, invoiceCode }: {
-      name: string;
-      folderId: string | null;
-      template?: TemplateDefinition;
-      formData: CreateInvoiceFormData;
-      invoiceCode?: InvoiceCode;
-    }) => {
-      const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-
-      const defaultData: any = {
-        contact: {
-          name: formData.clientName || "Client Name",
-          address1: formData.street || "",
-          address2: formData.location || "",
-          phone: formData.phone || undefined,
-          email: formData.email || undefined,
-        },
-        title: formData.description || name,
-        date: now,
-        table: {
-          columns: [
-            { id: "A", label: "S/N", type: "index", width: "60px" },
-            { id: "B", label: "Description", type: "text" },
-            { id: "C", label: "Unit", type: "text", width: "80px" },
-            { id: "D", label: "Qty", type: "number", width: "80px" },
-            { id: "E", label: "Price (₦)", type: "number", width: "140px" },
-            { id: "F", label: "Total (₦)", type: "formula", formula: "D * E", width: "140px" }
-          ],
-          rows: [
-            { id: crypto.randomUUID(), rowType: "row", B: "Service Item", C: "lot", D: 1, E: 0 }
-          ],
-          summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }]
-        },
-        footer: { notes: "<p>Thank you for your business! Payment is due within 14 days of invoice date.</p>", emphasis: [] }
-      };
-
-      const docContent: any = template
-        ? {
-            ...defaultData,
-            ...template.content,
-            // Always use form client info — override whatever template had
-            contact: defaultData.contact,
-            // Template title is the type descriptor; keep it unless user changed it
-            title: formData.description || template.content?.title || name,
-            table: {
-              ...defaultData.table,
-              ...(template.content?.table || {})
-            },
-            footer: {
-              ...defaultData.footer,
-              ...(template.content?.footer || {})
-            }
-          }
-        : defaultData;
-
-      docContent.date = now;
-
-      // Assign unique invoice number at creation time
-      if (!template?.content?.isReceipt) {
-        docContent.invoiceCode = invoiceCode ?? api.getNextInvoiceNumber();
-      }
-
-      // Persist template metadata for dashboard display
-      if (template) {
-        docContent._templateColor = template.color;
-        docContent._templateName = template.name;
-      }
-
-      return api.createDocument(name, docContent as any, folderId);
-    },
-      onSuccess: (newDoc, variables) => {
-        queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-        setCreateModal({ open: false });
-        const isReceipt = variables.template?.content?.isReceipt;
-        // New invoices go straight to editor for initial setup; receipts go to receipt-editor
-        navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
-      },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (item: any) => item._type === 'folder' ? api.deleteFolder(item._realId) : api.deleteDocument(item._realId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
-      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-    },
-  });
-
-  const duplicateMutation = useMutation<any, Error, any>({
-    mutationFn: (item: any) => item._type === 'folder' 
-      ? api.duplicateFolderToFolder(item._realId, currentFolderId) 
-      : api.duplicateDocumentToFolder(item._realId, currentFolderId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
-      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-    },
-  });
-
-  const renameMutation = useMutation<any, Error, { item: any, newName: string }>({
-    mutationFn: ({ item, newName }: { item: any, newName: string }) => 
-      item._type === 'folder' ? api.renameFolder(item._realId, newName) : api.updateDocument(item._realId, { name: newName }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
-      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-    },
-  });
-  const moveMutation = useMutation<any, Error, { item: any, targetFolderId: string | null }>({
-    mutationFn: ({ item, targetFolderId }: { item: any, targetFolderId: string | null }) => 
-      item._type === 'folder' ? api.moveFolder(item._realId, targetFolderId) : api.moveDocument(item._realId, targetFolderId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
-      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-    },
-  });
-
-  const pasteMutation = useMutation<any, Error, void>({
-    mutationFn: () => {
-      if (!clipboard) return Promise.reject();
-      return clipboard.type === 'document' 
-        ? api.duplicateDocumentToFolder(clipboard.id, currentFolderId)
-        : api.duplicateFolderToFolder(clipboard.id, currentFolderId);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
-      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-      setClipboard(null);
-    }
-  });
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'c') {
-          if (selectedId) {
-            const item = items.find(i => i.id === selectedId);
-            if (item) setClipboard({ id: item._realId, name: item.name, type: item._type });
-          }
-        } else if (e.key === 'v' || e.key === 'p') {
-          if (clipboard) pasteMutation.mutate();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, clipboard, items, pasteMutation]);
-
-  const saveTemplateMutation = useMutation({
-    mutationFn: (template: TemplateDefinition) => api.saveTemplate(template),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["templates"] });
-      setEditingTemplate(null);
-    },
-  });
-
-  const deleteTemplateMutation = useMutation({
-    mutationFn: (id: string) => api.deleteTemplate(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["templates"] }),
-  });
-
-  const pinTemplateMutation = useMutation({
-    mutationFn: (id: string) => api.togglePinTemplate(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["templates"] }),
-  });
-
-  const reorderMutation = useMutation({
-    mutationFn: ({ activeId, overId }: { activeId: string, overId: string }) => 
-      api.reorderItems(currentFolderId, activeId, overId),
-    onMutate: async ({ activeId, overId }) => {
-      const isActiveFolder = activeId.startsWith('f-');
-      const isOverFolder = overId.startsWith('f-');
-      
-      if (isActiveFolder && isOverFolder) {
-        await queryClient.cancelQueries({ queryKey: ["folders", currentFolderId] });
-        queryClient.setQueryData(["folders", currentFolderId], (old: any[] | undefined) => {
-          if (!old) return [];
-          const activeIdx = old.findIndex(f => f.id === activeId.replace('f-', ''));
-          const overIdx = old.findIndex(f => f.id === overId.replace('f-', ''));
-          if (activeIdx === -1 || overIdx === -1) return old;
-          return arrayMove(old, activeIdx, overIdx);
-        });
-      } else if (!isActiveFolder && !isOverFolder) {
-        await queryClient.cancelQueries({ queryKey: ["documents", currentFolderId] });
-        queryClient.setQueryData(["documents", currentFolderId], (old: any[] | undefined) => {
-          if (!old) return [];
-          const activeIdx = old.findIndex(d => d.id === activeId.replace('d-', ''));
-          const overIdx = old.findIndex(d => d.id === overId.replace('d-', ''));
-          if (activeIdx === -1 || overIdx === -1) return old;
-          return arrayMove(old, activeIdx, overIdx);
-        });
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["folders", currentFolderId] });
-      queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-    }
-  });
-
-  // --- Handlers ---
-  const handleCreateFolder = () => {
+  // --- Actions ---
+  const handleCreateFolder = async () => {
     const name = prompt("Folder Name:");
     if (!name) return;
-    createFolderMutation.mutate({ name, parentId: currentFolderId });
+    await api.createFolder(name, currentFolderId);
   };
 
-  const handleCreateDocument = (template?: TemplateDefinition) => {
+  const handleCreateDocument = async (template?: TemplateDefinition) => {
     setCreateModal({ open: true, template });
   };
 
-  const handleModalSubmit = (formData: CreateInvoiceFormData) => {
+  const handleModalSubmit = async (formData: CreateInvoiceFormData) => {
     const isReceipt = createModal.template?.content?.isReceipt;
-    // Consume counter now (at submit, not at modal open)
     const invoiceCode = isReceipt ? undefined : api.getNextInvoiceNumber();
     const name = formData.projectName.trim() || (invoiceCode?.text ?? "New Invoice");
-    createDocMutation.mutate({
-      name,
-      folderId: currentFolderId,
-      template: createModal.template,
-      formData,
+    
+    // Construct initial content
+    const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    const content: any = {
+      contact: {
+        name: formData.clientName || "Client Name",
+        address1: formData.street || "",
+        address2: formData.location || "",
+        phone: formData.phone || undefined,
+        email: formData.email || undefined,
+      },
+      title: formData.description || name,
+      date: now,
+      table: createModal.template?.content?.table || {
+        columns: [
+          { id: "A", label: "S/N", type: "index", width: "60px" },
+          { id: "B", label: "Description", type: "text" },
+          { id: "C", label: "Qty", type: "number", width: "80px" },
+          { id: "D", label: "Price (₦)", type: "number", width: "140px" },
+          { id: "E", label: "Total (₦)", type: "formula", formula: "C * D", width: "140px" }
+        ],
+        rows: [{ id: crypto.randomUUID(), rowType: "row", B: "Item", C: 1, D: 0 }],
+        summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }]
+      },
+      footer: createModal.template?.content?.footer || { notes: "", emphasis: [] },
       invoiceCode,
-    });
+      _templateName: createModal.template?.name,
+      _templateColor: createModal.template?.color
+    };
+
+    const newDoc = await api.createDocument(name, content, currentFolderId);
+    setCreateModal({ open: false });
+    navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
   };
 
   const handleDelete = (item: any) => {
     if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
-    deleteMutation.mutate(item);
+    if (item._type === 'folder') api.deleteFolder(item._realId);
+    else api.deleteDocument(item._realId);
   };
 
   const handleDuplicate = (item: any) => {
-    duplicateMutation.mutate(item);
+    if (item._type === 'folder') api.duplicateFolderToFolder(item._realId, currentFolderId);
+    else api.duplicateDocumentToFolder(item._realId, currentFolderId);
   };
 
   const handleRename = (item: any) => {
     const newName = prompt("New Name:", item.name);
     if (!newName || newName === item.name) return;
-    renameMutation.mutate({ item, newName });
+    if (item._type === 'folder') api.renameFolder(item._realId, newName);
+    else api.updateDocument(item._realId, { name: newName });
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -401,12 +268,10 @@ const Dashboard: React.FC = () => {
       return;
     }
 
-    if (overItem._type === 'folder' && activeItem.id !== overItem.id && activeItem._type === 'document') {
-       // Move into folder
-       moveMutation.mutate({ item: activeItem, targetFolderId: overItem._realId });
-    } else if (active.id !== over.id) {
-       // Reorder
-       reorderMutation.mutate({ activeId: active.id as string, overId: over.id as string });
+    if (overItem && overItem._type === 'folder' && activeItem) {
+       api.moveDocument(activeItem.id, overItem._realId);
+    } else if (overItem && activeItem) {
+       api.reorderItems(currentFolderId, active.id as string, over.id as string);
     }
     
     setActiveId(null);
@@ -462,16 +327,71 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            {clipboard && (
-              <button
-                onClick={() => pasteMutation.mutate()}
-                disabled={pasteMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 rounded-md font-bold text-xs transition-all group"
-              >
-                <RefreshCw size={14} className={cn(pasteMutation.isPending && "animate-spin")} />
-                <span>{pasteMutation.isPending ? "Pasting..." : "Paste Item"}</span>
-              </button>
-            )}
+            {/* Session Owners & Presence */}
+            <div className="flex items-center -space-x-1 overflow-hidden mr-2">
+              {connectedClients.map((client) => {
+                const isOwner = authAction.governance.ownerId === client.id;
+                const isMe = client.id === myClientId;
+                return (
+                  <div 
+                    key={client.id}
+                    title={`${client.user.name}${isOwner ? ' (Store Owner)' : ''}${isMe ? ' (You)' : ''}`}
+                    className={cn(
+                      "w-6 h-6 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white relative group",
+                      isOwner ? "bg-amber-500 z-10" : "bg-slate-400"
+                    )}
+                    style={{ backgroundColor: client.user.color }}
+                  >
+                    {client.user.name.charAt(0)}
+                    {isOwner && <div className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full border border-white shadow-sm" />}
+                    
+                    {/* Admin Kick Tooltip */}
+                    {authAction.governance.ownerId === myClientId && !isMe && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          authAction.bannedClients.push(client.id);
+                        }}
+                        className="absolute inset-0 bg-red-600 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                      >
+                        <Trash size={10} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* Owner Control */}
+            <div className="flex items-center gap-2">
+                {authAction.governance.ownerId && (
+                  <div className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 border rounded-md transition-all",
+                    authAction.governance.ownerId === currentUser?.email 
+                      ? "bg-amber-50 border-amber-200 text-amber-700" 
+                      : "bg-slate-50 border-slate-200 text-slate-500"
+                  )}>
+                    <Shield size={14} className={authAction.governance.ownerId === currentUser?.email ? "fill-amber-500" : ""} />
+                    <span className="text-[10px] font-black uppercase tracking-wider">
+                      {authAction.governance.ownerId === currentUser?.email ? "Owner View" : "Public View"}
+                    </span>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setIsCollaboratorsOpen(true)}
+                  className="p-3 text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-all relative group"
+                >
+                  <Users size={20} />
+                  {connectedClients.length > 1 && (
+                    <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-white" />
+                  )}
+                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-900 text-white text-[9px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+                    {connectedClients.length} Online
+                  </span>
+                </button>
+              </div>
+
             <div className="flex p-0.5 bg-muted/50 rounded-md border border-border">
               <button 
                 onClick={() => setViewMode("grid")} 
@@ -520,8 +440,8 @@ const Dashboard: React.FC = () => {
                       template={template} 
                       onClick={() => handleCreateDocument(template)}
                       onEdit={() => setEditingTemplate(template)}
-                      onDelete={() => deleteTemplateMutation.mutate(template.id)}
-                      onPin={() => pinTemplateMutation.mutate(template.id)}
+                      onDelete={() => api.deleteTemplate(template.id)}
+                      onPin={() => api.togglePinTemplate(template.id)}
                     />
                   ))
                 )}
@@ -753,7 +673,7 @@ const Dashboard: React.FC = () => {
         <EditTemplateModal
           template={editingTemplate}
           onClose={() => setEditingTemplate(null)}
-          onSave={(updated) => saveTemplateMutation.mutate(updated)}
+          onSave={(updated) => api.updateTemplate(updated.id, updated)}
         />
       )}
 
@@ -763,9 +683,26 @@ const Dashboard: React.FC = () => {
           template={createModal.template}
           onClose={() => setCreateModal({ open: false })}
           onSubmit={handleModalSubmit}
-          isLoading={createDocMutation.isPending}
+          isLoading={false}
         />
       )}
+
+      {/* Collaborators Sheet */}
+      <CollaboratorsSheet
+        isOpen={isCollaboratorsOpen}
+        onClose={() => setIsCollaboratorsOpen(false)}
+        collaborators={connectedClients}
+        ownerId={authAction.governance.ownerId || null}
+        bannedClients={authAction.bannedClients}
+        onBanClient={(email) => {
+          if (!authAction.bannedClients.includes(email)) {
+            authAction.bannedClients.push(email);
+          }
+        }}
+        onMakeOwner={(email) => {
+          authAction.governance.ownerId = email;
+        }}
+      />
     </div>
   );
 };
