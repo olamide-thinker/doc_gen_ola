@@ -8,6 +8,7 @@ import CrdtTest from "./components/CrdtTest";
 import AccessDenied from "./components/AccessDenied";
 import LoginPage from "./components/LoginPage";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -22,22 +23,24 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/denied" element={<AccessDenied />} />
-        
-        <Route path="/" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/crdt-test" element={<ProtectedRoute><CrdtTest /></ProtectedRoute>} />
-        <Route path="/invoice-preview/:id" element={<ProtectedRoute><InvoicePreviewPage /></ProtectedRoute>} />
-        <Route path="/editor/:id" element={<ProtectedRoute><Editor /></ProtectedRoute>} />
-        <Route path="/receipt-editor/:id" element={<ProtectedRoute><ReceiptEditor /></ProtectedRoute>} />
+    <ThemeProvider>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/denied" element={<AccessDenied />} />
+          
+          <Route path="/" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/crdt-test" element={<ProtectedRoute><CrdtTest /></ProtectedRoute>} />
+          <Route path="/invoice-preview/:id" element={<ProtectedRoute><InvoicePreviewPage /></ProtectedRoute>} />
+          <Route path="/editor/:id" element={<ProtectedRoute><Editor /></ProtectedRoute>} />
+          <Route path="/receipt-editor/:id" element={<ProtectedRoute><ReceiptEditor /></ProtectedRoute>} />
 
-        {/* 404 Fallback */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </AuthProvider>
+          {/* 404 Fallback */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </AuthProvider>
+    </ThemeProvider>
   );
 };
 

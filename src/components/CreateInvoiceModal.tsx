@@ -32,9 +32,9 @@ const templateBadgeClass = (color?: string) => {
     case "purple": return "bg-purple-100 text-purple-700";
     case "amber":  return "bg-amber-100 text-amber-700";
     case "rose":   return "bg-rose-100 text-rose-700";
-    case "cyan":   return "bg-cyan-100 text-cyan-700";
-    case "indigo": return "bg-indigo-100 text-indigo-700";
-    default:       return "bg-slate-100 text-slate-600";
+    case "cyan":   return "bg-t-cyan text-t-cyan-foreground";
+    case "indigo": return "bg-t-indigo text-t-indigo-foreground";
+    default:       return "bg-muted text-muted-foreground";
   }
 };
 
@@ -53,11 +53,11 @@ interface FieldProps {
 
 const Field: React.FC<FieldProps> = ({ icon, label, placeholder, value, onChange, required, type = "text", hint }) => (
   <div className="flex flex-col gap-1">
-    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1">
-      {label}{required && <span className="text-rose-400 ml-0.5">*</span>}
+    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+      {label}{required && <span className="text-destructive ml-0.5">*</span>}
     </label>
     <div className="relative">
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/40 pointer-events-none">
         {icon}
       </span>
       <input
@@ -67,13 +67,13 @@ const Field: React.FC<FieldProps> = ({ icon, label, placeholder, value, onChange
         onChange={onChange}
         required={required}
         className={cn(
-          "w-full pl-9 pr-3 h-10 text-[12px] border border-border rounded-lg outline-none transition-all",
-          "placeholder:text-slate-300 text-slate-700 font-medium",
-          "focus:border-primary/60 focus:ring-2 focus:ring-primary/10 bg-white",
+          "w-full pl-9 pr-3 h-10 text-[12px] rounded-lg outline-none transition-all",
+          "placeholder:text-muted-foreground/30 text-foreground font-medium",
+          "focus:ring-2 focus:ring-primary/20 bg-muted/30 focus:bg-card focus:border-primary/40 border-none",
         )}
       />
     </div>
-    {hint && <p className="text-[9px] text-slate-400 ml-1">{hint}</p>}
+    {hint && <p className="text-[9px] text-muted-foreground/60 ml-1">{hint}</p>}
   </div>
 );
 
@@ -107,13 +107,13 @@ const CreateInvoiceModal: React.FC<Props> = ({ template, onClose, onSubmit, isLo
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex items-center justify-center p-4"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[520px] overflow-hidden animate-in fade-in zoom-in duration-200 origin-center">
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-[520px] overflow-hidden animate-in fade-in zoom-in duration-200 origin-center">
 
         {/* ── Header ── */}
-        <div className="px-7 pt-7 pb-5 border-b border-border/60">
+        <div className="px-7 pt-7 pb-5">
           <div className="flex items-start justify-between">
             <div className="flex flex-col gap-2">
               {/* Number + template badge row */}
@@ -127,16 +127,16 @@ const CreateInvoiceModal: React.FC<Props> = ({ template, onClose, onSubmit, isLo
                   </span>
                 )}
                 {isReceipt && (
-                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-sm bg-emerald-100 text-emerald-700">
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-sm bg-emerald-500/10 text-emerald-600">
                     Receipt
                   </span>
                 )}
               </div>
               <div>
-                <h2 className="text-[15px] font-bold text-slate-800 leading-tight">
+                <h2 className="text-[15px] font-bold text-foreground leading-tight">
                   {isReceipt ? "New Receipt" : "New Invoice"}
                 </h2>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <p className="text-[11px] text-muted-foreground mt-0.5">
                   Fill in the details below — you can edit everything later in the editor
                 </p>
               </div>
@@ -144,7 +144,7 @@ const CreateInvoiceModal: React.FC<Props> = ({ template, onClose, onSubmit, isLo
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-300 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+              className="p-1.5 text-muted-foreground/40 hover:text-foreground hover:bg-muted rounded-lg transition-all"
             >
               <X size={15} />
             </button>
@@ -157,7 +157,7 @@ const CreateInvoiceModal: React.FC<Props> = ({ template, onClose, onSubmit, isLo
 
             {/* Invoice Details */}
             <div className="space-y-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                 <FileText size={9} /> Invoice Details
               </p>
               <Field
@@ -179,14 +179,14 @@ const CreateInvoiceModal: React.FC<Props> = ({ template, onClose, onSubmit, isLo
 
             {/* Divider */}
             <div className="relative flex items-center gap-3 py-1">
-              <div className="flex-1 border-t border-dashed border-slate-100" />
-              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-300">Client</span>
-              <div className="flex-1 border-t border-dashed border-slate-100" />
+              <div className="flex-1 border-t border-dashed border-border/20" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40">Client</span>
+              <div className="flex-1 border-t border-dashed border-border/20" />
             </div>
 
             {/* Client Info */}
             <div className="space-y-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                 <User size={9} /> Client Information
               </p>
               <Field
@@ -233,15 +233,15 @@ const CreateInvoiceModal: React.FC<Props> = ({ template, onClose, onSubmit, isLo
           </div>
 
           {/* ── Footer ── */}
-          <div className="px-7 pb-7 pt-4 border-t border-border/60 flex items-center justify-between">
-            <p className="text-[10px] text-slate-400">
+          <div className="px-7 pb-7 pt-4 flex items-center justify-between">
+            <p className="text-[10px] text-muted-foreground">
               Invoice number is auto-assigned and cannot be reused
             </p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-[11px] font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-all"
+                className="px-4 py-2 text-[11px] font-bold text-muted-foreground hover:bg-muted rounded-lg transition-all"
               >
                 Cancel
               </button>
@@ -252,7 +252,7 @@ const CreateInvoiceModal: React.FC<Props> = ({ template, onClose, onSubmit, isLo
                   "px-5 py-2.5 rounded-lg text-[11px] font-black flex items-center gap-1.5 transition-all",
                   canSubmit && !isLoading
                     ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                    : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                    : "bg-muted text-muted-foreground/30 cursor-not-allowed"
                 )}
               >
                 {isLoading ? "Creating…" : (

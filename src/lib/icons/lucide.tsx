@@ -38,7 +38,11 @@ import {
   FileEdit as LucideFileEdit,
   Receipt as LucideReceipt,
   Users as LucideUsers,
-  Shield as LucideShield
+  Shield as LucideShield,
+  Sun as LucideSun,
+  Moon as LucideMoon,
+  Pin as LucidePin,
+  PinOff as LucidePinOff
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -83,3 +87,7 @@ export const ShieldAlert = wrapIcon(LucideAlertTriangle);
 export const Users = wrapIcon(LucideUsers);
 export const Shield = wrapIcon(LucideShield);
 export const Receipt = wrapIcon(LucideReceipt);
+export const Sun = wrapIcon(LucideSun);
+export const Moon = wrapIcon(LucideMoon);
+export const Pin = wrapIcon(LucidePin);
+export const PinOff = wrapIcon(LucidePinOff);

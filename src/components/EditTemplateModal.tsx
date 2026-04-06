@@ -50,34 +50,34 @@ export const EditTemplateModal: React.FC<EditTemplateModalProps> = ({ template, 
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-card rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
       >
         {/* Header */}
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+        <div className="p-6 flex justify-between items-center bg-muted/30">
           <div>
-            <h2 className="text-xl font-bold text-slate-900 font-lexend">Edit Template</h2>
-            <p className="text-sm text-slate-500">Modify how this template looks and behaves</p>
+            <h2 className="text-xl font-bold text-foreground font-lexend">Edit Template</h2>
+            <p className="text-sm text-muted-foreground">Modify how this template looks and behaves</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-            <X size={20} className="text-slate-500" />
+          <button onClick={onClose} className="p-2 hover:bg-muted rounded-full transition-colors">
+            <X size={20} className="text-muted-foreground" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex px-6 border-b border-slate-100 gap-8">
+        <div className="flex px-6 border-t border-border/20 gap-8">
           <button 
             onClick={() => setActiveTab('info')}
-            className={`py-4 text-sm font-bold uppercase tracking-widest transition-all border-b-2 ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+            className={`py-4 text-sm font-bold uppercase tracking-widest transition-all border-b-2 ${activeTab === 'info' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
           >
             Basic Info
           </button>
           <button 
             onClick={() => setActiveTab('content')}
-            className={`py-4 text-sm font-bold uppercase tracking-widest transition-all border-b-2 ${activeTab === 'content' ? 'border-primary text-primary' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+            className={`py-4 text-sm font-bold uppercase tracking-widest transition-all border-b-2 ${activeTab === 'content' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
           >
             Default Content
           </button>
@@ -88,26 +88,26 @@ export const EditTemplateModal: React.FC<EditTemplateModalProps> = ({ template, 
           {activeTab === 'info' ? (
             <div className="space-y-6 max-w-2xl">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-tighter mb-2">Template Name</label>
+                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-tighter mb-2">Template Name</label>
                 <input 
                   type="text" 
                   value={formData.name}
                   onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-slate-700 font-medium"
+                  className="w-full p-4 bg-muted/40 rounded-2xl focus:ring-2 focus:ring-primary/20 focus:bg-card outline-none transition-all text-foreground font-medium"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-tighter mb-2">Description</label>
+                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-tighter mb-2">Description</label>
                 <textarea 
                   rows={4}
                   value={formData.description}
                   onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-slate-700 font-medium resize-none"
+                  className="w-full p-4 bg-muted/40 rounded-2xl focus:ring-2 focus:ring-primary/20 focus:bg-card outline-none transition-all text-foreground font-medium resize-none"
                 />
               </div>
-              <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl flex gap-4">
+              <div className="p-4 bg-blue-500/10 rounded-2xl flex gap-4">
                 <Settings2 className="text-blue-500 shrink-0" size={24} />
-                <p className="text-sm text-blue-700 leading-relaxed">
+                <p className="text-sm text-blue-600/80 leading-relaxed">
                   Changes to this template will affect all new documents created from it. Existing documents will remain unchanged.
                 </p>
               </div>
@@ -116,19 +116,19 @@ export const EditTemplateModal: React.FC<EditTemplateModalProps> = ({ template, 
             <div className="space-y-8">
               {/* Title Edit */}
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-tighter mb-2">Default Document Title</label>
+                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-tighter mb-2">Default Document Title</label>
                 <input 
                   type="text" 
                   value={formData.content.title || ''}
                   onChange={e => handleContentUpdate({ title: e.target.value })}
-                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl focus:border-primary outline-none text-slate-700"
+                  className="w-full p-3 bg-muted/40 rounded-xl focus:ring-1 focus:ring-primary/40 outline-none text-foreground"
                 />
               </div>
 
               {/* Rows List */}
               <div>
                 <div className="flex justify-between items-center mb-4">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-tighter">Default Table Items</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-tighter">Default Table Items</label>
                   <button 
                     onClick={addRow}
                     className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-xs font-bold hover:bg-primary/20 transition-colors"
@@ -139,8 +139,8 @@ export const EditTemplateModal: React.FC<EditTemplateModalProps> = ({ template, 
                 
                 <div className="space-y-3">
                   {(formData.content.table?.rows || []).map((row, idx) => (
-                    <div key={row.id || idx} className="flex items-center gap-4 p-4 border border-slate-100 rounded-2xl bg-slate-50/30 group">
-                      <div className="text-xs font-bold text-slate-300 w-8">{idx + 1}</div>
+                    <div key={row.id || idx} className="flex items-center gap-4 p-4 rounded-2xl bg-muted/20 group hover:bg-muted/40 transition-colors">
+                      <div className="text-xs font-bold text-muted-foreground/40 w-8">{idx + 1}</div>
                       <input 
                         type="text"
                         value={row.B as string || ''}
@@ -149,7 +149,7 @@ export const EditTemplateModal: React.FC<EditTemplateModalProps> = ({ template, 
                           newRows[idx] = { ...row, B: e.target.value };
                           handleContentUpdate({ table: { ...formData.content.table!, rows: newRows } });
                         }}
-                        className="flex-1 bg-transparent border-none outline-none text-sm text-slate-700 font-medium"
+                        className="flex-1 bg-transparent border-none outline-none text-sm text-foreground font-medium"
                         placeholder="Item description..."
                       />
                       <div className="flex items-center gap-2">
@@ -161,11 +161,11 @@ export const EditTemplateModal: React.FC<EditTemplateModalProps> = ({ template, 
                             newRows[idx] = { ...row, D: parseFloat(e.target.value) || 0 };
                             handleContentUpdate({ table: { ...formData.content.table!, rows: newRows } });
                           }}
-                          className="w-20 p-2 bg-white border border-slate-100 rounded-lg text-right text-sm"
+                          className="w-20 p-2 bg-muted/50 rounded-lg text-right text-sm text-foreground focus:ring-1 focus:ring-primary/40 outline-none"
                         />
                         <button 
                           onClick={() => removeRow(row.id)}
-                          className="p-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-2 text-muted-foreground/30 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -173,31 +173,31 @@ export const EditTemplateModal: React.FC<EditTemplateModalProps> = ({ template, 
                     </div>
                   ))}
                   {(formData.content.table?.rows || []).length === 0 && (
-                    <div className="text-center py-12 border-2 border-dashed border-slate-100 rounded-3xl">
-                      <Layout className="mx-auto text-slate-200 mb-2" size={32} />
-                      <p className="text-sm text-slate-400">No default rows. Create one to start.</p>
+                    <div className="text-center py-12 border-2 border-dashed border-border/20 rounded-3xl">
+                      <Layout className="mx-auto text-muted-foreground/20 mb-2" size={32} />
+                      <p className="text-sm text-muted-foreground">No default rows. Create one to start.</p>
                     </div>
                   )}
                 </div>
               </div>
 
               {/* Coming Soon Section */}
-              <div className="p-6 border-2 border-dashed border-slate-100 rounded-3xl bg-slate-50/20">
+              <div className="p-6 border-2 border-dashed border-border/20 rounded-3xl bg-amber-500/5">
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="px-2 py-0.5 bg-amber-100 text-amber-600 rounded text-[10px] font-black uppercase tracking-widest">Coming Soon</div>
-                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Legal & Contracts</h4>
+                  <div className="px-2 py-0.5 bg-amber-500/20 text-amber-600 rounded text-[10px] font-black uppercase tracking-widest">Coming Soon</div>
+                  <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-widest">Legal & Contracts</h4>
                 </div>
-                <p className="text-xs text-slate-400">Soon you'll be able to attach specific contract terms and legal fine print directly to templates.</p>
+                <p className="text-xs text-muted-foreground/80">Soon you'll be able to attach specific contract terms and legal fine print directly to templates.</p>
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+        <div className="p-6 bg-muted/30 flex justify-end gap-3">
           <button 
             onClick={onClose}
-            className="px-6 py-3 text-slate-500 font-bold text-sm uppercase tracking-widest hover:text-slate-700"
+            className="px-6 py-3 text-muted-foreground font-bold text-sm uppercase tracking-widest hover:text-foreground transition-colors"
           >
             Cancel
           </button>

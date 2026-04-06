@@ -23,7 +23,7 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-lexend overflow-hidden relative">
+    <div className="min-h-screen bg-background flex items-center justify-center p-6 font-lexend overflow-hidden relative transition-colors duration-300">
       {/* Background purely decorative elements */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-[120px]" />
@@ -33,7 +33,7 @@ const LoginPage: React.FC = () => {
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-[420px] bg-white rounded-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] border border-slate-100 p-10 relative z-10"
+        className="w-full max-w-[420px] bg-card rounded-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.1)] border border-border p-10 relative z-10"
       >
         <div className="flex flex-col items-center text-center">
           {/* Logo / Brand Icon */}
@@ -41,41 +41,41 @@ const LoginPage: React.FC = () => {
              <Zap className="text-white fill-white" size={32} />
           </div>
 
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-3">
+          <h1 className="text-2xl font-black text-foreground tracking-tight mb-3">
             Real-Time Workspace
           </h1>
-          <p className="text-sm text-slate-500 leading-relaxed max-w-[280px] mb-10">
+          <p className="text-sm text-muted-foreground leading-relaxed max-w-[280px] mb-10">
             Secure collaborative environment for professional document printing.
           </p>
 
           {/* Features */}
           <div className="grid grid-cols-1 gap-4 w-full mb-10 text-left">
-             <div className="flex items-center gap-4 p-3 rounded-2xl bg-slate-50 border border-slate-100/50">
-               <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center text-primary shrink-0">
+             <div className="flex items-center gap-4 p-3 rounded-2xl bg-muted border border-border/50">
+               <div className="w-10 h-10 rounded-xl bg-card shadow-sm flex items-center justify-center text-primary shrink-0">
                  <ShieldCheck size={20} />
                </div>
                <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-700">Governance</h3>
-                  <p className="text-[10px] text-slate-400 font-medium">Automatic session & owner protection</p>
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-foreground/80">Governance</h3>
+                  <p className="text-[10px] text-muted-foreground font-medium">Automatic session & owner protection</p>
                </div>
              </div>
              
-             <div className="flex items-center gap-4 p-3 rounded-2xl bg-slate-50 border border-slate-100/50">
-               <div className="w-10 h-10 rounded-xl bg-white shadow-sm flex items-center justify-center text-blue-500 shrink-0">
+             <div className="flex items-center gap-4 p-3 rounded-2xl bg-muted border border-border/50">
+               <div className="w-10 h-10 rounded-xl bg-card shadow-sm flex items-center justify-center text-blue-500 shrink-0">
                  <Globe size={20} />
                </div>
                <div>
-                  <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-700">Collaboration</h3>
-                  <p className="text-[10px] text-slate-400 font-medium">Synced identities via Google Auth</p>
+                  <h3 className="text-[11px] font-black uppercase tracking-wider text-foreground/80">Collaboration</h3>
+                  <p className="text-[10px] text-muted-foreground font-medium">Synced identities via Google Auth</p>
                </div>
              </div>
           </div>
 
           <button
             onClick={handleLogin}
-            className="w-full group relative flex items-center justify-center gap-3 bg-slate-900 text-white rounded-2xl py-4 font-bold text-sm hover:bg-slate-800 transition-all active:scale-[0.98] shadow-xl overflow-hidden"
+            className="w-full group relative flex items-center justify-center gap-3 bg-primary text-primary-foreground rounded-2xl py-4 font-bold text-sm hover:opacity-90 transition-all active:scale-[0.98] shadow-xl overflow-hidden"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-primary to-blue-600 opacity-0 group-hover:opacity-10 transition-opacity" />
+            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-10 transition-opacity" />
             <LogIn size={20} className="group-hover:rotate-6 transition-transform" />
             Sign in with Google
           </button>

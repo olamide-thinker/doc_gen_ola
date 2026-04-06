@@ -12,8 +12,11 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
+
+    /* Primary - Blue */
     --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
+
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 210 40% 96.1%;
@@ -25,59 +28,128 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
-    --radius: 0.75rem;
+    --radius: 0.5rem;
+
+    --success: 142.1 76.2% 36.3%;
+    --success-foreground: 355.7 100% 97.3%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 48 96% 89%;
+    --info: 217.2 91.2% 59.8%;
+    --info-foreground: 210 40% 98%;
+
     /* Template Accents (Pastels) */
     --t-blue: 214 95% 93%;
+    --t-blue-foreground: 214 95% 40%;
     --t-green: 142 70% 92%;
+    --t-green-foreground: 142 70% 35%;
     --t-purple: 262 80% 93%;
+    --t-purple-foreground: 262 80% 45%;
     --t-amber: 38 90% 92%;
+    --t-amber-foreground: 38 90% 40%;
     --t-rose: 350 80% 93%;
+    --t-rose-foreground: 350 80% 45%;
     --t-cyan: 187 75% 92%;
+    --t-cyan-foreground: 187 75% 40%;
     --t-indigo: 239 84% 94%;
+    --t-indigo-foreground: 239 84% 45%;
     --t-slate: 210 40% 94%;
+    --t-slate-foreground: 210 40% 45%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 240 3% 8%; /* #131314 */
+    --foreground: 210 14% 92%; /* #e8eaed */
+    --card: 240 2% 12%; /* #1e1f20 */
+    --card-foreground: 210 14% 92%;
+    --popover: 240 2% 12%;
+    --popover-foreground: 210 14% 92%;
+
+    /* Google Primary Blue - Material 3 */
+    --primary: 217 89% 76%; /* #8ab4f8 */
+    --primary-foreground: 217 10% 10%;
+
+    --secondary: 240 3% 18%; /* #2d2e30 */
+    --secondary-foreground: 210 14% 92%;
+    --muted: 240 3% 16%; /* #28292a */
+    --muted-foreground: 213 6% 76%; /* #bdc1c6 */
+    --accent: 240 3% 20%; /* #303134 */
+    --accent-foreground: 210 14% 92%;
+    --destructive: 0 62.8% 50%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --border: 220 3% 23%; /* #38393b */
+    --input: 220 3% 23%;
+    --ring: 217 89% 76%;
+
+    --success: 142.1 70.6% 45.3%;
+    --success-foreground: 144.1 70.6% 10%;
+    --warning: 48 96% 70%;
+    --warning-foreground: 48 96% 10%;
+    --info: 217.2 91.2% 75%;
+    --info-foreground: 217.2 91.2% 10%;
+
     /* Template Accents (Muted Dark) */
     --t-blue: 214 30% 14%;
+    --t-blue-foreground: 214 95% 75%;
     --t-green: 142 30% 12%;
+    --t-green-foreground: 142 70% 70%;
     --t-purple: 262 30% 15%;
+    --t-purple-foreground: 262 80% 75%;
     --t-amber: 38 30% 12%;
+    --t-amber-foreground: 38 90% 70%;
     --t-rose: 350 30% 14%;
+    --t-rose-foreground: 350 80% 75%;
     --t-cyan: 187 30% 13%;
+    --t-cyan-foreground: 187 75% 75%;
     --t-indigo: 239 30% 16%;
+    --t-indigo-foreground: 239 84% 75%;
     --t-slate: 210 20% 15%;
+    --t-slate-foreground: 210 40% 75%;
   }
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: hsl(var(--border) / 0.4);
+    outline-color: hsl(var(--ring));
   }
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
     @apply font-lexend;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  button,
+  Button {
+    cursor: pointer;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--background) / 0.5);
+    border-radius: 100px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.3);
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border) / 0.8);
+    border-color: hsl(var(--background) / 0.5);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.2);
   }
 }
 
@@ -92,6 +164,7 @@
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background-color: hsl(var(--border));
     @apply rounded-full hover:bg-muted-foreground/30 transition-colors;
+    border-width: 2px;
   }
   .custom-scrollbar::-webkit-scrollbar {
     width: 4px;

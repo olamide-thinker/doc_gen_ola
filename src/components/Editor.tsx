@@ -23,9 +23,12 @@ import {
   Edit,
   MoreVertical,
   Table,
-  Type
+  Type,
+  Sun,
+  Moon
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import {
   DndContext,
@@ -207,6 +210,7 @@ const Editor: React.FC = () => {
   const authAction = useSyncedStore(authStore);
   const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
   const { user: currentUser } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
@@ -703,11 +707,11 @@ const Editor: React.FC = () => {
   const pagesToDisplay = pages;
 
   return (
-    <div className="app-root flex flex-col h-screen bg-[#FDFCFB] text-slate-900 overflow-hidden font-sans">
+    <div className="app-root flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
       <div className="flex flex-1 overflow-hidden app-main">
         {!isPreview && (
-          <div className="w-full lg:w-[380px] flex flex-col border-r border-slate-200/60 bg-white pb-5 px-5 overflow-y-auto scrollbar-none no-print">
-            <div className="sticky top-0 z-10 flex items-center justify-between pt-5 pb-4 mb-8 bg-white border-b border-border">
+          <div className="w-full lg:w-[380px] flex flex-col border-r border-border bg-card pb-5 px-5 overflow-y-auto scrollbar-none no-print">
+            <div className="sticky top-0 z-10 flex items-center justify-between pt-5 pb-4 mb-8 bg-card border-b border-border">
               <button
                 onClick={() => navigate(`/invoice-preview/${id}`, { state: { fromFolder } })}
                 className="flex items-center gap-2 transition-colors text-slate-500 hover:text-slate-900 group"
@@ -724,7 +728,7 @@ const Editor: React.FC = () => {
                 <button
                   onClick={undo}
                   disabled={history.length === 0}
-                  className="p-2 transition-all border rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 border-slate-200 disabled:opacity-30 active:scale-95"
+                  className="p-2 transition-all border rounded-lg bg-muted hover:bg-accent text-muted-foreground hover:text-foreground border-border disabled:opacity-30 active:scale-95"
                   title="Undo (Ctrl+Z)"
                 >
                   <Undo2 size={16} />
@@ -732,7 +736,7 @@ const Editor: React.FC = () => {
                 <button
                   onClick={redo}
                   disabled={future.length === 0}
-                  className="p-2 transition-all border rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 border-slate-200 disabled:opacity-30 active:scale-95"
+                  className="p-2 transition-all border rounded-lg bg-muted hover:bg-accent text-muted-foreground hover:text-foreground border-border disabled:opacity-30 active:scale-95"
                   title="Redo (Ctrl+Y)"
                 >
                   <Redo2 size={16} />
@@ -740,7 +744,7 @@ const Editor: React.FC = () => {
                 <div className="w-px h-6 mx-1 bg-slate-200" />
                 <button
                   onClick={() => setIsPreview(true)}
-                  className="p-2 transition-all border bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border-slate-200/60 active:scale-95"
+                  className="p-2 transition-all border bg-muted hover:bg-accent text-foreground rounded-xl border-border active:scale-95"
                   title="Preview"
                 >
                   <Layout size={18} />
@@ -1158,19 +1162,26 @@ const Editor: React.FC = () => {
         )}
 
         <div
-          className={`preview-container ${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-[#F8F9FA] p-6 lg:p-16 flex flex-col items-center scrollbar-thin print:bg-white print:p-0 print:overflow-visible`}
+          className={`preview-container ${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-muted/50 p-6 lg:p-16 flex flex-col items-center scrollbar-thin print:bg-white print:p-0 print:overflow-visible transition-colors duration-300`}
         >
           {isPreview && (
             <div className="fixed z-50 flex gap-2 top-6 right-6 no-print">
               <button
+                onClick={toggleTheme}
+                className="px-4 py-2 bg-card border border-border text-foreground rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase hover:bg-accent"
+              >
+                {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+                {theme === "light" ? "Dark Mode" : "Light Mode"}
+              </button>
+              <button
                 onClick={() => setIsPreview(false)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase hover:opacity-90"
               >
                 <ArrowLeft size={16} /> Edit Mode
               </button>
               <button
                 onClick={() => window.print()}
-                className="px-4 py-2 bg-white border border-slate-200 text-slate-900 rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase"
+                className="px-4 py-2 bg-card border border-border text-foreground rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase hover:bg-accent"
               >
                 <Printer size={16} /> Print
               </button>

@@ -9,8 +9,6 @@ import {
   RefreshCw, 
   LayoutGrid, 
   List, 
-  AlertTriangle,
-  Printer,
   Users,
   Shield 
 } from "../lib/icons/lucide";
@@ -32,11 +30,7 @@ import {
   resolveFormula as resolveFormulaUtil
 } from "../lib/documentUtils";
 
-// ─── No-op handlers for read-only previews ───────────────────────────────────
-
 const NOOP = () => {};
-
-// ─── Scaled Invoice Preview ───────────────────────────────────────────────────
 
 const A4_PX_WIDTH = 794;
 const A4_PX_HEIGHT = 1123;
@@ -196,8 +190,6 @@ const ScaledInvoicePreview: React.FC<ScaledInvoicePreviewProps> = ({
   );
 };
 
-// ─── Modal Previewer with Pan & Zoom ──────────────────────────────────────
-
 const ModalPreviewer: React.FC<{
   data: DocData;
   pages: any[];
@@ -207,7 +199,6 @@ const ModalPreviewer: React.FC<{
   const [zoom, setZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to the clicked page on mount
   useEffect(() => {
     if (containerRef.current && initialIndex > 0) {
       const target = containerRef.current.children[initialIndex] as HTMLElement;
@@ -226,10 +217,9 @@ const ModalPreviewer: React.FC<{
 
   return (
     <div 
-      className="fixed inset-0 z-[100] flex flex-col bg-gray-900/40 p-4 animate-in fade-in duration-200 overflow-hidden backdrop-blur-[2px]"
+      className="fixed inset-0 z-[100] flex flex-col bg-gray-900/60 p-4 animate-in fade-in duration-200 overflow-hidden backdrop-blur-md"
       onWheel={handleWheel}
     >
-      {/* Header bar */}
       <div className="flex items-center justify-between px-6 py-4 shrink-0 pointer-events-auto">
         <div className="flex items-center gap-4">
           <button 
@@ -239,24 +229,23 @@ const ModalPreviewer: React.FC<{
             <ArrowLeft size={20} />
           </button>
           <div className="flex flex-col">
-            <span className="text-sm font-bold text-white uppercase tracking-widest select-none drop-shadow-md leading-none">
+            <span className="text-sm font-bold text-white uppercase tracking-widest select-none leading-none">
               Preview Mode
             </span>
             <span className="text-[10px] font-medium text-white/70 uppercase tracking-widest mt-1">
-              {pages.length} {pages.length === 1 ? "Page" : "Pages"} • Side-by-Side
+              {pages.length} {pages.length === 1 ? "Page" : "Pages"}
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2 bg-white/95 backdrop-blur-md border border-white/20 rounded-lg p-1 shadow-xl">
-           <button onClick={() => setZoom(prev => Math.max(0.4, prev - 0.1))} className="p-2 hover:bg-slate-100 rounded text-slate-600 text-sm font-bold w-9">-</button>
-           <span className="px-3 text-[10px] font-black text-slate-500 min-w-[60px] text-center select-none">{Math.round(zoom * 100)}%</span>
-           <button onClick={() => setZoom(prev => Math.min(3, prev + 0.1))} className="p-2 hover:bg-slate-100 rounded text-slate-600 text-sm font-bold w-9">+</button>
-           <div className="w-px h-4 bg-slate-200 mx-1" />
-           <button onClick={() => setZoom(1)} className="px-3 py-1.5 hover:bg-slate-50 rounded text-[10px] font-black uppercase text-primary">100%</button>
+        <div className="flex items-center gap-2 bg-card/95 backdrop-blur-md border border-border rounded-lg p-1 shadow-xl">
+           <button onClick={() => setZoom(prev => Math.max(0.4, prev - 0.1))} className="p-2 hover:bg-muted rounded text-foreground text-sm font-bold w-9">-</button>
+           <span className="px-3 text-[10px] font-black text-muted-foreground min-w-[60px] text-center select-none">{Math.round(zoom * 100)}%</span>
+           <button onClick={() => setZoom(prev => Math.min(3, prev + 0.1))} className="p-2 hover:bg-muted rounded text-foreground text-sm font-bold w-9">+</button>
+           <div className="w-px h-4 bg-border mx-1" />
+           <button onClick={() => setZoom(1)} className="px-3 py-1.5 hover:bg-accent rounded text-[10px] font-black uppercase text-primary">100%</button>
         </div>
       </div>
 
-      {/* Pages strip */}
       <div 
         ref={containerRef}
         className="flex-1 flex gap-12 p-12 overflow-x-auto overflow-y-auto items-start snap-x custom-scrollbar"
@@ -278,39 +267,19 @@ const ModalPreviewer: React.FC<{
           </div>
         ))}
       </div>
-
-      {/* Helper Footer */}
-      <div className="py-4 shrink-0 flex justify-center">
-        <p className="text-white/60 text-[9px] font-bold uppercase tracking-widest bg-black/10 px-6 py-2 rounded-full border border-white/5">
-          Use the scrollbar or mouse wheel to navigate
-        </p>
-      </div>
     </div>
   );
 };
-
-// ─── Amount formatter ─────────────────────────────────────────────────────────
-
-function fmtAmount(n: number): string {
-  if (n === 0) return "₦0";
-  if (Math.abs(n) >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (Math.abs(n) >= 1_000) return `₦${Math.round(n / 1_000)}k`;
-  return `₦${Math.round(n).toLocaleString()}`;
-}
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
 
 const InvoicePreviewPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const fromFolder = location.state?.fromFolder;
-  const [receiptView, setReceiptView] = useState<"list" | "card">("list");
   const [selectedPageIndex, setSelectedPageIndex] = useState<number | null>(null);
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
-  const myClientId = authProvider.awareness?.clientID.toString() || "unknown";
   const { user: currentUser } = useAuth();
 
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
@@ -324,25 +293,18 @@ const InvoicePreviewPage: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser) return;
-
     const updatePresence = () => {
       const states = authProvider.awareness?.getStates();
       if (!states) return;
       const clients: any[] = [];
       states.forEach((state: any, clientId: number) => {
-        // Only track users with an authenticated email address
         if (state.user && state.user.email) {
-          clients.push({
-            id: clientId.toString(),
-            user: state.user
-          });
+          clients.push({ id: clientId.toString(), user: state.user });
         }
       });
       setConnectedClients(clients);
     };
-
     authProvider.awareness?.on('change', updatePresence);
-
     authProvider.awareness?.setLocalStateField('user', { 
       name: currentUser.displayName || "Anonymous",
       email: currentUser.email || "guest@system.com",
@@ -350,25 +312,18 @@ const InvoicePreviewPage: React.FC = () => {
       id: currentUser.uid,
       color: '#' + Math.floor(Math.random()*16777215).toString(16)
     });
-
-    return () => {
-      authProvider.awareness?.off('change', updatePresence);
-    };
-  }, [myClientId, currentUser]);
+    return () => { authProvider.awareness?.off('change', updatePresence); };
+  }, [currentUser]);
 
   const invoiceDoc = workspaceAction.documents?.find((d: any) => d.id === id);
   const receipts = workspaceAction.documents?.filter((d: any) => d.folderId === null && (d as any).invoiceId === id) || [];
-
   const isLoading = !invoiceDoc;
-  const isLoadingReceipts = false;
 
   const docContent = invoiceDoc?.content || null;
   const pages = usePagination(docContent);
 
   const sortedReceipts = useMemo(() => {
-    return [...receipts].sort((a, b) => 
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
+    return [...receipts].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [receipts]);
 
   const invoiceGrandTotal = useMemo(() => {
@@ -381,7 +336,6 @@ const InvoicePreviewPage: React.FC = () => {
   }, [sortedReceipts]);
 
   const totalOutstanding = Math.max(0, invoiceGrandTotal - totalPaid);
-
   const [isCreatingReceipt, setIsCreatingReceipt] = useState(false);
 
   const handleAddReceipt = async () => {
@@ -389,23 +343,9 @@ const InvoicePreviewPage: React.FC = () => {
     const invoice = invoiceDoc.content;
     const prevReceipt = sortedReceipts[sortedReceipts.length - 1];
     const isFirst = sortedReceipts.length === 0;
-
-    const now = new Date().toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-
+    const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const receiptNumber = api.getNextReceiptNumber();
-
-    // Compute totalInvoiceAmount for this receipt
-    const totalInvoiceAmount = isFirst
-      ? invoiceGrandTotal
-      : Math.max(
-          0,
-          (prevReceipt.content.totalInvoiceAmount || 0) -
-            (prevReceipt.content.amountPaid || 0),
-        );
+    const totalInvoiceAmount = isFirst ? invoiceGrandTotal : Math.max(0, (prevReceipt.content.totalInvoiceAmount || 0) - (prevReceipt.content.amountPaid || 0));
 
     const receiptData: DocData = {
       isReceipt: true,
@@ -418,13 +358,7 @@ const InvoicePreviewPage: React.FC = () => {
       date: now,
       table: invoice.table,
       footer: invoice.footer,
-      invoiceCode: {
-        text: receiptNumber,
-        prefix: "REC",
-        count: receiptNumber.split("/")[2],
-        year: receiptNumber.split("/")[3],
-        x: 600, y: 100, color: "#503D36",
-      },
+      invoiceCode: { text: receiptNumber, prefix: "REC", count: receiptNumber.split("/")[2], year: receiptNumber.split("/")[3], x: 600, y: 100, color: "#503D36" },
       reference: invoice.invoiceCode?.text || "",
       totalInvoiceAmount,
       amountPaid: 0,
@@ -439,17 +373,14 @@ const InvoicePreviewPage: React.FC = () => {
     setIsCreatingReceipt(true);
     try {
       const newDoc = await api.createDocument(receiptNumber, receiptData, null);
-      // Link as receipt (Yjs mutation)
       (newDoc as any).invoiceId = id;
       navigate(`/receipt-editor/${newDoc.id}`);
-    } finally {
-      setIsCreatingReceipt(false);
-    }
+    } finally { setIsCreatingReceipt(false); }
   };
 
   if (isLoading || !invoiceDoc) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
+      <div className="flex items-center justify-center h-screen bg-background text-foreground">
         <RefreshCw className="animate-spin text-primary" size={32} />
       </div>
     );
@@ -458,56 +389,40 @@ const InvoicePreviewPage: React.FC = () => {
   const docContentSafe = invoiceDoc.content;
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden font-lexend">
-      {/* ── Top bar / Breadcrumb ── */}
-      <header className="h-14 border-b border-border bg-white flex items-center gap-2 px-6 shrink-0 shadow-sm z-10">
+    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-lexend transition-colors duration-300">
+      <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-10">
         <button
           onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
-          className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-700 transition-colors uppercase tracking-widest shrink-0"
+          className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground transition-all uppercase tracking-widest shrink-0"
         >
           <ArrowLeft size={13} /> {fromFolder ? "Back to Folder" : "All Files"}
         </button>
-        <span className="text-slate-200 font-thin text-base">/</span>
+        <span className="text-muted-foreground/30 font-thin text-base">/</span>
         {docContentSafe.invoiceCode?.text && (
           <>
             <span className="px-2 py-0.5 rounded text-[10px] font-black bg-primary/10 text-primary tracking-wider shrink-0 font-lexend">
               {docContentSafe.invoiceCode.text}
             </span>
-            <span className="text-slate-200 font-thin text-base">/</span>
+            <span className="text-muted-foreground/30 font-thin text-base">/</span>
           </>
         )}
-        <span className="text-xs font-semibold text-slate-700 truncate">
+        <span className="text-xs font-semibold text-foreground/80 truncate">
           {invoiceDoc.name}
         </span>
-        {docContentSafe._templateName && (
-          <span className={cn(
-            "ml-1 px-2 py-0.5 rounded text-[9px] font-bold shrink-0",
-            docContentSafe._templateColor === "blue" ? "bg-blue-100 text-blue-700" :
-            docContentSafe._templateColor === "green" ? "bg-green-100 text-green-700" :
-            docContentSafe._templateColor === "purple" ? "bg-purple-100 text-purple-700" :
-            docContentSafe._templateColor === "amber" ? "bg-amber-100 text-amber-700" :
-            docContentSafe._templateColor === "rose" ? "bg-rose-100 text-rose-700" :
-            docContentSafe._templateColor === "cyan" ? "bg-cyan-100 text-cyan-700" :
-            docContentSafe._templateColor === "indigo" ? "bg-indigo-100 text-indigo-700" :
-            "bg-slate-100 text-slate-500"
-          )}>
-            {docContentSafe._templateName}
-          </span>
-        )}
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setIsCollaboratorsOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm relative group"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-muted text-muted-foreground rounded-md hover:bg-accent hover:text-foreground transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm relative group"
           >
             <Users size={12} />
             {connectedClients.length > 1 && (
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-white" />
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-background" />
             )}
             Collabs
           </button>
           <button
             onClick={() => navigate(`/editor/${id}`, { state: { fromFolder } })}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
           >
             <Edit size={12} /> Edit Document
           </button>
@@ -515,18 +430,12 @@ const InvoicePreviewPage: React.FC = () => {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* ── Left: Invoice info + scaled preview ── */}
-        <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-7 min-w-0">
-          {/* Metadata card */}
-          <div className="bg-white rounded-xl border border-border shadow-sm p-6">
+        <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-7 min-w-0 bg-muted/20">
+          <div className="bg-card rounded-xl shadow-sm p-6 transition-shadow hover:shadow-md">
             <div className="flex items-start justify-between mb-5">
               <div>
-                <h1 className="text-base font-bold text-slate-800 leading-tight">
-                  {invoiceDoc.name}
-                </h1>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-md">
-                  {docContentSafe.title}
-                </p>
+                <h1 className="text-base font-bold text-foreground leading-tight">{invoiceDoc.name}</h1>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-md">{docContentSafe.title}</p>
               </div>
               {docContentSafe.invoiceCode?.text && (
                 <span className="px-3 py-1.5 rounded-full text-xs font-black bg-primary/10 text-primary tracking-wider shrink-0 ml-4">
@@ -535,345 +444,100 @@ const InvoicePreviewPage: React.FC = () => {
               )}
             </div>
 
-            {/* Top metadata row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-5 border-b border-border">
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">
-                  Date Created
-                </span>
-                <span className="text-xs font-semibold text-slate-700">
-                  {new Date(invoiceDoc.createdAt).toLocaleDateString("en-GB", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">
-                  Created By
-                </span>
-                <span className="text-xs font-semibold text-slate-700">
-                  Olamide
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">
-                  Client
-                </span>
-                <span className="text-xs font-semibold text-slate-700 truncate">
-                  {docContentSafe.contact.name}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">
-                  Invoice Date
-                </span>
-                <span className="text-xs font-semibold text-slate-700">
-                  {docContentSafe.date}
-                </span>
-              </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-5">
+              {[
+                { label: "Date Created", value: new Date(invoiceDoc.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) },
+                { label: "Created By", value: "Olamide" },
+                { label: "Client", value: docContentSafe.contact.name },
+                { label: "Invoice Date", value: docContentSafe.date }
+              ].map((item, idx) => (
+                <div key={idx} className="flex flex-col gap-1">
+                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground font-bold">{item.label}</span>
+                  <span className="text-xs font-semibold text-foreground/80 truncate">{item.value}</span>
+                </div>
+              ))}
             </div>
 
-            {/* Financial summary row */}
             <div className="grid grid-cols-3 gap-4 pt-5">
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">
-                  Total Invoice
-                </span>
-                <span className="text-lg font-black text-slate-800">
-                  ₦{Math.round(invoiceGrandTotal).toLocaleString()}
-                </span>
+              <div className="p-4 rounded-xl bg-muted flex flex-col gap-1.5 shadow-sm">
+                <span className="text-[9px] uppercase tracking-widest text-muted-foreground font-bold">Total Invoice</span>
+                <span className="text-lg font-black text-foreground">₦{Math.round(invoiceGrandTotal).toLocaleString()}</span>
               </div>
-              <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-100 flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase tracking-widest text-emerald-500 font-bold">
-                  Payments Received ({sortedReceipts.length})
-                </span>
-                <span className="text-lg font-black text-emerald-600">
-                  ₦{Math.round(totalPaid).toLocaleString()}
-                </span>
+              <div className="p-4 rounded-xl bg-success/10 flex flex-col gap-1.5 text-success shadow-sm">
+                <span className="text-[9px] uppercase tracking-widest font-bold">Payments Received</span>
+                <span className="text-lg font-black">₦{Math.round(totalPaid).toLocaleString()}</span>
               </div>
-              <div
-                className={cn(
-                  "p-4 rounded-xl flex flex-col gap-1.5",
-                  totalOutstanding > 0
-                    ? "bg-amber-50/60 border border-amber-100"
-                    : "bg-slate-50 border border-slate-100",
-                )}
-              >
-                <span
-                  className={cn(
-                    "text-[9px] uppercase tracking-widest font-bold",
-                    totalOutstanding > 0 ? "text-amber-500" : "text-slate-400",
-                  )}
-                >
-                  Outstanding Balance
-                </span>
-                <span
-                  className={cn(
-                    "text-lg font-black",
-                    totalOutstanding > 0 ? "text-amber-600" : "text-slate-500",
-                  )}
-                >
-                  ₦{Math.round(totalOutstanding).toLocaleString()}
-                </span>
+              <div className={cn("p-4 rounded-xl flex flex-col gap-1.5 shadow-sm", totalOutstanding > 0 ? "bg-warning/10 text-warning" : "bg-success/10 text-success")}>
+                <span className="text-[9px] uppercase tracking-widest font-bold">Outstanding Balance</span>
+                <span className="text-lg font-black">₦{Math.round(totalOutstanding).toLocaleString()}</span>
               </div>
             </div>
           </div>
 
-          {/* Grid of invoice pages */}
-          <div className="flex flex-col gap-5">
-            <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Invoice Pages ({pages.length})
-            </h2>
-            <div className="flex flex-wrap gap-4 pb-12">
+          <div className="flex flex-col gap-5 pb-12">
+            <h2 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Invoice Pages ({pages.length})</h2>
+            <div className="flex flex-wrap gap-4">
               {pages.map((page, idx) => (
                 <div key={idx} className="flex flex-col gap-2 group">
-                  <div 
-                    onClick={() => setSelectedPageIndex(idx)}
-                    className="cursor-pointer transition-all hover:scale-[1.02] active:scale-100 shadow-lg rounded-lg overflow-hidden"
-                  >
+                  <div onClick={() => setSelectedPageIndex(idx)} className="cursor-pointer transition-all hover:scale-[1.02] active:scale-100 shadow-lg rounded-lg overflow-hidden">
                     <ScaledInvoicePreview data={docContentSafe} scale={0.3} page={page} pageIndex={idx} />
                   </div>
-                  <div className="flex items-center justify-center p-2">
-                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">P.{idx + 1}</span>
-                  </div>
+                  <div className="flex items-center justify-center p-2"><span className="text-[10px] font-black text-muted-foreground/50 uppercase tracking-widest">P.{idx + 1}</span></div>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Modal Previewer */}
-        {selectedPageIndex !== null && (
-          <ModalPreviewer 
-            data={docContentSafe} 
-            pages={pages} 
-            initialIndex={selectedPageIndex} 
-            onClose={() => setSelectedPageIndex(null)} 
-          />
-        )}
-
-        {/* ── Right: Receipts sidebar ── */}
-        <div className="w-[340px] border-l border-border bg-white flex flex-col shrink-0 overflow-hidden">
-          {/* Sidebar header */}
-          <div className="px-4 py-3 border-b border-border flex items-center gap-2 sticky top-0 bg-white z-10">
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xs font-bold text-slate-800">Receipts</h2>
-              <p className="text-[9px] text-slate-400 font-medium">
-                {sortedReceipts.length} {sortedReceipts.length === 1 ? "payment" : "payments"}
-              </p>
+        <aside className="w-[380px] bg-card flex flex-col no-print">
+          <div className="p-6 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-foreground">Payments</h3>
+              <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest">{sortedReceipts.length} receipts</p>
             </div>
-            {/* View toggle */}
-            <div className="flex p-0.5 bg-slate-100 rounded-md border border-slate-200">
-              <button
-                onClick={() => setReceiptView("list")}
-                className={cn("p-1 rounded transition-all", receiptView === "list" ? "bg-white shadow-sm text-slate-700" : "text-slate-400 hover:text-slate-600")}
-              ><List size={13} /></button>
-              <button
-                onClick={() => setReceiptView("card")}
-                className={cn("p-1 rounded transition-all", receiptView === "card" ? "bg-white shadow-sm text-slate-700" : "text-slate-400 hover:text-slate-600")}
-              ><LayoutGrid size={13} /></button>
-            </div>
-            <button
-              onClick={handleAddReceipt}
-              disabled={isCreatingReceipt}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-primary text-white rounded-md text-[10px] font-bold hover:bg-primary/90 transition-all disabled:opacity-50 active:scale-95"
-            >
-              <Plus size={12} /> Add
+            <button onClick={handleAddReceipt} disabled={isCreatingReceipt} className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all disabled:opacity-50">
+              <Plus size={18} />
             </button>
           </div>
 
-          {/* Receipts list */}
-          <div className="flex-1 overflow-y-auto">
-            {isLoadingReceipts ? (
-              <div className="p-4 flex flex-col gap-3">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="animate-pulse rounded-lg bg-slate-50 h-16 border border-slate-100" />
-                ))}
-              </div>
-            ) : sortedReceipts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full">
-                <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center">
-                  <FileText size={20} className="text-slate-300" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-slate-500">No receipts yet</p>
-                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">Click "Add" to record the first payment.</p>
-                </div>
-              </div>
-            ) : receiptView === "list" ? (
-              /* ── List view: thumbnail + details side by side ── */
-              <div className="p-3 flex flex-col gap-2">
-                {sortedReceipts.map((receipt, idx) => {
-                  const paid = receipt.content.amountPaid || 0;
-                  const invoiceAmt = receipt.content.totalInvoiceAmount || 0;
-                  const outstanding = Math.max(0, invoiceAmt - paid);
-                  const isFullyPaid = outstanding === 0 && paid > 0;
-                  return (
-                    <div
-                      key={receipt.id}
-                      onClick={() => navigate(`/receipt-editor/${receipt.id}`)}
-                      className="flex gap-3 p-2 rounded-xl border border-slate-100 hover:border-primary/30 hover:bg-slate-50/60 cursor-pointer transition-all group"
-                    >
-                      {/* Tiny thumbnail — shows top of receipt */}
-                      <div className="shrink-0 rounded-lg overflow-hidden border border-slate-200 group-hover:border-primary/30 transition-colors" style={{ width: 56, height: 79 }}>
-                        <div style={{ transform: "scale(0.07)", transformOrigin: "top left", width: 794, height: 1123, pointerEvents: "none" }}>
-                          <ReceiptPage
-                            data={receipt.content}
-                            rows={receipt.content.table.rows}
-                            pageIndex={0}
-                            totalPrice={{ subTotal: 0, summaries: [], grandTotal: 0 }}
-                            headerImage={localStorage.getItem("receiptHeaderImage") || "/Shan-PaymentReceipt.png"}
-                            headerHeight={Number(localStorage.getItem("headerHeight")) || 128}
-                            onHeaderResize={NOOP} onHeaderImageUpload={NOOP}
-                            isFirstPage={true} isLastPage={true} startIndex={0}
-                            onUpdateContact={NOOP} onUpdateTitle={NOOP} onUpdateCell={NOOP}
-                            onRemoveRow={NOOP} onAddRowBelow={NOOP} onAddRowAbove={NOOP}
-                            onAddSectionBelow={NOOP} onAddSectionAbove={NOOP} onMoveRow={NOOP}
-                            onAddSubSectionBelow={NOOP} onAddSubSectionAbove={NOOP} useSections={receipt.content.useSections ?? false}
-                            resolveFormula={resolveFormulaUtil} onUpdateInvoiceCode={NOOP}
-                            onUpdateSummaryItem={NOOP} onUpdateDate={NOOP}
-                            showRows={false} showTotals={false} showFooter={false}
-                            isPreview={true} isEndOfRows={true} rowNumbering={getRowNumbering(receipt.content.table.rows, receipt.content.useSections)}
-                            resolveSectionTotalBackward={() => 0} resolveSectionTotal={() => 0}
-                            onUpdatePaymentMethod={NOOP} onUpdateTransactionId={NOOP}
-                            onUpdateReference={NOOP} onUpdateSignature={NOOP}
-                            onUpdateReceiptMessage={NOOP} onUpdateTotalInvoiceAmount={NOOP}
-                            onUpdateAmountPaid={NOOP} onUpdateOutstandingBalance={NOOP}
-                            onUpdateAcknowledgement={NOOP}
-                          />
-                        </div>
-                      </div>
-                      {/* Details */}
-                      <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                        <div className="flex items-start justify-between gap-1">
-                          <p className="text-[11px] font-bold text-slate-700 truncate">
-                            {receipt.content.invoiceCode?.text || `Receipt ${idx + 1}`}
-                          </p>
-                          <span className={cn("shrink-0 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider",
-                            isFullyPaid ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"
-                          )}>
-                            {isFullyPaid ? "Paid" : "Partial"}
-                          </span>
-                        </div>
-                        <p className="text-[9px] text-slate-400">{receipt.content.date}</p>
-                        <div className="flex gap-2 mt-1">
-                          <div>
-                            <p className="text-[8px] uppercase tracking-wider text-slate-400 font-bold">Paid</p>
-                            <p className="text-[10px] font-bold text-emerald-600">₦{Math.round(paid).toLocaleString()}</p>
-                          </div>
-                          <div className="w-px bg-slate-100" />
-                          <div>
-                            <p className={cn("text-[8px] uppercase tracking-wider font-bold", outstanding > 0 ? "text-amber-400" : "text-slate-400")}>Bal.</p>
-                            <p className={cn("text-[10px] font-bold", outstanding > 0 ? "text-amber-600" : "text-slate-400")}>
-                               ₦{Math.round(outstanding).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-[9px] text-slate-300 mt-0.5 truncate">{receipt.content.paymentMethod || "Transfer"}</p>
-                      </div>
-                    </div>
-                  );
-                })}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/5">
+            {sortedReceipts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 p-8 text-center h-full opacity-60">
+                <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground"><FileText size={20} /></div>
+                <p className="text-xs font-bold text-foreground uppercase tracking-widest">No receipts yet</p>
               </div>
             ) : (
-              /* ── Card view: 2-column grid ── */
-              <div className="p-3 grid grid-cols-2 gap-2.5">
-                {sortedReceipts.map((receipt, idx) => {
-                  const paid = receipt.content.amountPaid || 0;
-                  const invoiceAmt = receipt.content.totalInvoiceAmount || 0;
-                  const outstanding = Math.max(0, invoiceAmt - paid);
-                  const isFullyPaid = outstanding === 0 && paid > 0;
-                  // Card width ≈ (340 - 24 - 10) / 2 = 153px → scale = 153/794 ≈ 0.193
-                  const cardThumbW = 153;
-                  const thumbScale = cardThumbW / 794;
-                  const thumbH = Math.round(1123 * thumbScale);
-                  const visibleH = 88; // crop to just the header area
-
-                  return (
-                    <div
-                      key={receipt.id}
-                      onClick={() => navigate(`/receipt-editor/${receipt.id}`)}
-                      className="flex flex-col rounded-xl border border-slate-200 hover:border-primary/40 hover:shadow-md cursor-pointer transition-all overflow-hidden group"
-                    >
-                      {/* Cropped thumbnail — header of receipt */}
-                      <div className="overflow-hidden border-b border-slate-100 bg-white shrink-0" style={{ height: visibleH }}>
-                        <div style={{ transform: `scale(${thumbScale})`, transformOrigin: "top left", width: 794, height: thumbH, pointerEvents: "none" }}>
-                          <ReceiptPage
-                            data={receipt.content}
-                            rows={receipt.content.table.rows}
-                            pageIndex={0}
-                            totalPrice={{ subTotal: 0, summaries: [], grandTotal: 0 }}
-                            headerImage={localStorage.getItem("receiptHeaderImage") || "/Shan-PaymentReceipt.png"}
-                            headerHeight={Number(localStorage.getItem("headerHeight")) || 128}
-                            onHeaderResize={NOOP} onHeaderImageUpload={NOOP}
-                            isFirstPage={true} isLastPage={true} startIndex={0}
-                            onUpdateContact={NOOP} onUpdateTitle={NOOP} onUpdateCell={NOOP}
-                            onRemoveRow={NOOP} onAddRowBelow={NOOP} onAddRowAbove={NOOP}
-                            onAddSectionBelow={NOOP} onAddSectionAbove={NOOP} onMoveRow={NOOP}
-                            onAddSubSectionBelow={NOOP} onAddSubSectionAbove={NOOP} useSections={receipt.content.useSections ?? false}
-                            resolveFormula={resolveFormulaUtil} onUpdateInvoiceCode={NOOP}
-                            onUpdateSummaryItem={NOOP} onUpdateDate={NOOP}
-                            showRows={false} showTotals={false} showFooter={false}
-                            isPreview={true} isEndOfRows={true} rowNumbering={getRowNumbering(receipt.content.table.rows, receipt.content.useSections)}
-                            resolveSectionTotalBackward={() => 0} resolveSectionTotal={() => 0}
-                            onUpdatePaymentMethod={NOOP} onUpdateTransactionId={NOOP}
-                            onUpdateReference={NOOP} onUpdateSignature={NOOP}
-                            onUpdateReceiptMessage={NOOP} onUpdateTotalInvoiceAmount={NOOP}
-                            onUpdateAmountPaid={NOOP} onUpdateOutstandingBalance={NOOP}
-                            onUpdateAcknowledgement={NOOP}
-                          />
-                        </div>
-                      </div>
-                      {/* Card details */}
-                      <div className="p-2 flex flex-col gap-1 bg-white">
-                        <div className="flex items-center justify-between gap-1">
-                          <p className="text-[9px] font-bold text-slate-700 truncate">
-                            {receipt.content.invoiceCode?.text || `#${idx + 1}`}
-                          </p>
-                          <span className={cn("shrink-0 px-1 py-0.5 rounded text-[7px] font-black uppercase",
-                            isFullyPaid ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"
-                          )}>
-                            {isFullyPaid ? "Paid" : "Part."}
-                          </span>
-                        </div>
-                        <p className="text-[8px] text-slate-400 truncate">{receipt.content.date}</p>
-                        <div className="pt-1 border-t border-slate-50">
-                          <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Paid</p>
-                          <p className="text-[10px] font-bold text-emerald-600">{fmtAmount(paid)}</p>
-                        </div>
-                        <div>
-                          <p className={cn("text-[8px] font-bold uppercase tracking-wider", outstanding > 0 ? "text-amber-400" : "text-slate-300")}>Bal.</p>
-                          <p className={cn("text-[10px] font-bold", outstanding > 0 ? "text-amber-600" : "text-slate-300")}>
-                            {fmtAmount(outstanding)}
-                          </p>
-                        </div>
-                      </div>
+              sortedReceipts.map((receipt) => (
+                <button
+                  key={receipt.id}
+                  onClick={() => navigate(`/receipt-editor/${receipt.id}`)}
+                  className="w-full flex items-center gap-4 p-4 bg-card rounded-xl hover:bg-muted/50 shadow-sm hover:shadow-md transition-all group text-left"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors"><FileText size={18} /></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-bold text-foreground/90 truncate">{receipt.name}</span>
+                      <span className="text-xs font-black text-primary">₦{(receipt.content.amountPaid || 0).toLocaleString()}</span>
                     </div>
-                  );
-                })}
-              </div>
+                    <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{receipt.content.date}</p>
+                  </div>
+                </button>
+              ))
             )}
           </div>
-        </div>
+        </aside>
       </div>
 
-      {/* Collaborators Sheet */}
+      {selectedPageIndex !== null && (
+        <ModalPreviewer data={docContentSafe} pages={pages} initialIndex={selectedPageIndex} onClose={() => setSelectedPageIndex(null)} />
+      )}
+
       <CollaboratorsSheet
-        isOpen={isCollaboratorsOpen}
-        onClose={() => setIsCollaboratorsOpen(false)}
-        collaborators={connectedClients}
-        ownerId={authAction.governance.ownerId || null}
+        isOpen={isCollaboratorsOpen} onClose={() => setIsCollaboratorsOpen(false)}
+        collaborators={connectedClients} ownerId={authAction.governance.ownerId || null}
         bannedClients={authAction.bannedClients}
-        onBanClient={(email) => {
-          if (!authAction.bannedClients.includes(email)) {
-            authAction.bannedClients.push(email);
-          }
-        }}
-        onMakeOwner={(email) => {
-          authAction.governance.ownerId = email;
-        }}
+        onBanClient={(email) => { if (!authAction.bannedClients.includes(email)) authAction.bannedClients.push(email); }}
+        onMakeOwner={(email) => { authAction.governance.ownerId = email; }}
       />
     </div>
   );

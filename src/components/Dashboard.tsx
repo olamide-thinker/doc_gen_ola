@@ -16,7 +16,14 @@ import {
   UserIcon,
   RefreshCw,
   Table,
-  Type
+  Type,
+  Sun,
+  Moon,
+  Pin,
+  PinOff,
+  Users,
+  Shield,
+  AlertTriangle
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
@@ -30,8 +37,8 @@ import { workspaceStore, authStore, authProvider } from "../store";
 import { useQueryClient } from "@tanstack/react-query";
 import { EditTemplateModal } from "./EditTemplateModal";
 import CreateInvoiceModal, { type CreateInvoiceFormData } from "./CreateInvoiceModal";
-import { Pin, PinOff, AlertTriangle, Users, LogOut, Shield } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import {
   DndContext, 
@@ -66,6 +73,7 @@ const Dashboard: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const { user: currentUser } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -280,12 +288,12 @@ const Dashboard: React.FC = () => {
   return (
     <div className="flex h-screen bg-background text-foreground transition-all duration-300 font-lexend overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 border-r border-border bg-slate-50/30 hidden md:flex flex-col p-6 space-y-8">
+      <aside className="w-64 border-r border-border bg-card hidden md:flex flex-col p-6 space-y-8">
         <div className="flex items-center gap-3 px-2">
           <div className="p-2 bg-primary rounded-lg shadow-sm">
-            <FileText size={20} className="text-white" strokeWidth={2.5} />
+            <FileText size={20} className="text-primary-foreground" strokeWidth={2.5} />
           </div>
-          <h1 className="text-sm font-bold tracking-tight uppercase">Shan Docs</h1>
+          <h1 className="text-sm font-bold tracking-tight uppercase text-foreground">Shan Docs</h1>
         </div>
         <nav className="flex-1 space-y-0.5">
           <SidebarItem icon={<Clock size={18} />} label="All Files" active onClick={() => navigate("/dashboard")} />
@@ -304,7 +312,7 @@ const Dashboard: React.FC = () => {
 
       <main className="flex-1 flex flex-col bg-background relative overflow-hidden">
         {/* Header */}
-        <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-white sticky top-0 z-10">
+        <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background sticky top-0 z-10">
           <div className="flex items-center gap-6 flex-1">
             {currentFolderId && (
               <button 
@@ -319,7 +327,7 @@ const Dashboard: React.FC = () => {
               <input 
                 type="text" 
                 placeholder="Search documents..." 
-                className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-border focus:border-primary/50 focus:bg-white rounded-md outline-none text-xs transition-all" 
+                className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-border focus:border-primary/50 focus:bg-card rounded-md outline-none text-xs transition-all" 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
               />
@@ -337,7 +345,7 @@ const Dashboard: React.FC = () => {
                     key={client.id}
                     title={`${client.user.name}${isOwner ? ' (Store Owner)' : ''}${isMe ? ' (You)' : ''}`}
                     className={cn(
-                      "w-6 h-6 rounded-full border-2 border-white flex items-center justify-center text-[10px] font-bold text-white relative group",
+                      "w-6 h-6 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group",
                       isOwner ? "bg-amber-500 z-10" : "bg-slate-400"
                     )}
                     style={{ backgroundColor: client.user.color }}
@@ -366,10 +374,10 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center gap-2">
                 {authAction.governance.ownerId && (
                   <div className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 border rounded-md transition-all",
+                    "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all",
                     authAction.governance.ownerId === currentUser?.email 
-                      ? "bg-amber-50 border-amber-200 text-amber-700" 
-                      : "bg-slate-50 border-slate-200 text-slate-500"
+                      ? "bg-amber-500/10 text-amber-600" 
+                      : "bg-muted text-muted-foreground"
                   )}>
                     <Shield size={14} className={authAction.governance.ownerId === currentUser?.email ? "fill-amber-500" : ""} />
                     <span className="text-[10px] font-black uppercase tracking-wider">
@@ -379,35 +387,46 @@ const Dashboard: React.FC = () => {
                 )}
 
                 <button
+                  onClick={toggleTheme}
+                  className="p-3 text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
+                >
+                  {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
+                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-foreground text-background text-[9px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+                    Switch to {theme === "light" ? "Dark" : "Light"} Mode
+                  </span>
+                </button>
+                
+                <div className="w-px h-8 bg-border mx-2" />
+
+                <button
                   onClick={() => setIsCollaboratorsOpen(true)}
-                  className="p-3 text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-all relative group"
+                  className="p-3 text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
                 >
                   <Users size={20} />
                   {connectedClients.length > 1 && (
-                    <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-white" />
+                    <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-card" />
                   )}
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-slate-900 text-white text-[9px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-foreground text-background text-[9px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
                     {connectedClients.length} Online
                   </span>
                 </button>
               </div>
 
-            <div className="flex p-0.5 bg-muted/50 rounded-md border border-border">
+            <div className="flex p-0.5 bg-muted rounded-md">
               <button 
                 onClick={() => setViewMode("grid")} 
-                className={cn("p-1.5 rounded-sm transition-all", viewMode === "grid" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
+                className={cn("p-1.5 rounded-sm transition-all shadow-none", viewMode === "grid" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
               ><LayoutGrid size={14} /></button>
               <button 
                 onClick={() => setViewMode("list")} 
-                className={cn("p-1.5 rounded-sm transition-all", viewMode === "list" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
+                className={cn("p-1.5 rounded-sm transition-all shadow-none", viewMode === "list" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
               ><List size={14} /></button>
             </div>
             <button 
-              onClick={() => handleCreateDocument()} 
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md font-bold text-xs transition-all hover:bg-primary/90"
+              onClick={() => setCreateModal({ open: true })}
+              className="flex items-center gap-2 px-4 h-9 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-all text-[11px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"
             >
-              <Plus size={16} strokeWidth={2.5} />
-              <span>New Doc</span>
+              <Plus size={16} /> New Doc
             </button>
           </div>
         </header>
@@ -708,7 +727,7 @@ const Dashboard: React.FC = () => {
 };
 
 const SidebarItem = ({ icon, label, active = false, onClick }: { icon: any, label: string, active?: boolean, onClick: () => void }) => (
-  <button onClick={onClick} className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all group", active ? "bg-primary/5 text-primary border border-primary/20" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground")}>
+  <button onClick={onClick} className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-md transition-all group", active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground")}>
     <span className={cn("transition-all duration-300", active ? "text-primary" : "text-muted-foreground group-hover:text-primary")}>{icon}</span>
     <span className="text-xs font-semibold tracking-tight">{label}</span>
   </button>
@@ -734,15 +753,15 @@ const SortableItem = (props: any) => {
 // Maps template color names → Tailwind badge classes
 const templateBadgeClass = (color?: string) => {
   switch (color) {
-    case "blue":   return "bg-blue-100 text-blue-700";
-    case "green":  return "bg-green-100 text-green-700";
-    case "purple": return "bg-purple-100 text-purple-700";
-    case "amber":  return "bg-amber-100 text-amber-700";
-    case "rose":   return "bg-rose-100 text-rose-700";
-    case "cyan":   return "bg-cyan-100 text-cyan-700";
-    case "indigo": return "bg-indigo-100 text-indigo-700";
-    case "slate":  return "bg-slate-200 text-slate-600";
-    default:       return "bg-slate-100 text-slate-500";
+    case "blue":   return "bg-t-blue text-t-blue-foreground";
+    case "green":  return "bg-t-green text-t-green-foreground";
+    case "purple": return "bg-t-purple text-t-purple-foreground";
+    case "amber":  return "bg-t-amber text-t-amber-foreground";
+    case "rose":   return "bg-t-rose text-t-rose-foreground";
+    case "cyan":   return "bg-t-cyan text-t-cyan-foreground";
+    case "indigo": return "bg-t-indigo text-t-indigo-foreground";
+    case "slate":  return "bg-t-slate text-t-slate-foreground";
+    default:       return "bg-muted text-muted-foreground";
   }
 };
 
@@ -776,14 +795,14 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
         onClick={(e) => { e.stopPropagation(); onClick(); }} 
         onDoubleClick={onDoubleClick}
         className={cn(
-          "flex items-center justify-between p-3 border rounded-lg cursor-pointer group transition-all",
+          "flex items-center justify-between p-3 rounded-lg cursor-pointer group transition-all",
           isSelected 
-            ? "bg-primary/5 border-primary shadow-sm" 
-            : "bg-white border-border hover:border-primary/40 hover:bg-slate-50/50"
+            ? "bg-primary/5 ring-1 ring-primary shadow-sm" 
+            : "bg-card hover:bg-muted/50 shadow-sm hover:shadow-md"
         )}
       >
         <div className="flex items-center gap-4">
-          <div className={cn("p-2 rounded-md flex items-center justify-center border", isFolder ? "bg-amber-50 text-amber-600 border-amber-200/50" : "bg-primary/5 text-primary border-primary/20")}>
+          <div className={cn("p-2 rounded-md flex items-center justify-center", isFolder ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary")}>
             {isFolder ? <Folder size={18} /> : <FileText size={18} />}
           </div>
           <div className="flex flex-col gap-0.5">
@@ -815,17 +834,17 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
     <div className="flex flex-col gap-3 group relative cursor-pointer" onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick}>
       <div
         className={cn(
-          "aspect-[3/4] rounded-lg border bg-white shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center",
-          isSelected ? "border-primary ring-2 ring-primary/20 shadow-md scale-[1.02]" : "border-border hover:border-primary/40 hover:shadow-md",
-          isFolder ? "bg-amber-50/5" : ""
+          "aspect-[3/4] rounded-lg bg-card shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center",
+          isSelected ? "ring-2 ring-primary/40 shadow-xl scale-[1.03]" : "hover:shadow-lg",
+          isFolder ? "bg-amber-500/5 shadow-none hover:shadow-md" : ""
         )}
       >
         {isFolder ? (
           <div className="flex flex-col items-center gap-2">
-             <div className="p-4 bg-amber-50 border border-amber-100 rounded-md transition-transform duration-500">
+             <div className="p-4 bg-amber-500/10 rounded-md transition-transform duration-500">
                <Folder size={40} strokeWidth={1.5} className="text-amber-500/80" />
              </div>
-             <span className="text-[9px] font-bold uppercase text-amber-700/60 tracking-widest">Folder</span>
+             <span className="text-[9px] font-bold uppercase text-amber-600/60 tracking-widest">Folder</span>
           </div>
         ) : (
           <div className="w-full h-full rounded-md overflow-hidden p-1.5">
@@ -860,7 +879,7 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
 };
 
 const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, isFolder }: any) => (
-  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-border shadow-lg rounded-md p-1 z-50 animate-in fade-in zoom-in duration-150 origin-top-right">
+  <div className="absolute right-0 top-full mt-2 w-48 bg-popover border border-border shadow-lg rounded-md p-1 z-50 animate-in fade-in zoom-in duration-150 origin-top-right">
     <button onClick={(e) => { e.stopPropagation(); onRename(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Edit size={14} /> Rename</button>
     {!isFolder && <button onClick={(e) => { e.stopPropagation(); onCopy(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Copy to Clipboard</button>}
     <button onClick={(e) => { e.stopPropagation(); onDuplicate(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Duplicate</button>
@@ -895,7 +914,7 @@ const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {
           template.color === "cyan" && "bg-t-cyan",
           template.color === "indigo" && "bg-t-indigo",
           template.color === "slate" && "bg-t-slate",
-          !template.color && "bg-white"
+          !template.color && "bg-card"
         )}
       >
         <div className="p-2.5 bg-primary/5 rounded-md w-fit text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:scale-110">
@@ -913,14 +932,14 @@ const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {
       {/* More Button */}
       <button 
         onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-        className="absolute top-3 right-3 p-1.5 bg-white shadow-sm border border-border rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-slate-50"
+        className="absolute top-3 right-3 p-1.5 bg-card shadow-sm border border-border rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-muted"
       >
         <MoreHorizontal size={14} />
       </button>
 
       {/* Dropdown Menu */}
       {showMenu && (
-        <div className="absolute right-0 top-12 w-40 bg-white border border-border shadow-xl rounded-xl p-1 z-[60] origin-top-right animate-in fade-in zoom-in duration-150">
+        <div className="absolute right-0 top-12 w-40 bg-popover border border-border shadow-xl rounded-xl p-1 z-[60] origin-top-right animate-in fade-in zoom-in duration-150">
           <button 
             onClick={(e) => { e.stopPropagation(); onEdit(); setShowMenu(false); }}
             className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50 rounded-lg transition-all"
@@ -948,7 +967,7 @@ const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {
 };
 
 const TemplateSkeleton = () => (
-  <div className="flex-shrink-0 w-48 aspect-[3/4] rounded-lg border border-border bg-white p-5 flex flex-col justify-between overflow-hidden animate-pulse">
+  <div className="flex-shrink-0 w-48 aspect-[3/4] rounded-lg border border-border bg-card p-5 flex flex-col justify-between overflow-hidden animate-pulse">
     <div className="p-2.5 bg-muted/40 rounded-md w-10 h-10" />
     <div className="space-y-3">
       <div className="h-3 bg-muted/20 rounded-full w-3/4" />
@@ -963,7 +982,7 @@ const TemplateSkeleton = () => (
 const ItemSkeleton = ({ mode }: { mode: "grid" | "list" }) => {
   if (mode === "list") {
     return (
-      <div className="flex items-center justify-between p-3 bg-white border border-border rounded-lg animate-pulse">
+      <div className="flex items-center justify-between p-3 bg-card border border-border rounded-lg animate-pulse">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-muted/40 rounded-md" />
           <div className="flex flex-col gap-1.5">
@@ -977,7 +996,7 @@ const ItemSkeleton = ({ mode }: { mode: "grid" | "list" }) => {
 
   return (
     <div className="flex flex-col gap-3 group animate-pulse">
-      <div className="aspect-[3/4] rounded-lg border border-border bg-white p-4 flex flex-col gap-3 overflow-hidden shadow-sm">
+      <div className="aspect-[3/4] rounded-lg border border-border bg-card p-4 flex flex-col gap-3 overflow-hidden shadow-sm">
         <div className="flex justify-center mb-2">
           <div className="w-12 h-4 bg-muted/40 rounded-sm" />
         </div>
