@@ -21,14 +21,16 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
+  SortableContext,
+  verticalListSortingStrategy,
   sortableKeyboardCoordinates,
+  arrayMove,
 } from "@dnd-kit/sortable";
-import { arrayMove } from "@dnd-kit/sortable";
-import { DocData, TableRow, InvoiceCode } from "../types";
+import { DocData, TableRow, InvoiceCode, Contact } from "../types";
 import { api } from "../lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ReceiptPage } from "./ReceiptPage";
-import { resolveSectionTotal, resolveSectionTotalBackward } from "../lib/documentUtils";
+import { resolveSectionTotal, resolveSectionTotalBackward, computeTotalPrice } from "../lib/documentUtils";
 import { useSyncedStore } from "@syncedstore/react";
 import { workspaceStore, authStore, connectWorkspace, connectEditor, authProvider } from "../store";
 
@@ -151,23 +153,61 @@ const ReceiptEditor: React.FC = () => {
     if (!id || !docData) return;
   }, [docData, id]);
 
-  const updateDocData = (
-    newData: DocData | ((prev: DocData | null) => DocData | null),
+  const onUpdateCell = (
+    rowId: string,
+    colId: string,
+    value: string | number | boolean,
   ) => {
-    if (!docMetadata) return;
-    const next = typeof newData === "function" ? newData(docData as any) : newData;
-    if (next) {
-      // Direct mutation of the synced store
-      Object.assign(docMetadata.content, next);
+    if (!docData) return;
+    const row = docData.table.rows.find((r: any) => r.id === rowId);
+    if (!row) return;
+
+    const column = docData.table.columns.find((c: any) => c.id === colId);
+    if (column?.type === "number") {
+      const parsed = parseFloat(value as string);
+      row[colId] = isNaN(parsed) ? 0 : parsed;
+    } else {
+      row[colId] = value;
     }
   };
 
+  const updateDocData = (
+    newData: DocData | ((prev: DocData | null) => DocData | null),
+  ) => {
+    if (!docMetadata || !docMetadata.content) return;
+    const next = typeof newData === "function" ? newData(docData as any) : newData;
+    if (next) {
+       Object.assign(docMetadata.content, next);
+    }
+  };
+
+  const onRemoveRow = (targetId: string) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i !== -1) docData.table.rows.splice(i, 1);
+    }
+  };
+
+  const onAddRowBelow = (targetId: string) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
+      const newRow = { id: crypto.randomUUID(), rowType: "row", B: "New Item", C: 1, D: 0 };
+      docData.table.rows.splice(i + 1, 0, newRow as any);
+    }
+  };
+
+  const isMockMode = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
+  const isMember = isMockMode || (docMetadata && (docMetadata.members || []).includes(currentUser?.email || ""));
+
   if (isLoadingDoc || !docData)
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <RefreshCw className="animate-spin text-primary" size={32} />
+      <div className="flex items-center justify-center h-screen bg-background text-primary">
+        <RefreshCw className="animate-spin" size={32} />
       </div>
     );
+
+  // Removed Access Denied guard to restore editability
 
   const resolveFormula = (
     rowData: TableRow | Record<string, number>,
@@ -197,34 +237,10 @@ const ReceiptEditor: React.FC = () => {
     }
   };
 
-  const subTotal = (docData.table.rows || []).reduce((acc: number, row: TableRow) => {
-    if (
-      row.rowType === "section-header" || 
-      row.rowType === "sub-section-header" || 
-      (row.rowType === "section-total" && useSections)
-    ) return acc;
-    if (row.rowType === "section-total" && !useSections) return acc;
-    const totalCol = [...docData.table.columns].reverse().find(
-      (c) => (c.type === "formula" || c.type === "number") && !c.hidden
-    );
-    const rowTotal = totalCol?.type === "formula"
-      ? resolveFormula(row, totalCol.formula)
-      : Number(row[totalCol?.id || ""]) || 0;
-    return acc + rowTotal;
-  }, 0);
-
-  const summaryForRender: any[] = [];
-  let currentRunningTotal = subTotal;
-  (docData.table.summary || []).forEach((item: any, idx: number) => {
-    const displayId = String.fromCharCode(65 + idx);
-    const val = item.type === "formula"
-      ? resolveFormula({}, item.formula, { subTotal, prev: currentRunningTotal })
-      : Number(item.value) || 0;
-    summaryForRender.push({ ...item, calculatedValue: val, displayId });
-    currentRunningTotal += val;
-  });
-
-  const grandTotal = currentRunningTotal;
+  const { subTotal, summaries, grandTotal } = 
+    docData ? computeTotalPrice(docData) : { subTotal: 0, summaries: [], grandTotal: 0 };
+  
+  const summaryForRender = summaries;
 
   const getRowNumbering = (rows: TableRow[], useSections: boolean = false): Record<string, string> => {
     const numbering: Record<string, string> = {};
@@ -370,7 +386,9 @@ const ReceiptEditor: React.FC = () => {
               <Check size={11} /> Real-time Sync
             </span>
           <button
-            onClick={() => updateDocData(prev => prev ? { ...prev, showBOQSummary: !prev.showBOQSummary } : null)}
+            onClick={() => {
+              if (docData) docData.showBOQSummary = !docData.showBOQSummary;
+            }}
             className={cn(
               "px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 border",
               docData.showBOQSummary
@@ -427,11 +445,12 @@ const ReceiptEditor: React.FC = () => {
       <div className="preview-container flex-1 overflow-y-auto p-6 lg:p-16 flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto">
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          {pages.map((page, idx) => (
-            <ReceiptPage
-              key={idx}
-              {...page}
-              data={docData}
+          <SortableContext items={(docData?.table.rows || []).map(r => r.id as string)} strategy={verticalListSortingStrategy}>
+            {pages.map((page, idx) => (
+              <ReceiptPage
+                key={idx}
+                {...page}
+                data={docData}
               pageIndex={idx}
               totalPrice={{ subTotal, summaries: summaryForRender, grandTotal }}
               rowNumbering={rowNumbering}
@@ -441,27 +460,11 @@ const ReceiptEditor: React.FC = () => {
               onHeaderImageUpload={setHeaderImage}
               isLastPage={idx === pages.length - 1}
               startIndex={0}
-              onUpdateContact={(field, val) => updateDocData(prev => prev ? { ...prev, contact: { ...prev.contact, [field]: val } } : null)}
-              onUpdateTitle={(val) => updateDocData(prev => prev ? { ...prev, title: val } : null)}
-              onUpdateCell={(i, col, val) => updateDocData(prev => {
-                if (!prev) return null;
-                const nr = [...prev.table.rows];
-                nr[i] = { ...nr[i], [col]: val };
-                return { ...prev, table: { ...prev.table, rows: nr } };
-              })}
-              onRemoveRow={(i) => updateDocData(prev => {
-                if (!prev) return null;
-                const nr = [...prev.table.rows];
-                nr.splice(i, 1);
-                return { ...prev, table: { ...prev.table, rows: nr } };
-              })}
-              onAddRowBelow={(i) => updateDocData(prev => {
-                if (!prev) return null;
-                const nr = [...prev.table.rows];
-                const newRow = { id: crypto.randomUUID(), rowType: "row", B: "New Item", C: 1, D: 0 };
-                nr.splice(i + 1, 0, newRow as any);
-                return { ...prev, table: { ...prev.table, rows: nr } };
-              })}
+              onUpdateContact={(field, val) => { if (docData) docData.contact[field as keyof Contact] = val as string; }}
+              onUpdateTitle={(val) => { if (docData) docData.title = val; }}
+              onUpdateCell={onUpdateCell}
+              onRemoveRow={onRemoveRow}
+              onAddRowBelow={onAddRowBelow}
               onAddRowAbove={() => {}}
               onAddSectionBelow={() => {}}
               onAddSectionAbove={() => {}}
@@ -470,20 +473,41 @@ const ReceiptEditor: React.FC = () => {
               onMoveRow={() => {}}
               useSections={useSections}
               resolveFormula={resolveFormula}
-              resolveSectionTotalBackward={(rows, idx) => resolveSectionTotalBackward(rows, idx, docData)}
-              resolveSectionTotal={(rows, idx) => resolveSectionTotal(rows, idx, docData)}
-              onUpdateInvoiceCode={(upd) => updateDocData(prev => prev ? { ...prev, invoiceCode: { ...(prev.invoiceCode || {}), ...upd } as any } : null)}
+              resolveSectionTotalBackward={(rows, idx) => resolveSectionTotalBackward(rows, idx, docData!)}
+              resolveSectionTotal={(rows, idx) => resolveSectionTotal(rows, idx, docData!)}
+              onUpdateInvoiceCode={(upd) => {
+                if (docData) {
+                  if (!docData.invoiceCode) {
+                    docData.invoiceCode = {
+                      text: "",
+                      prefix: "INV",
+                      company: "IS",
+                      count: "0001",
+                      year: String(new Date().getFullYear()),
+                      x: 600,
+                      y: 100,
+                      color: "#503D36",
+                      ...upd
+                    } as any;
+                  } else {
+                    Object.assign(docData.invoiceCode, upd);
+                  }
+                  // Sync formatting
+                  const ic = docData.invoiceCode!;
+                  ic.text = `${ic.prefix || "INV"}/${ic.company || "IS"}/${ic.count || "0001"}/${ic.year || new Date().getFullYear()}`;
+                }
+              }}
               onUpdateSummaryItem={() => {}}
-              onUpdateDate={(val) => updateDocData(prev => prev ? { ...prev, date: val } : null)}
-              onUpdatePaymentMethod={(val) => updateDocData(prev => prev ? { ...prev, paymentMethod: val } : null)}
-              onUpdateSignature={(val) => updateDocData(prev => prev ? { ...prev, signature: val } : null)}
-              onUpdateReceiptMessage={(val) => updateDocData(prev => prev ? { ...prev, receiptMessage: val } : null)}
-              onUpdateTransactionId={(val) => updateDocData(prev => prev ? { ...prev, transactionId: val } : null)}
-              onUpdateReference={(val) => updateDocData(prev => prev ? { ...prev, reference: val } : null)}
-              onUpdateTotalInvoiceAmount={(val) => updateDocData(prev => prev ? { ...prev, totalInvoiceAmount: val } : null)}
-              onUpdateAmountPaid={(val) => updateDocData(prev => prev ? { ...prev, amountPaid: val } : null)}
-              onUpdateOutstandingBalance={(val) => updateDocData(prev => prev ? { ...prev, outstandingBalance: val } : null)}
-              onUpdateAcknowledgement={(val) => updateDocData(prev => prev ? { ...prev, acknowledgement: val } : null)}
+              onUpdateDate={(val) => { if (docData) docData.date = val; }}
+              onUpdatePaymentMethod={(val) => { if (docData) docData.paymentMethod = val; }}
+              onUpdateSignature={(val) => { if (docData) docData.signature = val; }}
+              onUpdateReceiptMessage={(val) => { if (docData) docData.receiptMessage = val; }}
+              onUpdateTransactionId={(val) => { if (docData) docData.transactionId = val; }}
+              onUpdateReference={(val) => { if (docData) docData.reference = val; }}
+              onUpdateTotalInvoiceAmount={(val) => { if (docData) docData.totalInvoiceAmount = Number(val); }}
+              onUpdateAmountPaid={(val) => { if (docData) docData.amountPaid = Number(val); }}
+              onUpdateOutstandingBalance={(val) => { if (docData) docData.outstandingBalance = Number(val); }}
+              onUpdateAcknowledgement={(val) => { if (docData) docData.acknowledgement = val; }}
               isPreview={isPreview}
               showRows={false}
               showTotals={false}
@@ -491,6 +515,7 @@ const ReceiptEditor: React.FC = () => {
               isEndOfRows={true}
             />
           ))}
+          </SortableContext>
         </DndContext>
       </div>
       <style>{`

@@ -35,9 +35,12 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const BoardingRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, businessId, loading } = useAuth();
+  const queryParams = new URLSearchParams(window.location.search);
+  const isJoining = queryParams.has('join');
+
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  if (businessId) return <Navigate to="/dashboard" replace />;
+  if (businessId && !isJoining) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 };
 

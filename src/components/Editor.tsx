@@ -68,55 +68,7 @@ import {
   resolveSectionTotal
 } from "../lib/documentUtils";
 
-interface A4PageProps {
-  data: DocData;
-  rows: TableRow[];
-  pageIndex: number;
-  totalPrice: TotalPrice | null;
-  headerImage: string;
-  headerHeight: number;
-  onHeaderResize: (e: React.MouseEvent) => void;
-  isFirstPage: boolean;
-  isLastPage: boolean;
-  startIndex: number;
-  onUpdateContact: (field: keyof Contact, value: string) => void;
-  onUpdateTitle: (value: string) => void;
-  onUpdateCell: (
-    rowIndex: number,
-    colId: string,
-    value: string | number | boolean,
-  ) => void;
-  onRemoveRow: (index: number) => void;
-  onAddRowBelow: (index: number) => void;
-  onAddRowAbove: (index: number) => void;
-  onAddSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
-  onAddSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
-  onMoveRow: (index: number, direction: "up" | "down") => void;
-  onAddSubSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
-  onAddSubSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
-  useSections: boolean;
-  resolveFormula: (
-    data: TableRow | Record<string, number>,
-    formula: string | undefined,
-    context?: Record<string, number>,
-  ) => number;
-  onUpdateInvoiceCode: (updates: Partial<InvoiceCode>) => void;
-  onUpdateSummaryItem: (id: string, label: string) => void;
-  onUpdateDate: (value: string) => void;
-  showRows: boolean;
-  showTotals: boolean;
-  showFooter: boolean;
-  isPreview: boolean;
-  isEndOfRows: boolean;
-  rowNumbering: Record<string, string>;
-  resolveSectionTotalBackward: (rows: TableRow[], fromIdx: number) => number;
-  resolveSectionTotal: (rows: TableRow[], fromIdx: number) => number;
-  onUpdatePaymentMethod: (val: string) => void;
-  onUpdateTransactionId: (val: string) => void;
-  onUpdateReference: (val: string) => void;
-  onUpdateSignature: (val: string) => void;
-  onUpdateReceiptMessage: (val: string) => void;
-}
+import { A4PageProps } from "./A4PageProps";
 
 const SortableSummaryItem = ({
   item,
@@ -313,12 +265,11 @@ const Editor: React.FC = () => {
   const updateDocData = (
     newData: DocData | ((prev: DocData | null) => DocData | null),
   ) => {
-    if (!docMetadata) return;
+    if (!docMetadata || !docMetadata.content) return;
     const next = typeof newData === "function" ? newData(docData as any) : newData;
     if (next) {
-      // Direct mutation of the synced store content
-      // Note: For full CRDT benefit, we should mutate sub-properties, but Object.assign is a good first pass
-      Object.assign(docMetadata.content, next);
+       // Direct Mutation on the proxy is the native and fastest way for SyncedStore
+       Object.assign(docMetadata.content, next);
     }
   };
 
@@ -348,13 +299,11 @@ const Editor: React.FC = () => {
     extensions: [StarterKit],
     content: docData?.footer.notes || "",
     onUpdate: ({ editor }) => {
-      updateDocData((prev: DocData | null) =>
-        prev
-          ? { ...prev, footer: { ...prev.footer, notes: editor.getHTML() } }
-          : null,
-      );
+      if (docData) docData.footer.notes = editor.getHTML();
     },
+    immediatelyRender: false,
   });
+//  Riverside
 
   useEffect(() => {
     if (
@@ -387,24 +336,28 @@ const Editor: React.FC = () => {
   }, [docData]);
 
   const onUpdateInvoiceCode = (updates: Partial<InvoiceCode>) => {
-    updateDocData((prev) => {
-      if (!prev) return null;
-      const current = prev.invoiceCode || {
+    if (!docData) return;
+    if (!docData.invoiceCode) {
+      docData.invoiceCode = {
         text: "",
         prefix: "INV",
-        count: api.getNextInvoiceCount(),
+        company: "IS",
+        count: "0001",
         year: String(new Date().getFullYear()),
         x: 600,
         y: 100,
         color: "#503D36",
-      };
-
-      const next = { ...current, ...updates };
-      // Sync the combined text field — format: PREFIX/COMPANY/COUNT/YEAR
-      next.text = `${next.prefix || "INV"}/${next.company || "IS"}/${next.count || "0001"}/${next.year || new Date().getFullYear()}`;
-
-      return { ...prev, invoiceCode: next };
-    });
+        ...updates
+      } as any;
+    } else {
+      Object.assign(docData.invoiceCode, updates);
+    }
+    
+    // Sync the combined text field — format: PREFIX/COMPANY/COUNT/YEAR
+    const ic = docData.invoiceCode;
+    if (ic) {
+      ic.text = `${ic.prefix || "INV"}/${ic.company || "IS"}/${ic.count || "0001"}/${ic.year || new Date().getFullYear()}`;
+    }
   };
 
   const handleRawImport = () => {
@@ -452,139 +405,125 @@ const Editor: React.FC = () => {
       }
     });
 
-    if (
-      newRows.length > 0 ||
-      newTitle !== docData.title ||
-      JSON.stringify(newContact) !== JSON.stringify(docData.contact)
-    ) {
-      const updated = {
-        ...docData,
-        contact: newContact,
-        title: newTitle,
-        table: {
-          ...docData.table,
-          rows: newRows.length > 0 ? [...newRows] : docData.table.rows,
-        },
-      };
-      updateDocData(updated);
-      setJsonInput(JSON.stringify(updated, null, 2));
+    if (docData) {
+      if (newRows.length > 0) {
+        docData.table.rows.splice(0, docData.table.rows.length, ...newRows);
+      }
+      docData.title = newTitle;
+      Object.assign(docData.contact, newContact);
+      setJsonInput(JSON.stringify(docData, null, 2));
     }
   };
 
   const handleApplyJson = () => {
     try {
-      if (!jsonInput.trim()) return;
+      if (!jsonInput.trim() || !docData) return;
       const parsed = JSON.parse(jsonInput);
-      updateDocData(parsed);
+      // Carefully merge into the proxy without destroying it
+      Object.assign(docData, parsed);
     } catch (e) {
       alert("Invalid JSON format. Please check your syntax.");
     }
   };
 
-  const onMoveRow = (i: number, dir: "up" | "down") => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
+  const onMoveRow = (targetId: string, dir: "up" | "down") => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
       const target = dir === "up" ? i - 1 : i + 1;
-      if (target < 0 || target >= nr.length) return prev;
-      [nr[i], nr[target]] = [nr[target], nr[i]];
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+      if (target < 0 || target >= docData.table.rows.length) return;
+      const [movedItem] = docData.table.rows.splice(i, 1);
+      docData.table.rows.splice(target, 0, movedItem);
+    }
   };
 
-  const onAddSectionBelow = (i: number, numbered?: boolean) => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
-      nr.splice(i + 1, 0, {
+  const onAddSectionBelow = (targetId: string, numbered?: boolean) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
+      docData.table.rows.splice(i + 1, 0, {
         id: crypto.randomUUID(),
         rowType: "section-header",
         sectionTitle: "New Section",
         affectsNumbering: numbered ?? true,
       });
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+    }
   };
 
-  const onAddSectionAbove = (i: number, numbered?: boolean) => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
-      nr.splice(i, 0, {
+  const onAddSectionAbove = (targetId: string, numbered?: boolean) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
+      docData.table.rows.splice(i, 0, {
         id: crypto.randomUUID(),
         rowType: "section-header",
         sectionTitle: "New Section",
         affectsNumbering: numbered ?? true,
       });
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+    }
   };
 
-  const onRemoveRow = (i: number) => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
-      nr.splice(i, 1);
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+  const onRemoveRow = (targetId: string) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i !== -1) {
+        docData.table.rows.splice(i, 1);
+      }
+    }
   };
 
-  const onAddSubSectionBelow = (i: number, numbered?: boolean, type?: TableRow["rowType"]) => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
+  const onAddSubSectionBelow = (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
       const actualType = type ?? "sub-section-header";
-      nr.splice(i + 1, 0, {
+      docData.table.rows.splice(i + 1, 0, {
         id: crypto.randomUUID(),
         rowType: actualType,
         sectionTitle: actualType === "section-total" ? "Section Total" : "New Sub-section",
         affectsNumbering: numbered ?? true,
       });
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+    }
   };
 
-  const onAddSubSectionAbove = (i: number, numbered?: boolean, type?: TableRow["rowType"]) => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
+  const onAddSubSectionAbove = (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
       const actualType = type ?? "sub-section-header";
-      nr.splice(i, 0, {
+      docData.table.rows.splice(i, 0, {
         id: crypto.randomUUID(),
         rowType: actualType,
         sectionTitle: actualType === "section-total" ? "Section Total" : "New Sub-section",
         affectsNumbering: numbered ?? true,
       });
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+    }
   };
 
-  const onAddRowBelow = (i: number) => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
+  const onAddRowBelow = (targetId: string) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
       const newRow: TableRow = { id: crypto.randomUUID(), rowType: "row" };
-      prev.table.columns.forEach((col) => {
+      docData.table.columns.forEach((col) => {
         if (col.type === "index") return;
         newRow[col.id] = col.type === "number" ? 0 : "";
       });
-      nr.splice(i + 1, 0, newRow);
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+      docData.table.rows.splice(i + 1, 0, newRow as any);
+    }
   };
 
-  const onAddRowAbove = (i: number) => {
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
+  const onAddRowAbove = (targetId: string) => {
+    if (docData) {
+      const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
+      if (i === -1) return;
       const newRow: TableRow = { id: crypto.randomUUID(), rowType: "row" };
-      prev.table.columns.forEach((col) => {
+      docData.table.columns.forEach((col) => {
         if (col.type === "index") return;
         newRow[col.id] = col.type === "number" ? 0 : "";
       });
-      nr.splice(i, 0, newRow);
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+      docData.table.rows.splice(i, 0, newRow as any);
+    }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -592,11 +531,11 @@ const Editor: React.FC = () => {
     if (over && active.id !== over.id && docData) {
       const oldIndex = docData.table.rows.findIndex((r) => r.id === active.id);
       const newIndex = docData.table.rows.findIndex((r) => r.id === over.id);
-      const updatedRows = arrayMove(docData.table.rows, oldIndex, newIndex);
-      updateDocData({
-        ...docData,
-        table: { ...docData.table, rows: updatedRows },
-      });
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const item = docData.table.rows[oldIndex];
+        docData.table.rows.splice(oldIndex, 1);
+        docData.table.rows.splice(newIndex, 0, item);
+      }
     }
   };
 
@@ -609,11 +548,11 @@ const Editor: React.FC = () => {
       const newIndex = docData.table.summary.findIndex(
         (s) => s.id === over?.id,
       );
-      const newSummary = arrayMove(docData.table.summary, oldIndex, newIndex);
-      updateDocData({
-        ...docData,
-        table: { ...docData.table, summary: newSummary },
-      });
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const item = docData.table.summary[oldIndex];
+        docData.table.summary.splice(oldIndex, 1);
+        docData.table.summary.splice(newIndex, 0, item);
+      }
     }
   };
 
@@ -636,10 +575,8 @@ const Editor: React.FC = () => {
 
   const getLetterId = (idx: number) => String.fromCharCode(65 + idx);
 
-  const { subTotal, summaries, grandTotal } = useMemo(() => {
-    if (!docData) return { subTotal: 0, summaries: [], grandTotal: 0 };
-    return computeTotalPrice(docData);
-  }, [docData]);
+  const { subTotal, summaries, grandTotal } = 
+    docData ? computeTotalPrice(docData) : { subTotal: 0, summaries: [], grandTotal: 0 };
 
   const totalPriceObj: TotalPrice = {
     subTotal,
@@ -665,6 +602,9 @@ const Editor: React.FC = () => {
     [docData, headerHeight, useSections],
   );
 
+  const isMockMode = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
+  const isMember = isMockMode || (docMetadata && (docMetadata.members || []).includes(currentUser?.email || ""));
+
   if (isLoadingDoc || !docData)
     return (
       <div className="flex items-center justify-center h-screen bg-background text-muted-foreground">
@@ -672,64 +612,70 @@ const Editor: React.FC = () => {
       </div>
     );
 
-  const onUpdateContact = (field: keyof Contact, value: string) =>
-    updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, contact: { ...prev.contact, [field]: value } } : null,
-    );
+  // Removed Access Denied guard to restore editability
 
-  const onUpdateTitle = (value: string) =>
-    updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, title: value } : null,
-    );
+  const onUpdateContact = (field: keyof Contact, value: string) => {
+    if (docData) docData.contact[field] = value;
+  };
+
+  const onUpdateTitle = (value: string) => {
+    if (docData) docData.title = value;
+  };
 
   const onUpdateCell = (
-    rowIndex: number,
+    rowId: string, // Changed from rowIndex to rowId
     colId: string,
     value: string | number | boolean,
-  ) =>
-    updateDocData((prev: DocData | null) => {
-      if (!prev) return null;
-      const nr = [...prev.table.rows];
-      nr[rowIndex] = { ...nr[rowIndex], [colId]: value };
-      return { ...prev, table: { ...prev.table, rows: nr } };
-    });
+  ) => {
+    if (!docData) return;
+    
+    // 1. Find the exact row by ID, not index
+    const row = docData.table.rows.find((r: any) => r.id === rowId);
+    if (!row) return;
 
-  const onUpdateSummaryItem = (id: string, label: string) =>
-    updateDocData((prev) => {
-      if (!prev) return null;
-      const ns = prev.table.summary.map((s) =>
-        s.id === id ? { ...s, label } : s,
-      );
-      return { ...prev, table: { ...prev.table, summary: ns } };
-    });
+    // 2. Check if the column is meant to be a number
+    const column = docData.table.columns.find((c: any) => c.id === colId);
+    const isNumeric = column?.type === "number";
 
-  const onUpdateDate = (v: string) =>
-    updateDocData((prev: DocData | null) => (prev ? { ...prev, date: v } : null));
+    // 3. Mutate the SyncedStore proxy directly and cast numbers!
+    if (isNumeric) {
+      const parsed = parseFloat(value as string);
+      row[colId] = isNaN(parsed) ? 0 : parsed;
+    } else {
+      row[colId] = value;
+    }
+  };
 
-  const onUpdatePaymentMethod = (v: string) =>
-    updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, paymentMethod: v } : null,
-    );
+  const onUpdateSummaryItem = (id: string, label: string) => {
+    if (docData) {
+      const item = docData.table.summary.find((s) => s.id === id);
+      if (item) item.label = label;
+    }
+  };
 
-  const onUpdateTransactionId = (v: string) =>
-    updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, transactionId: v } : null,
-    );
+  const onUpdateDate = (v: string) => {
+    if (docData) docData.date = v;
+  };
 
-  const onUpdateReference = (v: string) =>
-    updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, reference: v } : null,
-    );
+  const onUpdatePaymentMethod = (v: string) => {
+    if (docData) docData.paymentMethod = v;
+  };
 
-  const onUpdateSignature = (v: string) =>
-    updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, signature: v } : null,
-    );
+  const onUpdateTransactionId = (v: string) => {
+    if (docData) docData.transactionId = v;
+  };
 
-  const onUpdateReceiptMessage = (v: string) =>
-    updateDocData((prev: DocData | null) =>
-      prev ? { ...prev, receiptMessage: v } : null,
-    );
+  const onUpdateReference = (v: string) => {
+    if (docData) docData.reference = v;
+  };
+
+  const onUpdateSignature = (v: string) => {
+    if (docData) docData.signature = v;
+  };
+
+  const onUpdateReceiptMessage = (v: string) => {
+    if (docData) docData.receiptMessage = v;
+  };
 
   const pagesToDisplay = pages;
 
@@ -857,48 +803,30 @@ const Editor: React.FC = () => {
                               summaryForRender[idx]?.calculatedValue || 0
                             }
                             onUpdate={(updates) => {
-                              const newSummary = [...docData.table.summary];
-                              newSummary[idx] = { ...item, ...updates };
-                              updateDocData({
-                                ...docData,
-                                table: {
-                                  ...docData.table,
-                                  summary: newSummary,
-                                },
-                              });
+                              if (docData?.table.summary[idx]) {
+                                Object.assign(docData.table.summary[idx], updates);
+                              }
                             }}
                             onRemove={() => {
-                              const newSummary = docData.table.summary.filter(
-                                (_, i) => i !== idx,
-                              );
-                              updateDocData({
-                                ...docData,
-                                table: {
-                                  ...docData.table,
-                                  summary: newSummary,
-                                },
-                              });
+                              if (docData) {
+                                docData.table.summary.splice(idx, 1);
+                              }
                             }}
                           />
                         ))}
                       </SortableContext>
                     </DndContext>
                     <button
-                      onClick={() => {
-                        const newSummary = [
-                          ...docData.table.summary,
-                          {
-                            id: crypto.randomUUID(),
-                            label: "New Adjustment",
-                            type: "formula" as const,
-                            formula: "prev * 0",
-                          },
-                        ];
-                        updateDocData({
-                          ...docData,
-                          table: { ...docData.table, summary: newSummary },
-                        });
-                      }}
+                        onClick={() => {
+                          if (docData) {
+                            docData.table.summary.push({
+                              id: crypto.randomUUID(),
+                              label: "New Adjustment",
+                              type: "formula" as const,
+                              formula: "prev * 0",
+                            });
+                          }
+                        }}
                       className="w-full py-3 border-2 border-dashed border-border/60 rounded-2xl text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/10 transition-all flex items-center justify-center gap-2 mt-2"
                     >
                       <Plus size={14} /> Add Calculation
@@ -944,34 +872,16 @@ const Editor: React.FC = () => {
                           value={item.value}
                           placeholder="Value"
                           onChange={(e) => {
-                            const newEmphasis = [
-                              ...(docData.footer.emphasis || []),
-                            ];
-                            newEmphasis[idx] = {
-                              ...item,
-                              value: e.target.value,
-                            };
-                            updateDocData({
-                              ...docData,
-                              footer: {
-                                ...docData.footer,
-                                emphasis: newEmphasis,
-                              },
-                            });
+                            if (docData?.footer.emphasis) {
+                              docData.footer.emphasis[idx].value = e.target.value;
+                            }
                           }}
                         />
                         <button
                           onClick={() => {
-                            const newEmphasis = (
-                              docData.footer.emphasis || []
-                            ).filter((_, i) => i !== idx);
-                            updateDocData({
-                              ...docData,
-                              footer: {
-                                ...docData.footer,
-                                emphasis: newEmphasis,
-                              },
-                            });
+                            if (docData?.footer.emphasis) {
+                              docData.footer.emphasis.splice(idx, 1);
+                            }
                           }}
                           className="p-1 transition-colors text-muted-foreground/30 hover:text-destructive"
                         >
@@ -981,14 +891,10 @@ const Editor: React.FC = () => {
                     ))}
                     <button
                       onClick={() => {
-                        const newEmphasis = [
-                          ...(docData.footer.emphasis || []),
-                          { key: "Label", value: "Value" },
-                        ];
-                        updateDocData({
-                          ...docData,
-                          footer: { ...docData.footer, emphasis: newEmphasis },
-                        });
+                        if (docData) {
+                          if (!docData.footer.emphasis) docData.footer.emphasis = [];
+                          docData.footer.emphasis.push({ key: "Label", value: "Value" });
+                        }
                       }}
                       className="w-full py-3 border-2 border-dashed border-border/60 rounded-2xl text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/10 transition-all flex items-center justify-center gap-2"
                     >
@@ -1058,7 +964,7 @@ const Editor: React.FC = () => {
                         Use Sections
                       </span>
                       <button
-                        onClick={() => updateDocData(prev => prev ? { ...prev, useSections: !useSections } : null)}
+                        onClick={() => { if (docData) docData.useSections = !docData.useSections; }}
                         className={cn(
                           "px-3 py-1.5 text-[9px] font-black uppercase rounded-lg border transition-all",
                           useSections
@@ -1074,7 +980,7 @@ const Editor: React.FC = () => {
                         BOQ Summary
                       </span>
                       <button
-                        onClick={() => updateDocData(prev => prev ? { ...prev, showBOQSummary: !showBOQSummary } : null)}
+                        onClick={() => { if (docData) docData.showBOQSummary = !docData.showBOQSummary; }}
                         className={cn(
                           "px-3 py-1.5 text-[9px] font-black uppercase rounded-lg border transition-all",
                           showBOQSummary
@@ -1103,18 +1009,12 @@ const Editor: React.FC = () => {
                         {col.label}
                       </span>
                       <button
-                        onClick={() =>
-                          updateDocData((prev) => {
-                            if (!prev) return null;
-                            const nc = prev.table.columns.map((c) =>
-                              c.id === col.id ? { ...c, hidden: !c.hidden } : c,
-                            );
-                            return {
-                              ...prev,
-                              table: { ...prev.table, columns: nc },
-                            };
-                          })
-                        }
+                        onClick={() => {
+                          if (docData) {
+                            const c = docData.table.columns.find(x => x.id === col.id);
+                            if (c) c.hidden = !c.hidden;
+                          }
+                        }}
                         className={cn(
                           "px-3 py-1.5 text-[9px] font-black uppercase rounded-lg border transition-all",
                           col.hidden
@@ -1185,67 +1085,69 @@ const Editor: React.FC = () => {
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            {pages.map((page, pageIndex) => (
-              <A4Page
-                key={pageIndex}
-                data={docData}
-                rows={page.rows}
-                pageIndex={pageIndex}
-                totalPrice={{ subTotal, summaries: summaryForRender, grandTotal }}
-                headerImage={headerImage}
-                headerHeight={headerHeight}
-                onHeaderResize={handleHeaderResize}
-                isFirstPage={pageIndex === 0}
-                isLastPage={pageIndex === pages.length - 1}
-                startIndex={page.startIndex}
-                isEndOfRows={page.isEndOfRows}
-                showRows={page.showRows}
-                showTotals={page.showTotals}
-                showFooter={page.showFooter}
-                rowNumbering={rowNumbering}
-                onUpdateContact={onUpdateContact}
-                onUpdateTitle={onUpdateTitle}
-                onUpdateCell={onUpdateCell}
-                onRemoveRow={onRemoveRow}
-                onAddRowBelow={onAddRowBelow}
-                onAddRowAbove={onAddRowAbove}
-                onAddSectionBelow={onAddSectionBelow}
-                onAddSectionAbove={onAddSectionAbove}
-                onAddSubSectionBelow={onAddSubSectionBelow}
-                onAddSubSectionAbove={onAddSubSectionAbove}
-                onMoveRow={onMoveRow}
-                onUpdatePaymentMethod={onUpdatePaymentMethod}
-                onUpdateSignature={onUpdateSignature}
-                useSections={useSections}
-                resolveFormula={resolveFormula}
-                resolveSectionTotalBackward={resolveSectionTotalBackwardWrapper}
-                resolveSectionTotal={resolveSectionTotalWrapper}
-                onUpdateInvoiceCode={(updates) =>
-                  updateDocData((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          invoiceCode: {
-                            ...(prev.invoiceCode || {
-                              text: "",
-                              x: 0,
-                              y: 0,
-                              color: "",
-                            }),
-                            ...updates,
-                          },
-                        }
-                      : null,
-                  )
-                }
-                onUpdateSummaryItem={onUpdateSummaryItem}
-                onUpdateDate={onUpdateDate}
-                onUpdateReceiptMessage={onUpdateReceiptMessage}
-                onUpdateTransactionId={onUpdateTransactionId}
-                onUpdateReference={onUpdateReference}
-                isPreview={isPreview}
-              />
-            ))}
+            <SortableContext 
+              items={(docData?.table.rows || []).map(r => r.id as string)}
+              strategy={verticalListSortingStrategy}
+            >
+              {pages.map((page, pageIndex) => (
+                <A4Page
+                  key={pageIndex}
+                  data={docData}
+                  rows={page.rows}
+                  pageIndex={pageIndex}
+                  totalPrice={{ subTotal, summaries: summaryForRender, grandTotal }}
+                  headerImage={headerImage}
+                  headerHeight={headerHeight}
+                  onHeaderResize={handleHeaderResize}
+                  isFirstPage={pageIndex === 0}
+                  isLastPage={pageIndex === pages.length - 1}
+                  startIndex={page.startIndex}
+                  isEndOfRows={page.isEndOfRows}
+                  showRows={page.showRows}
+                  showTotals={page.showTotals}
+                  showFooter={page.showFooter}
+                  rowNumbering={rowNumbering}
+                  onUpdateContact={onUpdateContact}
+                  onUpdateTitle={onUpdateTitle}
+                  onUpdateCell={onUpdateCell}
+                  onRemoveRow={onRemoveRow}
+                  onAddRowBelow={onAddRowBelow}
+                  onAddRowAbove={onAddRowAbove}
+                  onAddSectionBelow={onAddSectionBelow}
+                  onAddSectionAbove={onAddSectionAbove}
+                  onAddSubSectionBelow={onAddSubSectionBelow}
+                  onAddSubSectionAbove={onAddSubSectionAbove}
+                  onMoveRow={onMoveRow}
+                  onUpdatePaymentMethod={onUpdatePaymentMethod}
+                  onUpdateSignature={onUpdateSignature}
+                  useSections={useSections}
+                  resolveFormula={resolveFormula}
+                  resolveSectionTotalBackward={resolveSectionTotalBackwardWrapper}
+                  resolveSectionTotal={resolveSectionTotalWrapper}
+                  onUpdateInvoiceCode={(updates) => {
+                    if (docData) {
+                      if (!docData.invoiceCode) {
+                        docData.invoiceCode = {
+                          text: "",
+                          x: 0,
+                          y: 0,
+                          color: "",
+                          ...updates
+                        } as any;
+                      } else {
+                        Object.assign(docData.invoiceCode, updates);
+                      }
+                    }
+                  }}
+                  onUpdateSummaryItem={onUpdateSummaryItem}
+                  onUpdateDate={onUpdateDate}
+                  onUpdateReceiptMessage={onUpdateReceiptMessage}
+                  onUpdateTransactionId={onUpdateTransactionId}
+                  onUpdateReference={onUpdateReference}
+                  isPreview={isPreview}
+                />
+              ))}
+            </SortableContext>
           </DndContext>
         </div>
       </div>
@@ -1343,30 +1245,30 @@ interface SortableRowProps {
   data: DocData;
   isPreview: boolean;
   onUpdateCell: (
-    rowIndex: number,
+    rowId: string, // Changed from rowIndex to rowId
     colId: string,
     value: string | number | boolean,
   ) => void;
-  onRemoveRow: (index: number) => void;
-  onAddRowBelow: (index: number) => void;
-  onAddRowAbove: (index: number) => void;
+  onRemoveRow: (targetId: string) => void;
+  onAddRowBelow: (targetId: string) => void;
+  onAddRowAbove: (targetId: string) => void;
   onAddSectionBelow: (
-    index: number,
+    targetId: string,
     numbered?: boolean,
     type?: TableRow["rowType"],
   ) => void;
   onAddSectionAbove: (
-    index: number,
+    targetId: string,
     numbered?: boolean,
     type?: TableRow["rowType"],
   ) => void;
   onAddSubSectionBelow: (
-    index: number,
+    targetId: string,
     numbered?: boolean,
     type?: TableRow["rowType"],
   ) => void;
   onAddSubSectionAbove: (
-    index: number,
+    targetId: string,
     numbered?: boolean,
     type?: TableRow["rowType"],
   ) => void;
@@ -1559,11 +1461,11 @@ const SortableRow: React.FC<SortableRowProps> = ({
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
                     <RowActionsMenu
-                      onRemove={() => onRemoveRow(startIndex + idx)}
-                      onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx, true)}
-                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx)}
-                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      onRemove={() => onRemoveRow(id)}
+                      onAddRowBelow={() => onAddRowBelow(id)}
+                      onAddSectionBelow={() => onAddSectionBelow(id, true)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(id)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(id, false, "section-total")}
                       useSections={useSections}
                       onOpenChange={setIsMenuOpen}
                     />
@@ -1577,7 +1479,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
           <Editable
             value={row.sectionTitle || "New Section"}
             onSave={(val) =>
-              onUpdateCell(startIndex + idx, "sectionTitle", val as string)
+              onUpdateCell(id, "sectionTitle", val as string)
             }
             className="text-[14px] font-bold text-slate-900"
             readOnly={isPreview}
@@ -1621,11 +1523,11 @@ const SortableRow: React.FC<SortableRowProps> = ({
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
                     <RowActionsMenu
-                      onRemove={() => onRemoveRow(startIndex + idx)}
-                      onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx, true)}
-                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx)}
-                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      onRemove={() => onRemoveRow(id)}
+                      onAddRowBelow={() => onAddRowBelow(id)}
+                      onAddSectionBelow={() => onAddSectionBelow(id, true)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(id)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(id, false, "section-total")}
                       useSections={useSections}
                       onOpenChange={setIsMenuOpen}
                     />
@@ -1639,7 +1541,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
           <Editable
             value={row.sectionTitle || "New Sub-section"}
             onSave={(val) =>
-              onUpdateCell(startIndex + idx, "sectionTitle", val as string)
+              onUpdateCell(id, "sectionTitle", val as string)
             }
             className="text-[13px] font-bold text-slate-800 pl-4"
             readOnly={isPreview}
@@ -1692,11 +1594,11 @@ const SortableRow: React.FC<SortableRowProps> = ({
           {!isPreview && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
                     <RowActionsMenu
-                      onRemove={() => onRemoveRow(startIndex + idx)}
-                      onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx)}
-                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx, false)}
-                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      onRemove={() => onRemoveRow(id)}
+                      onAddRowBelow={() => onAddRowBelow(id)}
+                      onAddSectionBelow={() => onAddSectionBelow(id)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(id, false)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(id, false, "section-total")}
                       useSections={useSections}
                       onOpenChange={setIsMenuOpen}
                     />
@@ -1756,11 +1658,11 @@ const SortableRow: React.FC<SortableRowProps> = ({
                 {!isPreview && (
                   <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 z-50 no-print">
                     <RowActionsMenu
-                      onRemove={() => onRemoveRow(startIndex + idx)}
-                      onAddRowBelow={() => onAddRowBelow(startIndex + idx)}
-                      onAddSectionBelow={() => onAddSectionBelow(startIndex + idx, true)}
-                      onAddSubSectionBelow={() => onAddSubSectionBelow(startIndex + idx)}
-                      onAddTotalBelow={() => onAddSubSectionBelow(startIndex + idx, false, "section-total")}
+                      onRemove={() => onRemoveRow(id)}
+                      onAddRowBelow={() => onAddRowBelow(id)}
+                      onAddSectionBelow={() => onAddSectionBelow(id, true)}
+                      onAddSubSectionBelow={() => onAddSubSectionBelow(id)}
+                      onAddTotalBelow={() => onAddSubSectionBelow(id, false, "section-total")}
                       useSections={useSections}
                       onOpenChange={setIsMenuOpen}
                     />
@@ -1801,7 +1703,8 @@ const SortableRow: React.FC<SortableRowProps> = ({
                   )}
                   value={value as string | number}
                   numeric={isNumeric}
-                  onSave={(val) => onUpdateCell(startIndex + idx, col.id, val)}
+                  onChange={(val) => onUpdateCell(row.id as string, col.id, val)}
+                  onSave={(val) => onUpdateCell(row.id as string, col.id, val)}
                   readOnly={isPreview}
                 />
               )}
@@ -2078,10 +1981,6 @@ const A4Page: React.FC<A4PageProps> = ({
               </tr>
             </thead>
             <tbody>
-              <SortableContext
-                items={rows.map((r) => r.id as string)}
-                strategy={verticalListSortingStrategy}
-              >
                 {(rows || []).map((row, idx) => (
                   <SortableRow
                     key={row.id as string}
@@ -2106,13 +2005,22 @@ const A4Page: React.FC<A4PageProps> = ({
                     resolveSectionTotal={resolveSectionTotal}
                   />
                 ))}
-              </SortableContext>
             </tbody>
           </table>
           {isEndOfRows && (
             <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
               <button
-                onClick={() => onAddRowBelow(startIndex + rows.length - 1)}
+                onClick={() => {
+                  const lastRow = rows[rows.length - 1];
+                  if (lastRow) onAddRowBelow(lastRow.id as string);
+                  else {
+                    // Fallback for empty table
+                    if (data) {
+                      const newRow = { id: crypto.randomUUID(), rowType: "row" };
+                      data.table.rows.push(newRow as any);
+                    }
+                  }
+                }}
                 className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group"
               >
                 <Plus

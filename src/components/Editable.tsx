@@ -11,6 +11,7 @@ export interface EditableProps {
   isCurrency?: boolean;
   isDate?: boolean;
   readOnly?: boolean;
+  onChange?: (val: string | number) => void;
 }
 
 export const Editable: React.FC<EditableProps> = ({
@@ -22,6 +23,7 @@ export const Editable: React.FC<EditableProps> = ({
   isCurrency = false,
   isDate = false,
   readOnly = false,
+  onChange,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [tempValue, setTempValue] = useState(value);
@@ -66,7 +68,9 @@ export const Editable: React.FC<EditableProps> = ({
           className={cn(commonClasses, "resize-none overflow-hidden block")}
           value={tempValue}
           onChange={(e) => {
-            setTempValue(e.target.value);
+            const val = e.target.value;
+            setTempValue(val);
+            onChange?.(val);
             e.target.style.height = "auto";
             e.target.style.height = `${e.target.scrollHeight}px`;
           }}
@@ -86,7 +90,11 @@ export const Editable: React.FC<EditableProps> = ({
         type={isDate ? "date" : "text"}
         className={cn(commonClasses, "h-full")}
         value={tempValue}
-        onChange={(e) => setTempValue(e.target.value)}
+        onChange={(e) => {
+          const val = e.target.value;
+          setTempValue(val);
+          onChange?.(val);
+        }}
         onBlur={handleSave}
         onKeyDown={(e) => {
           if (e.key === "Enter") handleSave();

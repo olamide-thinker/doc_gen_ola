@@ -10,7 +10,6 @@ import { CSS } from "@dnd-kit/utilities";
 const HEADER_DARK_BROWN = "#503D36";
 const PRIMARY_BROWN = "#8D6E63";
 const ADDRESS_BG = "#F8F8F8";
-
 const SortableRow = ({
   id,
   row,
@@ -19,15 +18,18 @@ const SortableRow = ({
   data,
   isPreview,
   onUpdateCell,
+  rowNumbering,
+  useSections,
+  resolveFormula,
+  resolveSectionTotal,
   onRemoveRow,
   onAddRowBelow,
   onAddRowAbove,
   onAddSectionBelow,
   onAddSectionAbove,
-  useSections,
-  rowNumbering,
-  resolveFormula,
-  resolveSectionTotal,
+  onAddSubSectionBelow,
+  onAddSubSectionAbove,
+  onMoveRow,
 }: any) => {
   const {
     attributes,
@@ -92,7 +94,7 @@ const SortableRow = ({
             <Editable
               className="min-w-[150px] font-bold"
               value={row.sectionTitle || (isSectionTotal ? (parentSectionTitle ? `${parentSectionTitle} Total` : "Section Total") : "")}
-              onSave={(val) => onUpdateCell(startIndex + idx, "sectionTitle", val)}
+              onSave={(val) => onUpdateCell(row.id as string, "sectionTitle", val)}
               readOnly={isPreview || isSectionTotal}
             />
           </div>
@@ -105,9 +107,13 @@ const SortableRow = ({
             isSubSection && "bg-slate-50 text-slate-400 border-y border-slate-100",
           )}
         >
+          <div className="flex items-center justify-end gap-2 pr-2 opacity-0 group-hover/row:opacity-100 transition-opacity no-print">
+            <button onClick={() => onRemoveRow(row.id)} className="p-1 hover:text-red-500"><Plus className="rotate-45" size={12} /></button>
+            <button onClick={() => onAddRowBelow(row.id)} className="p-1 hover:text-primary"><Plus size={12} /></button>
+          </div>
           {(isSection || isSectionTotal) && (
             <span className="font-bold">
-              {isSection && "Section Total: "}₦{Math.round(resolveSectionTotal(data.table.rows, startIndex + idx)).toLocaleString()}
+              {isSection && "Section Total: "}₦{Math.round(resolveSectionTotal(data.table.rows, data.table.rows.indexOf(row))).toLocaleString()}
             </span>
           )}
         </td>
@@ -141,35 +147,44 @@ const SortableRow = ({
                 (isNumeric || isFormula) && "text-right font-lexend",
               )}
             >
-              {isIndex ? (
-                <div className="flex items-center gap-2">
-                  {!isPreview && (
-                    <div {...attributes} {...listeners} className="cursor-grab opacity-0 group-hover/row:opacity-100 transition-opacity no-print">
-                      <div className="w-4 h-4 rounded hover:bg-slate-200 flex items-center justify-center">
-                        <div className="w-1 h-3 border-l-2 border-r-2 border-slate-300" />
+              <div className="flex items-center gap-2">
+                {isIndex ? (
+                  <>
+                    {!isPreview && (
+                      <div {...attributes} {...listeners} className="cursor-grab opacity-0 group-hover/row:opacity-100 transition-opacity no-print">
+                        <div className="w-4 h-4 rounded hover:bg-slate-200 flex items-center justify-center">
+                          <div className="w-1 h-3 border-l-2 border-r-2 border-slate-300" />
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  <span className="text-slate-400 font-bold min-w-[20px]">
-                    {rowNumbering[row.id]}
+                    )}
+                    <span className="text-slate-400 font-bold min-w-[20px]">
+                      {rowNumbering[row.id]}
+                    </span>
+                  </>
+                ) : isFormula ? (
+                  <span className="font-bold text-slate-800">
+                    ₦{Math.round(resolveFormula(row, col.formula)).toLocaleString()}
                   </span>
-                </div>
-              ) : isFormula ? (
-                <span className="font-bold text-slate-800">
-                  ₦{Math.round(resolveFormula(row, col.formula)).toLocaleString()}
-                </span>
-              ) : (
-                <Editable
-                  className={cn(
-                    "w-full",
-                    (isNumeric || isFormula) && "text-left font-lexend",
-                  )}
-                  value={value as string | number}
-                  numeric={isNumeric}
-                  onSave={(val) => onUpdateCell(startIndex + idx, col.id, val)}
-                  readOnly={isPreview}
-                />
-              )}
+                ) : (
+                  <Editable
+                    className={cn(
+                      "w-full",
+                      (isNumeric || isFormula) && "text-left font-lexend",
+                    )}
+                    value={value as string | number}
+                    numeric={isNumeric}
+                    onChange={(val) => onUpdateCell(row.id as string, col.id, val)}
+                    onSave={(val) => onUpdateCell(row.id as string, col.id, val)}
+                    readOnly={isPreview}
+                  />
+                )}
+                {!isPreview && !isIndex && (
+                  <div className="opacity-0 group-hover/row:opacity-100 transition-opacity no-print absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    <button onClick={() => onRemoveRow(row.id)} className="text-slate-300 hover:text-red-500"><Plus className="rotate-45" size={12} /></button>
+                    <button onClick={() => onAddRowBelow(row.id)} className="text-slate-300 hover:text-primary"><Plus size={12} /></button>
+                  </div>
+                )}
+              </div>
             </td>
           );
         })}
@@ -566,7 +581,6 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
               </tr>
             </thead>
             <tbody>
-              <SortableContext items={rows.map((r) => r.id as string)} strategy={verticalListSortingStrategy}>
                 {(rows || []).map((row, idx) => (
                   <SortableRow
                     key={row.id as string}
@@ -591,13 +605,15 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
                     resolveStageTotal={resolveStageTotal}
                   />
                 ))}
-              </SortableContext>
             </tbody>
           </table>
           {!isPreview && isEndOfRows && (
             <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
               <button
-                onClick={() => onAddRowBelow(startIndex + rows.length - 1)}
+                onClick={() => {
+                   const lastRow = rows[rows.length - 1];
+                   if (lastRow) onAddRowBelow(lastRow.id as string);
+                }}
                 className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group"
               >
                 <Plus size={14} className="transition-transform duration-300 group-hover:rotate-90" />

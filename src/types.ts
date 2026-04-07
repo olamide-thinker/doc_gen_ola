@@ -81,6 +81,7 @@ export interface WorkspaceProject {
   id: string;
   name: string;
   createdAt: string;
+  members?: string[];
 }
 
 export interface TotalPrice {

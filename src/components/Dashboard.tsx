@@ -50,6 +50,7 @@ import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { TemplatePickerModal } from "./TemplatePickerModal";
+import { MemberManagementModal } from "./MemberManagementModal";
 import {
   DndContext, 
   closestCenter,
@@ -83,6 +84,7 @@ const Dashboard: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
+  const [memberModal, setMemberModal] = useState<{ open: boolean; type: 'project' | 'folder' | 'document'; id: string; name: string; members: string[] } | null>(null);
   
   const [activeProjectId, setActiveProjectId] = useState<string>(() => {
     return localStorage.getItem("invsys_active_project") || "playground";
@@ -95,12 +97,17 @@ const Dashboard: React.FC = () => {
   const { user: currentUser, logout, businessId, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
+  const isMockMode = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
+
   const [businessName, setBusinessName] = useState("Your Business");
   const [businessOwnerId, setBusinessOwnerId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchBusinessInfo = async () => {
-        if (!businessId) return;
+        if (!businessId || isMockMode) {
+            setBusinessName("Development Workspace");
+            return;
+        }
         const { doc, getDoc } = await import("firebase/firestore");
         const { db } = await import("../lib/firebase");
         const bDoc = await getDoc(doc(db, "businesses", businessId));
@@ -110,7 +117,7 @@ const Dashboard: React.FC = () => {
         }
     };
     fetchBusinessInfo();
-  }, [businessId]);
+  }, [businessId, isMockMode]);
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -188,9 +195,17 @@ const Dashboard: React.FC = () => {
   const documents = workspaceAction.documents || [];
   const projects = (workspaceAction.projects || []) as any[];
 
-  // Filter items by project AND current folder
-  const folderItems = folders.filter(f => f.projectId === activeProjectId && f.parentId === currentFolderId);
-  const docItems = documents.filter(d => d.projectId === activeProjectId && d.folderId === currentFolderId);
+  // Filter items by project AND current folder AND membership
+  const folderItems = folders.filter(f => 
+    f.projectId === activeProjectId && 
+    f.parentId === currentFolderId &&
+    (isMockMode || (f.members || []).includes(currentUser?.email || ""))
+  );
+  
+  const docItems = documents.filter(d => 
+    d.projectId === activeProjectId && 
+    d.folderId === currentFolderId
+  );
   
   const currentFolder = currentFolderId 
     ? workspaceAction.folders.find(f => f.id === currentFolderId)
@@ -201,9 +216,10 @@ const Dashboard: React.FC = () => {
     const allFolders = workspaceAction.folders;
     const path: FolderType[] = [];
     let curr = id;
+    const email = currentUser?.email || "";
     while (curr) {
       const folder = allFolders.find(f => f.id === curr);
-      if (folder) {
+      if (folder && (isMockMode || (folder.members || []).includes(email))) {
         path.unshift(folder as FolderType);
         curr = folder.parentId || "";
       } else curr = "";
@@ -225,7 +241,8 @@ const Dashboard: React.FC = () => {
 
   const searchResults = isSearching 
     ? workspaceAction.documents.filter(d => 
-        d.projectId === activeProjectId && (
+        d.projectId === activeProjectId && 
+        (isMockMode || (d.members || []).includes(currentUser?.email || "")) && (
           d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
           d.content?.contact?.name?.toLowerCase().includes(searchQuery.toLowerCase())
         )
@@ -240,13 +257,13 @@ const Dashboard: React.FC = () => {
     ...docItems.map(d => ({ ...d, id: `d-${d.id}`, _type: 'document' as const, _realId: d.id }))
   ];
 
-  const isLoading = false; // Sync is instant now
+  const isLoading = false;
 
   // --- Actions ---
   const handleCreateFolder = async () => {
     const name = prompt("Folder Name:");
-    if (!name) return;
-    await api.createFolder(name, activeProjectId, currentFolderId);
+    if (!name || !currentUser?.email) return;
+    await api.createFolder(name, activeProjectId, currentUser.email, currentFolderId);
   };
 
   const handleCreateDocument = async (template?: TemplateDefinition) => {
@@ -254,6 +271,7 @@ const Dashboard: React.FC = () => {
   };
 
   const handleModalSubmit = async (formData: CreateInvoiceFormData) => {
+    if (!currentUser?.email) return;
     const isReceipt = createModal.template?.content?.isReceipt;
     const invoiceCode = isReceipt ? undefined : api.getNextInvoiceNumber();
     const name = formData.projectName.trim() || (invoiceCode?.text ?? "New Invoice");
@@ -283,11 +301,12 @@ const Dashboard: React.FC = () => {
       },
       footer: createModal.template?.content?.footer || { notes: "", emphasis: [] },
       invoiceCode,
+      isReceipt,
       _templateName: createModal.template?.name,
       _templateColor: createModal.template?.color
     };
 
-    const newDoc = await api.createDocument(name, content, activeProjectId, currentFolderId);
+    const newDoc = await api.createDocument(name, content, activeProjectId, currentUser.email, currentFolderId);
     setCreateModal({ open: false });
     navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
   };
@@ -299,15 +318,16 @@ const Dashboard: React.FC = () => {
   };
 
   const handleDuplicate = (item: any) => {
-    if (item._type === 'folder') api.duplicateFolderToFolder(item._realId, currentFolderId);
-    else api.duplicateDocumentToFolder(item._realId, currentFolderId);
+    if (!currentUser?.email) return;
+    if (item._type === 'folder') api.duplicateFolderToFolder(item._realId, currentFolderId, currentUser.email);
+    else api.duplicateDocumentToFolder(item._realId, currentFolderId, currentUser.email);
   };
 
   const handleRename = (item: any) => {
     const newName = prompt("New Name:", item.name);
     if (!newName || newName === item.name) return;
     if (item._type === 'folder') api.renameFolder(item._realId, newName);
-    else api.updateDocument(item._realId, { name: newName });
+    else api.renameDocument(item._realId, newName);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -325,8 +345,8 @@ const Dashboard: React.FC = () => {
       return;
     }
 
-    if (overItem && overItem._type === 'folder' && activeItem) {
-       api.moveDocument(activeItem.id, overItem._realId);
+    if (overItem && overItem._type === 'folder' && activeItem && activeItem._type === 'document') {
+       api.moveDocument(activeItem._realId, overItem._realId);
     } else if (overItem && activeItem) {
        api.reorderItems(currentFolderId, active.id as string, over.id as string);
     }
@@ -421,8 +441,8 @@ const Dashboard: React.FC = () => {
                )}
             </div>
             <div className="flex-1 min-w-0 pr-8">
-              <p className="text-[11px] font-black truncate text-foreground">{currentUser?.displayName || 'Olamide'}</p>
-              <p className="text-[9px] text-muted-foreground truncate uppercase tracking-widest font-bold opacity-60">Admin Account</p>
+              <p className="text-[11px] font-black truncate text-foreground">{currentUser?.displayName || 'User'}</p>
+              <p className="text-[9px] text-muted-foreground truncate uppercase tracking-widest font-bold opacity-60">{role || 'Admin'}</p>
             </div>
             <button 
               onClick={() => logout()}
@@ -443,7 +463,7 @@ const Dashboard: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-foreground transition-colors" size={14} />
               <input 
                 type="text" 
-                placeholder="e.g. Acme Tech Solutions" 
+                placeholder="Search documents..." 
                 className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-transparent focus:border-border focus:bg-card rounded-xl outline-none text-xs transition-all" 
                 value={searchQuery} 
                 onChange={(e) => setSearchQuery(e.target.value)} 
@@ -466,43 +486,24 @@ const Dashboard: React.FC = () => {
                 onSelect={(id) => {
                     setActiveProjectId(id);
                     localStorage.setItem("invsys_active_project", id);
-                    navigate("/dashboard"); // Reset folder view on switch
+                    navigate("/dashboard");
                 }}
                 onCreateNew={() => setIsProjectModalOpen(true)}
             />
 
             <div className="w-px h-8 bg-border opacity-50" />
 
-            {/* Session Owners & Presence */}
             <div className="flex items-center -space-x-1.5 overflow-hidden">
               {connectedClients.map((client) => {
-                const isOwner = authAction.governance.ownerId === client.id;
-                const isMe = client.id === myClientId;
+                const isMe = client.user?.email === currentUser?.email;
                 return (
                   <div 
                     key={client.id}
-                    title={`${client.user.name}${isOwner ? ' (Store Owner)' : ''}${isMe ? ' (You)' : ''}`}
-                    className={cn(
-                      "w-7 h-7 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group",
-                      isOwner ? "bg-amber-500 z-10" : "bg-slate-400"
-                    )}
-                    style={{ backgroundColor: client.user.color }}
+                    title={client.user?.name}
+                    className="w-7 h-7 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group"
+                    style={{ backgroundColor: client.user?.color || '#cbd5e1' }}
                   >
-                    {client.user.name.charAt(0)}
-                    {isOwner && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border border-white shadow-sm" />}
-                    
-                    {/* Admin Kick Tooltip */}
-                    {authAction.governance.ownerId === myClientId && !isMe && (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          authAction.bannedClients.push(client.id);
-                        }}
-                        className="absolute inset-0 bg-red-600 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
-                      >
-                        <Trash size={10} />
-                      </button>
-                    )}
+                    {client.user?.name?.charAt(0) || '?'}
                   </div>
                 );
               })}
@@ -537,7 +538,6 @@ const Dashboard: React.FC = () => {
           className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin"
           onClick={() => setSelectedId(null)}
         >
-
           {activeView === "templates" && (
             <div className="mb-12">
                <div className="flex flex-col gap-2 mb-8">
@@ -559,207 +559,75 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
-          {activeView === "home" && !isSearching && !currentFolderId && (
-            <div className="h-4" />
-          )}
-
-          {/* ── Deep Search Results ── */}
           {isSearching && (
             <div className="mb-8">
               {searchResults.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <Search size={32} className="mx-auto mb-3 opacity-30" />
                   <p className="text-sm font-semibold">No results for "{searchQuery}"</p>
-                  <p className="text-xs opacity-60 mt-1">Try a different name, number, or client</p>
                 </div>
               ) : (
-                <div className="space-y-8">
-                  {searchInvoices.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">INV-SYS Pro ● 2026</span>
-                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/10 text-primary">{searchInvoices.length}</span>
+                <div className="space-y-4">
+                  {searchInvoices.map(doc => (
+                    <button
+                      key={doc.id}
+                      onClick={() => { setSearchQuery(""); navigate(`/invoice-preview/${doc.id}`); }}
+                      className="w-full text-left flex items-center gap-4 p-4 bg-card border border-border rounded-lg hover:border-primary/40 transition-all group"
+                    >
+                      <div className="p-2 bg-primary/5 rounded-md border border-primary/10 transition-colors group-hover:bg-primary/10">
+                        <FileText size={16} className="text-primary" />
                       </div>
-                      <div className="space-y-2">
-                        {searchInvoices.map(doc => (
-                          <button
-                            key={doc.id}
-                            onClick={() => { setSearchQuery(""); navigate(`/invoice-preview/${doc.id}`); }}
-                            className="w-full text-left flex items-center gap-4 p-4 bg-white border border-border rounded-lg hover:border-primary/40 hover:shadow-sm transition-all group"
-                          >
-                            <div className="p-2 bg-primary/5 rounded-md border border-primary/10 shrink-0">
-                              <FileText size={16} className="text-primary" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {doc.content?.invoiceCode?.text && (
-                                  <span className="text-[10px] font-black bg-primary/10 text-primary px-2 py-0.5 rounded tracking-wider font-lexend">
-                                    {doc.content.invoiceCode.text}
-                                  </span>
-                                )}
-                                <span className="text-xs font-semibold text-slate-800 truncate">{doc.name}</span>
-                                {doc.content?._templateName && (
-                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-bold">{doc.content._templateName}</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-3 mt-1">
-                                <span className="text-[10px] text-slate-400">{doc.content?.contact?.name}</span>
-                                <span className="text-[10px] text-slate-300">•</span>
-                                <span className="text-[10px] text-slate-400">{doc.content?.date}</span>
-                                {doc.content?.title && doc.content.title !== doc.name && (
-                                  <>
-                                    <span className="text-[10px] text-slate-300">•</span>
-                                    <span className="text-[10px] text-slate-400 italic truncate">{doc.content.title}</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                            <ArrowLeft size={13} className="text-slate-300 group-hover:text-primary rotate-180 transition-colors shrink-0" />
-                          </button>
-                        ))}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-foreground truncate">{doc.name}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{doc.content?.contact?.name} • {doc.content?.date}</p>
                       </div>
-                    </div>
-                  )}
-
-                  {searchReceipts.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Receipts</span>
-                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-600">{searchReceipts.length}</span>
-                      </div>
-                      <div className="space-y-2">
-                        {searchReceipts.map(doc => {
-                          const parentInv = doc.invoiceId ? docById.get(doc.invoiceId) : undefined;
-                          return (
-                            <button
-                              key={doc.id}
-                              onClick={() => { setSearchQuery(""); navigate(`/receipt-editor/${doc.id}`); }}
-                              className="w-full text-left flex items-center gap-4 p-4 bg-white border border-border rounded-lg hover:border-emerald-400/40 hover:shadow-sm transition-all group"
-                            >
-                              <div className="p-2 bg-emerald-50 rounded-md border border-emerald-100 shrink-0">
-                                <FileText size={16} className="text-emerald-600" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  {doc.content?.invoiceCode?.text && (
-                                    <span className="text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded tracking-wider font-lexend">
-                                      {doc.content.invoiceCode.text}
-                                    </span>
-                                  )}
-                                  {parentInv && (
-                                    <>
-                                      <span className="text-[9px] text-slate-300">linked to</span>
-                                      <span className="text-[10px] font-black bg-primary/10 text-primary px-2 py-0.5 rounded tracking-wider font-lexend">
-                                        {parentInv.content?.invoiceCode?.text || parentInv.name}
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-3 mt-1">
-                                  <span className="text-[10px] text-slate-400">{doc.content?.contact?.name}</span>
-                                  <span className="text-[10px] text-slate-300">•</span>
-                                  <span className="text-[10px] text-slate-400">{doc.content?.date}</span>
-                                  {doc.content?.amountPaid !== undefined && (
-                                    <>
-                                      <span className="text-[10px] text-slate-300">•</span>
-                                      <span className="text-[10px] font-semibold text-emerald-600">
-                                        ₦{Math.round(doc.content.amountPaid).toLocaleString()} paid
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                              <ArrowLeft size={13} className="text-slate-300 group-hover:text-emerald-500 rotate-180 transition-colors shrink-0" />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                      <ArrowLeft size={13} className="text-muted-foreground group-hover:text-primary rotate-180 transition-colors" />
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
           )}
 
-          {!isSearching && <div className="flex items-center justify-between mb-8">
-            <div className="flex flex-col gap-1.5">
-               <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
-                 <Folder size={18} className="text-primary/70 shrink-0" />
-                 {currentFolder ? currentFolder.name : "Library"}
-               </h2>
-               
-               {/* Breadcrumbs */}
-               <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
-                 <button 
-                   onClick={() => navigate('/dashboard')}
-                   className="hover:text-primary transition-colors"
-                 >Home</button>
-                 {folderPath.map((folder, idx) => (
-                   <React.Fragment key={folder.id}>
-                     <span className="opacity-30">/</span>
-                     <button 
-                       onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
-                       className={cn(
-                         "hover:text-primary transition-colors",
-                         idx === folderPath.length - 1 && "text-primary/80 pointer-events-none"
-                       )}
-                     >
-                       {folder.name}
-                     </button>
-                   </React.Fragment>
-                 ))}
-               </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              {/* View Switcher */}
-              <div className="flex p-0.5 bg-muted/50 rounded-lg">
-                <button 
-                  onClick={() => setViewMode("grid")} 
-                  className={cn(
-                    "p-1.5 rounded-md transition-all", 
-                    viewMode === "grid" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                ><LayoutGrid size={14} /></button>
-                <button 
-                  onClick={() => setViewMode("list")} 
-                  className={cn(
-                    "p-1.5 rounded-md transition-all", 
-                    viewMode === "list" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                ><List size={14} /></button>
+          {!isSearching && (
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex flex-col gap-1.5">
+                 <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
+                   <Folder size={18} className="text-primary/70 shrink-0" />
+                   {currentFolder ? currentFolder.name : "Library"}
+                 </h2>
+                 <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
+                   <button onClick={() => navigate('/dashboard')} className="hover:text-primary transition-colors">Home</button>
+                   {folderPath.map((folder, idx) => (
+                     <React.Fragment key={folder.id}>
+                       <span className="opacity-30">/</span>
+                       <button 
+                         onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
+                         className={cn("hover:text-primary transition-colors", idx === folderPath.length - 1 && "text-primary/80 pointer-events-none")}
+                       >
+                         {folder.name}
+                       </button>
+                     </React.Fragment>
+                   ))}
+                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCreateFolder}
-                  className="px-4 py-2 border border-border bg-card text-[10px] font-bold tracking-widest text-foreground rounded-xl transition-all hover:bg-muted/50 flex items-center gap-2"
-                >
-                  <Plus size={14} /> FOLDER
-                </button>
-                <button 
-                  onClick={() => setIsTemplatePickerOpen(true)}
-                  className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"
-                >
-                  <Plus size={14} /> NEW DOC
-                </button>
+              <div className="flex items-center gap-4">
+                <div className="flex p-0.5 bg-muted/50 rounded-lg">
+                  <button onClick={() => setViewMode("grid")} className={cn("p-1.5 rounded-md transition-all", viewMode === "grid" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground")}><LayoutGrid size={14} /></button>
+                  <button onClick={() => setViewMode("list")} className={cn("p-1.5 rounded-md transition-all", viewMode === "list" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground")}><List size={14} /></button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button onClick={handleCreateFolder} className="px-4 py-2 border border-border bg-card text-[10px] font-bold tracking-widest text-foreground rounded-xl hover:bg-muted/50 flex items-center gap-2 transition-all"><Plus size={14} /> FOLDER</button>
+                  <button onClick={() => setIsTemplatePickerOpen(true)} className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"><Plus size={14} /> NEW DOC</button>
+                </div>
               </div>
             </div>
-          </div>}
+          )}
 
-          {!isSearching && isLoading ? (
-            <div className={cn("gap-6", viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "flex flex-col gap-2")}>
-              {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-                <ItemSkeleton key={i} mode={viewMode} />
-              ))}
-            </div>
-          ) : !isSearching ? (
-            <DndContext
-              sensors={sensors} 
-              collisionDetection={closestCenter} 
-              onDragStart={(e) => setActiveId(e.active.id as string)}
-              onDragEnd={handleDragEnd}
-            >
+          {!isSearching && (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id as string)} onDragEnd={handleDragEnd}>
               <SortableContext items={items.map(i => i.id)} strategy={viewMode === "grid" ? rectSortingStrategy : verticalListSortingStrategy}>
                 <div className={cn("gap-6", viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "flex flex-col gap-2")}>
                   <AnimatePresence>
@@ -779,76 +647,55 @@ const Dashboard: React.FC = () => {
                             navigate(`/dashboard?folder=${item._realId}`, { state: { fromFolder: currentFolderId } });
                           } else {
                             const isReceipt = item.content?.isReceipt;
-                            navigate(
-                              isReceipt ? `/receipt-editor/${item._realId}` : `/invoice-preview/${item._realId}`,
-                              { state: { fromFolder: currentFolderId } }
-                            );
+                            navigate(isReceipt ? `/receipt-editor/${item._realId}` : `/invoice-preview/${item._realId}`, { state: { fromFolder: currentFolderId } });
                           }
                         }}
+                        onManageMembers={() => {
+                          setMemberModal({
+                            open: true,
+                            type: item._type,
+                            id: item._realId,
+                            name: item.name,
+                            members: item.members || []
+                          });
+                        }}
+                        currentUserEmail={currentUser?.email || ""}
                       />
                     ))}
                   </AnimatePresence>
                 </div>
               </SortableContext>
-              
               <DragOverlay dropAnimation={null}>
-                {activeId ? (
-                  <div className="opacity-70 scale-102 pointer-events-none">
-                    <ItemCard item={items.find(i => i.id === activeId)} mode={viewMode} />
-                  </div>
-                ) : null}
+                {activeId ? <ItemCard item={items.find(i => i.id === activeId)} mode={viewMode} /> : null}
               </DragOverlay>
             </DndContext>
-          ) : null}
+          )}
         </section>
       </main>
 
-      {/* Edit Template Modal */}
-      {editingTemplate && (
-        <EditTemplateModal
-          template={editingTemplate}
-          onClose={() => setEditingTemplate(null)}
-          onSave={(updated) => api.updateTemplate(updated.id, updated)}
+      {editingTemplate && <EditTemplateModal template={editingTemplate} onClose={() => setEditingTemplate(null)} onSave={(updated) => api.updateTemplate(updated.id, updated)} />}
+      
+      {createModal.open && <CreateInvoiceModal template={createModal.template} onClose={() => setCreateModal({ open: false })} onSubmit={handleModalSubmit} isLoading={false} />}
+      
+      <TemplatePickerModal isOpen={isTemplatePickerOpen} onClose={() => setIsTemplatePickerOpen(false)} onSelect={(template) => { setIsTemplatePickerOpen(false); handleCreateDocument(template); }} />
+
+      <CollaboratorsSheet isOpen={isCollaboratorsOpen} onClose={() => setIsCollaboratorsOpen(false)} collaborators={connectedClients} ownerId={businessOwnerId || authAction.governance.ownerId || null} bannedClients={authAction.bannedClients} businessId={businessId} businessName={businessName} initialTab={activeCollaboratorTab} onBanClient={(email) => { if (!authAction.bannedClients.includes(email)) authAction.bannedClients.push(email); }} onMakeOwner={(email) => { authAction.governance.ownerId = email; }} />
+
+      {memberModal?.open && <MemberManagementModal isOpen={memberModal.open} onClose={() => setMemberModal(null)} type={memberModal.type} id={memberModal.id} name={memberModal.name} members={memberModal.members} />}
+      
+      {isProjectModalOpen && (
+        <CreateProjectModal 
+          isOpen={isProjectModalOpen} 
+          onClose={() => setIsProjectModalOpen(false)} 
+          onSubmit={async (name) => {
+            if (!currentUser?.email) return;
+            const newProj = await api.createProject(name, currentUser.email);
+            setActiveProjectId(newProj.id);
+            localStorage.setItem("invsys_active_project", newProj.id);
+            navigate("/dashboard");
+          }}
         />
       )}
-
-      {/* Create Invoice Modal */}
-      {createModal.open && (
-        <CreateInvoiceModal
-          template={createModal.template}
-          onClose={() => setCreateModal({ open: false })}
-          onSubmit={handleModalSubmit}
-          isLoading={false}
-        />
-      )}
-      {/* Collaborators Sheet */}
-      <TemplatePickerModal 
-        isOpen={isTemplatePickerOpen}
-        onClose={() => setIsTemplatePickerOpen(false)}
-        onSelect={(template) => {
-            setIsTemplatePickerOpen(false);
-            handleCreateDocument(template);
-        }}
-      />
-
-      <CollaboratorsSheet
-        isOpen={isCollaboratorsOpen}
-        onClose={() => setIsCollaboratorsOpen(false)}
-        collaborators={connectedClients}
-        ownerId={businessOwnerId || authAction.governance.ownerId || null}
-        bannedClients={authAction.bannedClients}
-        businessId={businessId}
-        businessName={businessName}
-        initialTab={activeCollaboratorTab}
-        onBanClient={(email) => {
-          if (!authAction.bannedClients.includes(email)) {
-            authAction.bannedClients.push(email);
-          }
-        }}
-        onMakeOwner={(email) => {
-          authAction.governance.ownerId = email;
-        }}
-      />
     </div>
   );
 };
@@ -856,21 +703,12 @@ const Dashboard: React.FC = () => {
 const SortableItem = (props: any) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.item.id });
   return (
-    <motion.div 
-      ref={setNodeRef} 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0 : 1 }} 
-      {...attributes} 
-      {...listeners}
-    >
+    <motion.div ref={setNodeRef} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0 : 1 }} {...attributes} {...listeners}>
       <ItemCard {...props} />
     </motion.div>
   );
 };
 
-// Maps template color names → Tailwind badge classes
 const templateBadgeClass = (color?: string) => {
   switch (color) {
     case "blue":   return "bg-t-blue text-t-blue-foreground";
@@ -885,66 +723,41 @@ const templateBadgeClass = (color?: string) => {
   }
 };
 
-const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, onRename, onCopy, isSelected }: any) => {
+const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, onRename, onCopy, onManageMembers, isSelected, currentUserEmail }: any) => {
   const [showMenu, setShowMenu] = useState(false);
   const isFolder = item._type === 'folder';
   const menuRef = useRef<HTMLDivElement>(null);
+  const isLocked = false; // Emergency bypass: Always unlocked
 
-  // Subtitle: truncated content.title (e.g. "Design Fee Invoice") for docs, "Folder" for folders
-  const subtitle = isFolder
-    ? "Folder"
-    : item.content?.title
-      ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title)
-      : "Invoice";
-
-  // Template type badge (only for docs that have _templateName)
+  const subtitle = isFolder ? "Folder" : (item.content?.title ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title) : "Invoice");
   const badgeLabel: string | undefined = !isFolder ? (item.content?._templateName as string | undefined) : undefined;
   const badgeClass = templateBadgeClass(item.content?._templateColor);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
-    };
+    const handleClickOutside = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false); };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   if (mode === "list") {
     return (
-      <div 
-        onClick={(e) => { e.stopPropagation(); onClick(); }} 
-        onDoubleClick={onDoubleClick}
-        className={cn(
-          "flex items-center justify-between p-3 rounded-lg cursor-pointer group transition-all",
-          isSelected 
-            ? "bg-primary/5 ring-1 ring-primary shadow-sm" 
-            : "bg-card hover:bg-muted/50 shadow-sm hover:shadow-md"
-        )}
-      >
+      <div onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick} className={cn("flex items-center justify-between p-3 rounded-lg cursor-pointer group transition-all", isSelected ? "bg-primary/5 ring-1 ring-primary shadow-sm" : "bg-card hover:bg-muted/50 shadow-sm hover:shadow-md")}>
         <div className="flex items-center gap-4">
-          <div className={cn("p-2 rounded-md flex items-center justify-center", isFolder ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary")}>
+          <div className={cn("p-2 rounded-md flex items-center justify-center relative", isFolder ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary")}>
             {isFolder ? <Folder size={18} /> : <FileText size={18} />}
+            {isLocked && <div className="absolute -top-1 -right-1 bg-background rounded-full p-0.5 shadow-sm"><Shield size={10} className="text-destructive" /></div>}
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <p className="text-xs font-semibold tracking-tight">{item.name}</p>
-              {badgeLabel && (
-                <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-sm leading-none", badgeClass)}>
-                  {badgeLabel}
-                </span>
-              )}
+              {badgeLabel && <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-sm leading-none", badgeClass)}>{badgeLabel}</span>}
             </div>
-            <p className="text-[10px] text-muted-foreground font-medium">
-              {subtitle} • {new Date(item.updatedAt).toLocaleDateString()}
-            </p>
+            <p className="text-[10px] text-muted-foreground font-medium">{subtitle} • {new Date(item.updatedAt).toLocaleDateString()}</p>
           </div>
         </div>
         <div className="relative" ref={menuRef}>
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-            className="p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-all border border-transparent hover:border-border"
-          ><MoreHorizontal size={16} /></button>
-          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} isFolder={isFolder} />}
+          <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-all border border-transparent hover:border-border"><MoreHorizontal size={16} /></button>
+          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} />}
         </div>
       </div>
     );
@@ -952,54 +765,37 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
 
   return (
     <div className="flex flex-col gap-3 group relative cursor-pointer" onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick}>
-      <div
-        className={cn(
-          "aspect-[3/4] rounded-lg bg-card shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center",
-          isSelected ? "ring-2 ring-primary/40 shadow-xl scale-[1.03]" : "hover:shadow-lg",
-          isFolder ? "bg-amber-500/5 shadow-none hover:shadow-md" : ""
-        )}
-      >
+      <div className={cn("aspect-[3/4] rounded-lg bg-card shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center", isSelected ? "ring-2 ring-primary/40 shadow-xl scale-[1.03]" : "hover:shadow-lg", isFolder ? "bg-amber-500/5 shadow-none hover:shadow-md" : "")}>
         {isFolder ? (
           <div className="flex flex-col items-center gap-2">
-             <div className="p-4 bg-amber-500/10 rounded-md transition-transform duration-500">
-               <Folder size={40} strokeWidth={1.5} className="text-amber-500/80" />
-             </div>
+             <div className="p-4 bg-amber-500/10 rounded-md transition-transform duration-500 hover:scale-110"><Folder size={40} strokeWidth={1.5} className="text-amber-500/80" /></div>
              <span className="text-[9px] font-bold uppercase text-amber-600/60 tracking-widest">Folder</span>
           </div>
         ) : (
-          <div className="w-full h-full rounded-md overflow-hidden p-1.5">
+          <div className={cn("w-full h-full rounded-md overflow-hidden p-1.5 relative", isLocked && "blur-[1.5px] opacity-40 grayscale")}>
              <DocumentThumbnail data={item.content} className="rounded-sm" />
+             {isLocked && (
+               <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/20 backdrop-blur-[0.5px]">
+                 <div className="p-3 bg-card rounded-full shadow-lg border border-border"><Shield size={20} className="text-destructive" /></div>
+                 <p className="text-[10px] font-black uppercase tracking-widest text-destructive mt-3 bg-background/80 px-2 py-0.5 rounded shadow-sm">Restricted</p>
+               </div>
+             )}
           </div>
         )}
-
-        {/* Template type badge — bottom-left of thumbnail */}
-        {badgeLabel && (
-          <div className="absolute bottom-3 left-3 pointer-events-none">
-            <span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none shadow-sm", badgeClass)}>
-              {badgeLabel}
-            </span>
-          </div>
-        )}
-
-        {/* Actions Button */}
+        {badgeLabel && <div className="absolute bottom-3 left-3 pointer-events-none"><span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none shadow-sm", badgeClass)}>{badgeLabel}</span></div>}
         <div className="absolute top-3 right-3" ref={menuRef}>
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-            className="p-1.5 bg-white/90 backdrop-blur shadow-sm border border-border rounded-md hover:bg-white text-foreground opacity-0 group-hover:opacity-100 transition-all duration-200"
-          ><MoreHorizontal size={14} /></button>
-          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} isFolder={isFolder} />}
+          <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="p-1.5 bg-white/90 backdrop-blur shadow-sm border border-border rounded-md hover:bg-white text-foreground opacity-0 group-hover:opacity-100 transition-all duration-200"><MoreHorizontal size={14} /></button>
+          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} />}
         </div>
       </div>
-      <div className="px-1" onClick={onClick}>
-        <p className="text-[12px] font-semibold truncate tracking-tight text-slate-700">{item.name}</p>
-        <p className="text-[10px] text-muted-foreground font-medium opacity-70">{subtitle}</p>
-      </div>
+      <div className="px-1"><p className="text-[12px] font-semibold truncate tracking-tight text-slate-700">{item.name}</p><p className="text-[10px] text-muted-foreground font-medium opacity-70">{subtitle}</p></div>
     </div>
   );
 };
 
-const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, isFolder }: any) => (
+const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, onManageMembers, isFolder }: any) => (
   <div className="absolute right-0 top-full mt-2 w-48 bg-popover border border-border shadow-lg rounded-md p-1 z-50 animate-in fade-in zoom-in duration-150 origin-top-right">
+    <button onClick={(e) => { e.stopPropagation(); onManageMembers(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-primary rounded transition-all"><Users size={14} /> Manage Members</button>
     <button onClick={(e) => { e.stopPropagation(); onRename(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Edit size={14} /> Rename</button>
     {!isFolder && <button onClick={(e) => { e.stopPropagation(); onCopy(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Copy to Clipboard</button>}
     <button onClick={(e) => { e.stopPropagation(); onDuplicate(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Duplicate</button>
@@ -1008,346 +804,43 @@ const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, isFolder }: any)
   </div>
 );
 
-const TemplateCard = ({ 
-  template, 
-  onClick, 
-  onEdit, 
-  onDelete, 
-  onPin 
-}: { 
-  template: TemplateDefinition;
-  onClick: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onPin: () => void;
-}) => {
+const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) => (
+  <button onClick={onClick} className={cn("w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group relative overflow-hidden", active ? "bg-primary/5 text-primary shadow-sm" : "text-slate-400 hover:text-slate-200")}>
+    <div className={cn("shrink-0 transition-transform group-hover:scale-110", active && "scale-105")}>{icon}</div>
+    <span className={cn("text-xs font-black tracking-tight", active ? "text-primary" : "text-muted-foreground")}>{label}</span>
+    {active && <div className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-full" />}
+  </button>
+);
+
+const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
-    };
+    const handleClickOutside = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false); };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   return (
     <div className="flex-shrink-0 w-48 group text-left relative" ref={menuRef}>
-      <button
-        onClick={onClick}
-        className={cn(
-          "w-full aspect-[3/4] rounded-lg border border-border p-5 shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md flex flex-col justify-between overflow-hidden relative",
-          template.color === "blue" && "bg-t-blue",
-          template.color === "green" && "bg-t-green",
-          template.color === "purple" && "bg-t-purple",
-          template.color === "amber" && "bg-t-amber",
-          template.color === "rose" && "bg-t-rose",
-          template.color === "cyan" && "bg-t-cyan",
-          template.color === "indigo" && "bg-t-indigo",
-          template.color === "slate" && "bg-t-slate",
-          !template.color && "bg-card"
-        )}
-      >
-        <div className="p-2.5 bg-primary/5 rounded-md w-fit text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:scale-110">
-          <FileText size={20} />
-        </div>
+      <button onClick={onClick} className={cn("w-full aspect-[3/4] rounded-lg border border-border p-5 shadow-sm transition-all group-hover:border-primary/40 group-hover:shadow-md flex flex-col justify-between overflow-hidden relative", template.color && templateBadgeClass(template.color))}>
+        <div className="p-2.5 bg-primary/5 rounded-md w-fit text-primary group-hover:bg-primary group-hover:text-white transition-all transform group-hover:scale-110"><FileText size={20} /></div>
         <div className="space-y-1.5">
-          <h3 className="text-[11px] font-bold text-slate-800 line-clamp-1 flex items-center gap-1.5">
-            {template.name}
-            {template.isPinned && <Pin size={10} className="text-primary fill-primary" />}
-          </h3>
+          <h3 className="text-[11px] font-bold text-slate-800 line-clamp-1 flex items-center gap-1.5">{template.name}{template.isPinned && <Pin size={10} className="text-primary fill-primary" />}</h3>
           <p className="text-[9px] text-muted-foreground leading-relaxed line-clamp-2 opacity-80">{template.description}</p>
         </div>
       </button>
-
-      {/* More Button */}
-      <button 
-        onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-        className="absolute top-3 right-3 p-1.5 bg-card shadow-sm border border-border rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-muted"
-      >
-        <MoreHorizontal size={14} />
-      </button>
-
-      {/* Dropdown Menu */}
+      <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="absolute top-3 right-3 p-1.5 bg-card shadow-sm border border-border rounded-md opacity-0 group-hover:opacity-100 transition-all hover:bg-muted"><MoreHorizontal size={14} /></button>
       {showMenu && (
         <div className="absolute right-0 top-12 w-40 bg-popover border border-border shadow-xl rounded-xl p-1 z-[60] origin-top-right animate-in fade-in zoom-in duration-150">
-          <button 
-            onClick={(e) => { e.stopPropagation(); onEdit(); setShowMenu(false); }}
-            className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50 rounded-lg transition-all"
-          >
-            <Edit size={12} /> Edit Data
-          </button>
-          <button 
-            onClick={(e) => { e.stopPropagation(); onPin(); setShowMenu(false); }}
-            className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50 rounded-lg transition-all"
-          >
-            {template.isPinned ? <PinOff size={12} /> : <Pin size={12} />} 
-            {template.isPinned ? 'Unpin' : 'Pin Template'}
-          </button>
+          <button onClick={(e) => { e.stopPropagation(); onEdit(); setShowMenu(false); }} className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-600 hover:bg-slate-50 rounded-lg transition-all"><Edit size={12} /> Edit Data</button>
+          <button onClick={(e) => { e.stopPropagation(); onPin(); setShowMenu(false); }} className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-black uppercase tracking-wider text-slate-600 hover:bg-slate-50 rounded-lg transition-all">{template.isPinned ? <PinOff size={12} /> : <Pin size={12} />} {template.isPinned ? 'Unpin' : 'Pin Template'}</button>
           <div className="my-1 border-t border-slate-100 mx-1" />
-          <button 
-            onClick={(e) => { e.stopPropagation(); if (confirm('Delete this template?')) onDelete(); setShowMenu(false); }}
-            className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-red-500 hover:bg-red-50 rounded-lg transition-all"
-          >
-            <Trash size={12} /> Delete
-          </button>
+          <button onClick={(e) => { e.stopPropagation(); if (confirm('Delete this template?')) onDelete(); setShowMenu(false); }} className="w-full h-9 flex items-center gap-2 px-3 text-[10px] font-bold uppercase tracking-wider text-red-500 hover:bg-red-50 rounded-lg transition-all"><Trash size={12} /> Delete</button>
         </div>
       )}
     </div>
   );
 };
 
-const TemplateSkeleton = () => (
-  <div className="flex-shrink-0 w-48 aspect-[3/4] rounded-lg border border-border bg-card p-5 flex flex-col justify-between overflow-hidden animate-pulse">
-    <div className="p-2.5 bg-muted/40 rounded-md w-10 h-10" />
-    <div className="space-y-3">
-      <div className="h-3 bg-muted/20 rounded-full w-3/4" />
-      <div className="space-y-1.5">
-        <div className="h-2 bg-muted/10 rounded-full w-full" />
-        <div className="h-2 bg-muted/10 rounded-full w-2/3" />
-      </div>
-    </div>
-  </div>
-);
-
-const ItemSkeleton = ({ mode }: { mode: "grid" | "list" }) => {
-  if (mode === "list") {
-    return (
-      <div className="flex items-center justify-between p-3 bg-card border border-border rounded-lg animate-pulse">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-muted/40 rounded-md" />
-          <div className="flex flex-col gap-1.5">
-            <div className="w-32 h-2.5 bg-muted/40 rounded-full" />
-            <div className="w-20 h-2 bg-muted/20 rounded-full" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-3 group animate-pulse">
-      <div className="aspect-[3/4] rounded-lg border border-border bg-card p-4 flex flex-col gap-3 overflow-hidden shadow-sm">
-        <div className="flex justify-center mb-2">
-          <div className="w-12 h-4 bg-muted/40 rounded-sm" />
-        </div>
-        <div className="flex justify-between mb-4">
-          <div className="space-y-1.5">
-            <div className="w-16 h-1.5 bg-muted/40 rounded-full" />
-            <div className="w-20 h-1 bg-muted/20 rounded-full" />
-            <div className="w-12 h-1 bg-muted/20 rounded-full" />
-          </div>
-          <div className="space-y-1.5">
-            <div className="w-16 h-1.5 bg-muted/40 rounded-full" />
-            <div className="w-10 h-1 bg-muted/20 rounded-full" />
-          </div>
-        </div>
-        <div className="self-center w-3/4 h-2 bg-muted/40 rounded-full mb-4" />
-        <div className="border border-muted/20 rounded-sm overflow-hidden flex-1">
-          <div className="bg-muted/10 h-3 w-full" />
-          <div className="p-2 space-y-1.5">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="flex justify-between gap-2">
-                <div className="w-4 h-1 bg-muted/40 rounded-full" />
-                <div className="flex-1 h-1 bg-muted/20 rounded-full" />
-                <div className="w-6 h-1 bg-muted/40 rounded-full" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="px-1 space-y-1.5">
-        <div className="h-2.5 bg-muted/40 rounded-full w-2/3" />
-        <div className="h-2 bg-muted/20 rounded-full w-1/4" />
-      </div>
-    </div>
-  );
-};
-
-interface ManageTeamModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  businessId: string | null;
-  businessName: string;
-}
-
-const ManageTeamModal = ({ isOpen, onClose, businessId, businessName }: ManageTeamModalProps) => {
-  const { user } = useAuth();
-  const [members, setMembers] = useState<string[]>([]);
-  const [newEmail, setNewEmail] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (isOpen && businessId) {
-      const fetchMembers = async () => {
-        const { doc, getDoc } = await import("firebase/firestore");
-        const { db } = await import("../lib/firebase");
-        const bDoc = await getDoc(doc(db, "businesses", businessId));
-        if (bDoc.exists()) {
-          setMembers(bDoc.data().members || []);
-        }
-      };
-      fetchMembers();
-    }
-  }, [isOpen, businessId]);
-
-  const handleAddMember = async () => {
-    if (newEmail.includes("@gmail.com")) {
-      if (newEmail === user?.email) {
-        alert("You are already the owner of this business.");
-        return;
-      }
-    } else {
-      alert("Only Gmail addresses are allowed.");
-      return;
-    }
-    if (members.includes(newEmail)) return;
-    
-    setIsLoading(true);
-    try {
-      const { doc, updateDoc, arrayUnion } = await import("firebase/firestore");
-      const { db } = await import("../lib/firebase");
-      await updateDoc(doc(db, "businesses", businessId!), {
-        members: arrayUnion(newEmail)
-      });
-      setMembers([...members, newEmail]);
-      setNewEmail("");
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const copyJoinLink = () => {
-    const link = `${window.location.origin}/onboarding?join=${businessId}`;
-    navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-background/80 backdrop-blur-sm"
-      />
-      
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-lg bg-card border border-border shadow-2xl rounded-3xl overflow-hidden flex flex-col max-h-[90vh]"
-      >
-        <div className="p-8 border-b border-border flex items-center justify-between bg-muted/30">
-          <div>
-            <h1 className="text-sm font-black text-foreground tracking-tight uppercase">INV-SYS Pro</h1>
-            <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mt-1">Manage Workspace Team</p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-muted rounded-full text-muted-foreground transition-all">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="p-8 overflow-y-auto space-y-8">
-          {/* Add Section */}
-          <div className="space-y-4">
-            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Invite Member (Gmail Only)</label>
-            <div className="flex gap-2">
-              <input 
-                type="email" 
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value.toLowerCase())}
-                placeholder="colleague@gmail.com"
-                className="flex-1 px-4 h-11 bg-muted/40 border border-border focus:border-primary/50 focus:bg-card rounded-xl outline-none text-xs transition-all font-medium"
-              />
-              <button 
-                onClick={handleAddMember}
-                disabled={isLoading || !newEmail}
-                className="px-6 h-11 bg-primary text-primary-foreground rounded-xl font-black text-[11px] uppercase tracking-wider hover:opacity-90 transition-all shadow-lg shadow-primary/10 disabled:opacity-50"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-
-          {/* Members List */}
-          <div className="space-y-4">
-            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Current Members ({members.length})</label>
-            <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 scrollbar-thin">
-              {members.map(m => (
-                <div key={m} className="flex items-center justify-between p-3 bg-muted/20 border border-border/40 rounded-xl">
-                  <span className="text-xs font-bold text-foreground">{m}</span>
-                  <div className="px-2 py-1 bg-muted/40 rounded-md text-[8px] font-black uppercase tracking-wide text-muted-foreground">Member</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Share Link */}
-          <div className="p-6 bg-primary/5 border border-primary/10 rounded-2xl space-y-4">
-            <div className="flex items-center gap-3">
-              <ShieldCheck className="text-primary" size={18} />
-              <div>
-                <h4 className="text-[11px] font-black text-foreground uppercase tracking-widest">Shareable Join Link</h4>
-                <p className="text-[9px] text-muted-foreground font-medium mt-0.5">Allow anyone with this link to join your business.</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <div className="flex-1 px-4 h-10 bg-card border border-primary/10 rounded-xl flex items-center text-[10px] font-medium text-muted-foreground truncate opacity-70">
-                {window.location.origin}/onboarding?join={businessId}
-              </div>
-              <button 
-                onClick={copyJoinLink}
-                className="px-4 h-10 border border-primary/20 bg-primary/10 text-primary hover:bg-primary/20 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
-              >
-                {copied ? "Copied!" : "Copy"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 bg-muted/20 border-t border-border flex justify-end">
-          <button 
-            onClick={onClose}
-            className="px-8 h-10 bg-foreground text-background rounded-xl font-black text-[11px] uppercase tracking-wider hover:opacity-90 transition-all shadow-xl shadow-foreground/5"
-          >
-            Done
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
-const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) => (
-  <button 
-    onClick={onClick}
-    className={cn(
-      "w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group relative overflow-hidden",
-      active 
-        ? "bg-primary/5 text-primary shadow-sm shadow-primary/5" 
-        : "text-slate-400 hover:text-slate-200"
-    )}
-  >
-    <div className={cn("shrink-0 transition-transform group-hover:scale-110", active && "scale-105")}>
-      {icon}
-    </div>
-    <span className={cn("text-xs font-black tracking-tight", active ? "text-primary" : "text-muted-foreground")}>
-      {label}
-    </span>
-    {active && (
-      <div className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-full" />
-    )}
-  </button>
-);
-
 export default Dashboard;
-

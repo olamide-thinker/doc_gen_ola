@@ -12,6 +12,13 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "YOUR_APP_ID"
 };
 
+// Detect if we are using placeholder keys
+export const isMockFirebase = 
+  !import.meta.env.VITE_FIREBASE_API_KEY || 
+  import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY" ||
+  window.location.hostname === 'localhost' || 
+  window.location.hostname === '127.0.0.1';
+
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
@@ -19,5 +26,9 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
+
+if (isMockFirebase) {
+    console.warn("⚠️ Firebase is in MOCK MODE. Permissions will be bypassed for development.");
+}
 
 export default app;

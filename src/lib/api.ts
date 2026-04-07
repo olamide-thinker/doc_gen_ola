@@ -9,11 +9,10 @@ const saveToStorage = (key: string, data: any) => {
 };
 
 const getFromStorage = (key: string, fallback: any) => {
-  // Check new brand first, fallback to old brand for migration
   let data = localStorage.getItem(`invsys_${key}`);
   if (!data) {
     data = localStorage.getItem(`shan_${key}`);
-    if (data) localStorage.setItem(`invsys_${key}`, data); // Migrate
+    if (data) localStorage.setItem(`invsys_${key}`, data);
   }
   return data ? JSON.parse(data) : fallback;
 };
@@ -23,14 +22,14 @@ const migrateData = () => {
   const folders = getFromStorage("folders", []);
   const documents = getFromStorage("documents", []);
 
-  // Ensure Playground project exists
   if (workspaceStore.projects.length === 0) {
     const initialProjectName = localStorage.getItem('invsys_initial_project');
     if (initialProjectName) {
       workspaceStore.projects.push({
         id: crypto.randomUUID(),
         name: initialProjectName,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        members: []
       });
       localStorage.removeItem('invsys_initial_project');
     }
@@ -38,26 +37,17 @@ const migrateData = () => {
     workspaceStore.projects.push({
       id: "playground",
       name: "Playground",
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      members: []
     });
   }
 
   if (workspaceStore.folders.length === 0 && folders.length > 0) {
     workspaceStore.folders.push(...folders.map((f: any) => ({ ...f, projectId: f.projectId || "playground" })));
-  } else {
-    // Migrate existing synced folders
-    workspaceStore.folders.forEach(f => {
-        if (!f.projectId) f.projectId = "playground";
-    });
   }
 
   if (workspaceStore.documents.length === 0 && documents.length > 0) {
     workspaceStore.documents.push(...documents.map((d: any) => ({ ...d, projectId: d.projectId || "playground" })));
-  } else {
-    // Migrate existing synced documents
-    workspaceStore.documents.forEach(d => {
-        if (!d.projectId) d.projectId = "playground";
-    });
   }
 };
 
@@ -65,24 +55,33 @@ migrateData();
 
 export const api = {
   // --- Folders ---
-  getFolders: async (projectId: string, parentId: string | null = null): Promise<WorkspaceFolder[]> => {
-    return workspaceStore.folders.filter(f => f.projectId === projectId && f.parentId === parentId) as WorkspaceFolder[];
+  getFolders: async (projectId: string, userEmail: string, parentId: string | null = null): Promise<WorkspaceFolder[]> => {
+    const isMock = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
+    return workspaceStore.folders.filter(f => 
+        f.projectId === projectId && 
+        f.parentId === parentId && 
+        (isMock || (f.members || []).includes(userEmail))
+    ) as WorkspaceFolder[];
   },
 
-  getFolder: async (id: string): Promise<WorkspaceFolder | null> => {
-    return (workspaceStore.folders.find(f => f.id === id) as WorkspaceFolder) || null;
+  getFolder: async (id: string, userEmail: string): Promise<WorkspaceFolder | null> => {
+    const isMock = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
+    const folder = workspaceStore.folders.find(f => f.id === id) as WorkspaceFolder;
+    if (folder && (isMock || (folder.members || []).includes(userEmail))) return folder;
+    return null;
   },
 
-  getFolderPath: async (id: string | null): Promise<WorkspaceFolder[]> => {
+  getFolderPath: async (id: string | null, userEmail: string): Promise<WorkspaceFolder[]> => {
     if (!id) return [];
     const allFolders = workspaceStore.folders;
     const path: WorkspaceFolder[] = [];
     let currentId: string | null = id;
 
+    const isMock = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
     while (currentId) {
-      const folder = allFolders.find(f => f.id === currentId);
-      if (folder) {
-        path.unshift(folder as WorkspaceFolder);
+      const folder = allFolders.find(f => f.id === currentId) as WorkspaceFolder;
+      if (folder && (isMock || (folder.members || []).includes(userEmail))) {
+        path.unshift(folder);
         currentId = folder.parentId;
       } else {
         currentId = null;
@@ -91,7 +90,7 @@ export const api = {
     return path;
   },
 
-  createFolder: async (name: string, projectId: string, parentId: string | null = null): Promise<WorkspaceFolder> => {
+  createFolder: async (name: string, projectId: string, userEmail: string, parentId: string | null = null): Promise<WorkspaceFolder> => {
     const newFolder: WorkspaceFolder = {
       id: crypto.randomUUID(),
       name,
@@ -99,6 +98,7 @@ export const api = {
       projectId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      members: [userEmail]
     };
     workspaceStore.folders.push(newFolder);
     return newFolder;
@@ -133,9 +133,8 @@ export const api = {
     return folders[index] as WorkspaceFolder;
   },
 
-  duplicateFolderToFolder: async (id: string, targetParentId: string | null): Promise<WorkspaceFolder> => {
+  duplicateFolderToFolder: async (id: string, targetParentId: string | null, userEmail: string): Promise<WorkspaceFolder> => {
     const folders = workspaceStore.folders;
-    const documents = workspaceStore.documents;
     const original = folders.find(f => f.id === id);
     if (!original) throw new Error("Folder not found");
     
@@ -147,27 +146,34 @@ export const api = {
       parentId: targetParentId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      members: [userEmail]
     };
     folders.push(newFolder);
 
     // Duplicate documents in folder
-    documents.filter(d => d.folderId === id).forEach(d => {
-      api.createDocument(d.name, d.content, d.projectId || "playground", newFolderId);
+    workspaceStore.documents.filter(d => d.folderId === id).forEach(d => {
+      api.createDocument(d.name, d.content, d.projectId || "playground", userEmail, newFolderId);
     });
 
     return newFolder;
   },
 
   // --- Documents ---
-  getDocuments: async (projectId: string, folderId: string | null = null): Promise<WorkspaceDocument[]> => {
-    return workspaceStore.documents.filter(d => d.projectId === projectId && d.folderId === folderId) as unknown as WorkspaceDocument[];
+  getDocuments: async (projectId: string, userEmail: string, folderId: string | null = null): Promise<WorkspaceDocument[]> => {
+    return workspaceStore.documents.filter(d => 
+        d.projectId === projectId && 
+        d.folderId === folderId
+    ) as unknown as WorkspaceDocument[];
   },
 
-  getDocument: async (id: string): Promise<WorkspaceDocument | null> => {
-    return (workspaceStore.documents.find(d => d.id === id) as unknown as WorkspaceDocument) || null;
+  getDocument: async (id: string, userEmail: string): Promise<WorkspaceDocument | null> => {
+    const isMock = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
+    const doc = workspaceStore.documents.find(d => d.id === id) as unknown as WorkspaceDocument;
+    if (doc && (isMock || (doc.members || []).includes(userEmail))) return doc;
+    return null;
   },
 
-  createDocument: async (name: string, content: any, projectId: string, folderId: string | null = null): Promise<WorkspaceDocument> => {
+  createDocument: async (name: string, content: any, projectId: string, userEmail: string, folderId: string | null = null): Promise<WorkspaceDocument> => {
     const newDoc: WorkspaceDocument = {
       id: crypto.randomUUID(),
       name,
@@ -176,6 +182,7 @@ export const api = {
       projectId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      members: [userEmail]
     };
     workspaceStore.documents.push(newDoc);
     return newDoc;
@@ -213,16 +220,10 @@ export const api = {
     return docs[index] as unknown as WorkspaceDocument;
   },
 
-  duplicateDocument: async (id: string): Promise<WorkspaceDocument> => {
+  duplicateDocumentToFolder: async (id: string, targetFolderId: string | null, userEmail: string): Promise<WorkspaceDocument> => {
     const original = workspaceStore.documents.find(d => d.id === id);
     if (!original) throw new Error("Document not found");
-    return api.createDocument(`${original.name} (Copy)`, original.content, original.projectId || "playground", original.folderId);
-  },
-
-  duplicateDocumentToFolder: async (id: string, targetFolderId: string | null): Promise<WorkspaceDocument> => {
-    const original = workspaceStore.documents.find(d => d.id === id);
-    if (!original) throw new Error("Document not found");
-    return api.createDocument(`${original.name} (Copy)`, original.content, original.projectId || "playground", targetFolderId);
+    return api.createDocument(`${original.name} (Copy)`, original.content, original.projectId || "playground", userEmail, targetFolderId);
   },
 
   // --- Templates ---
@@ -256,18 +257,18 @@ export const api = {
 
   // --- Counters ---
   getNextReceiptNumber: (): string => {
-    const counter = Number(localStorage.getItem("invsys_receipt_counter") || localStorage.getItem("shan_receipt_counter") || "0") + 1;
+    const counter = Number(localStorage.getItem("invsys_receipt_counter") || "0") + 1;
     localStorage.setItem("invsys_receipt_counter", String(counter));
     return `REC/IP/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
   },
 
   peekNextInvoiceNumber: (): string => {
-    const counter = Number(localStorage.getItem("invsys_invoice_counter") || localStorage.getItem("shan_invoice_counter") || "0") + 1;
+    const counter = Number(localStorage.getItem("invsys_invoice_counter") || "0") + 1;
     return `INV/IP/${String(counter).padStart(4, "0")}/${new Date().getFullYear()}`;
   },
 
   getNextInvoiceNumber: (): InvoiceCode => {
-    const counter = Number(localStorage.getItem("invsys_invoice_counter") || localStorage.getItem("shan_invoice_counter") || "0") + 1;
+    const counter = Number(localStorage.getItem("invsys_invoice_counter") || "0") + 1;
     localStorage.setItem("invsys_invoice_counter", String(counter));
     const year = new Date().getFullYear();
     const count = String(counter).padStart(4, "0");
@@ -275,24 +276,24 @@ export const api = {
   },
 
   getNextInvoiceCount: (): string => {
-    return String(localStorage.getItem("invsys_invoice_counter") || localStorage.getItem("shan_invoice_counter") || "0").padStart(4, "0");
+    return String(localStorage.getItem("invsys_invoice_counter") || "0").padStart(4, "0");
   },
 
-  searchAll: async (query: string): Promise<WorkspaceDocument[]> => {
+  // --- Search ---
+  searchAll: async (query: string, userEmail: string): Promise<WorkspaceDocument[]> => {
     if (!query.trim()) return [];
     const documents = workspaceStore.documents;
     const q = query.toLowerCase().trim();
     return documents.filter((d) => 
-      d.name.toLowerCase().includes(q) ||
-      (d.content?.invoiceCode?.text || "").toLowerCase().includes(q) ||
-      (d.content?.contact?.name || "").toLowerCase().includes(q)
+      (d.members || []).includes(userEmail) && (
+        d.name.toLowerCase().includes(q) ||
+        (d.content?.invoiceCode?.text || "").toLowerCase().includes(q) ||
+        (d.content?.contact?.name || "").toLowerCase().includes(q)
+      )
     ) as unknown as WorkspaceDocument[];
   },
 
-  getAllDocuments: async (): Promise<WorkspaceDocument[]> => {
-    return workspaceStore.documents as unknown as WorkspaceDocument[];
-  },
-
+  // --- Reordering ---
   reorderItems: async (folderId: string | null, activeId: string, overId: string): Promise<void> => {
     const isFolder = activeId.startsWith('f-');
     const realActiveId = activeId.replace(isFolder ? 'f-' : 'd-', '');
@@ -320,15 +321,18 @@ export const api = {
   },
 
   // --- Projects ---
-  getProjects: async (): Promise<WorkspaceProject[]> => {
-    return workspaceStore.projects as WorkspaceProject[];
+  getProjects: async (userEmail: string): Promise<WorkspaceProject[]> => {
+    return workspaceStore.projects.filter(p => 
+        (p.members || []).includes(userEmail)
+    ) as WorkspaceProject[];
   },
 
-  createProject: async (name: string): Promise<WorkspaceProject> => {
+  createProject: async (name: string, userEmail: string): Promise<WorkspaceProject> => {
     const newProj: WorkspaceProject = {
       id: crypto.randomUUID(),
       name,
       createdAt: new Date().toISOString(),
+      members: [userEmail]
     };
     workspaceStore.projects.push(newProj);
     return newProj;
@@ -348,4 +352,59 @@ export const api = {
         if (docs[i].projectId === id) docs.splice(i, 1);
     }
   },
+
+  // --- Permissions ---
+  addMember: async (type: 'project' | 'folder' | 'document', id: string, email: string): Promise<void> => {
+    const { doc, updateDoc, arrayUnion } = await import("firebase/firestore");
+    const { db } = await import("./firebase");
+
+    if (type === 'project') {
+      const p = workspaceStore.projects.find(p => p.id === id);
+      if (p) {
+        if (!p.members) p.members = [];
+        if (!p.members.includes(email)) p.members.push(email);
+        await updateDoc(doc(db, "businesses", id), { members: arrayUnion(email) });
+      }
+    } else if (type === 'folder') {
+      const f = workspaceStore.folders.find(f => f.id === id);
+      if (f) {
+        if (!f.members) f.members = [];
+        if (!f.members.includes(email)) f.members.push(email);
+      }
+    } else if (type === 'document') {
+      const d = workspaceStore.documents.find(d => d.id === id);
+      if (d) {
+        if (!d.members) d.members = [];
+        if (!d.members.includes(email)) d.members.push(email);
+        await updateDoc(doc(db, "invoices", id), { members: arrayUnion(email) });
+      }
+    }
+  },
+
+  removeMember: async (type: 'project' | 'folder' | 'document', id: string, email: string): Promise<void> => {
+    const { doc, updateDoc, arrayRemove } = await import("firebase/firestore");
+    const { db } = await import("./firebase");
+
+    if (type === 'project') {
+      const p = workspaceStore.projects.find(p => p.id === id);
+      if (p && p.members) {
+        const idx = p.members.indexOf(email);
+        if (idx !== -1) p.members.splice(idx, 1);
+        await updateDoc(doc(db, "businesses", id), { members: arrayRemove(email) });
+      }
+    } else if (type === 'folder') {
+      const f = workspaceStore.folders.find(f => f.id === id);
+      if (f && f.members) {
+        const idx = f.members.indexOf(email);
+        if (idx !== -1) f.members.splice(idx, 1);
+      }
+    } else if (type === 'document') {
+      const d = workspaceStore.documents.find(d => d.id === id);
+      if (d && d.members) {
+        const idx = d.members.indexOf(email);
+        if (idx !== -1) d.members.splice(idx, 1);
+        await updateDoc(doc(db, "invoices", id), { members: arrayRemove(email) });
+      }
+    }
+  }
 };

@@ -26,6 +26,7 @@ export interface WorkspaceFolder {
   projectId?: string;
   createdAt: string;
   updatedAt: string;
+  members?: string[];
 }
 
 export interface WorkspaceDocument {
@@ -37,6 +38,7 @@ export interface WorkspaceDocument {
   createdAt: string;
   updatedAt: string;
   invoiceId?: string | null;
+  members?: string[];
 }
 
 export type WorkspaceState = {

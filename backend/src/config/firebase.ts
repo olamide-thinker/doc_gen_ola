@@ -1,40 +1,68 @@
 import * as admin from 'firebase-admin';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Initialize Firebase Admin SDK
-// You will need to provide a serviceAccountKey.json later
-// For now, we stub it out or initialize with a placeholder if run
-
 let isFirebaseInitialized = false;
 
 export const initializeFirebase = () => {
   if (isFirebaseInitialized) return;
 
   try {
-    // You provided the "Client SDK" configuration. 
-    // To connect a Node.js Backend securely, Firebase requires a "Service Account Key".
-    
-    // 1. Go to Firebase Console -> Project Settings -> Service Accounts
-    // 2. Click "Generate new private key"
-    // 3. Save the downloaded file as `backend/src/config/serviceAccountKey.json`
-    
-    // Uncomment the following once you have that file:
-    /*
-    const serviceAccount = require('./serviceAccountKey.json');
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      projectId: "invoice-crdt-sys"
-    });
-    console.log('[Firebase] ✅ Admin SDK successfully initialized!');
-    isFirebaseInitialized = true;
-    */
+    const projectId = process.env.FIREBASE_PROJECT_ID || "invoice-crdt-sys";
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
-    // For now, it remains mocked to prevent crashes
-    console.log('[Firebase] ⚠️ Waiting for serviceAccountKey.json. DB calls are mocked.');
+    if (clientEmail && privateKey) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey,
+        }),
+        projectId,
+      });
+      console.log('[Firebase] ✅ Admin SDK successfully initialized via Env Vars!');
+      isFirebaseInitialized = true;
+    } else {
+      // Fallback to local JSON if present
+      const keyPath = path.join(__dirname, '..', '..', 'serviceAccountKey.json');
+      if (fs.existsSync(keyPath)) {
+        const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          projectId,
+        });
+        console.log('[Firebase] ✅ Admin SDK successfully initialized via JSON!');
+        isFirebaseInitialized = true;
+      } else {
+        console.warn('[Firebase] ⚠️ Missing credentials (Env or serviceAccountKey.json). Entering Mock Mode.');
+      }
+    }
   } catch (error) {
     console.error('[Firebase] Failed to initialize admin SDK', error);
   }
 };
 
 export const getFirestore = () => {
+  if (!isFirebaseInitialized) {
+    // Return a minimal mock that doesn't crash on common calls
+    return {
+      collection: (name: string) => ({
+        doc: (id: string) => ({
+          get: async () => ({ exists: false, data: () => null }),
+          set: async () => {},
+          update: async () => {},
+          delete: async () => {},
+        }),
+        where: () => ({ get: async () => ({ docs: [] }) }),
+        orderBy: () => ({ limit: () => ({ get: async () => ({ docs: [] }) }) }),
+        limit: () => ({ get: async () => ({ docs: [] }) }),
+        offset: () => ({ get: async () => ({ docs: [] }) }),
+      })
+    } as unknown as admin.firestore.Firestore;
+  }
   return admin.firestore();
 };
+
+export const checkFirebaseInitialized = () => isFirebaseInitialized;

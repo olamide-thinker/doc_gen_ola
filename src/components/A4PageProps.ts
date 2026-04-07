@@ -14,18 +14,18 @@ export interface A4PageProps {
   onUpdateContact: (field: keyof Contact, value: string) => void;
   onUpdateTitle: (value: string) => void;
   onUpdateCell: (
-    rowIndex: number,
+    rowId: string, // Changed from rowIndex to rowId
     colId: string,
     value: string | number | boolean,
   ) => void;
-  onRemoveRow: (index: number) => void;
-  onAddRowBelow: (index: number) => void;
-  onAddRowAbove: (index: number) => void;
-  onAddSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
-  onAddSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
-  onMoveRow: (index: number, direction: "up" | "down") => void;
-  onAddSubSectionBelow: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
-  onAddSubSectionAbove: (index: number, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onRemoveRow: (targetId: string) => void;
+  onAddRowBelow: (targetId: string) => void;
+  onAddRowAbove: (targetId: string) => void;
+  onAddSectionBelow: (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onAddSectionAbove: (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onMoveRow: (targetId: string, direction: "up" | "down") => void;
+  onAddSubSectionBelow: (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => void;
+  onAddSubSectionAbove: (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => void;
   useSections: boolean;
   resolveFormula: (
     data: TableRow | Record<string, number>,

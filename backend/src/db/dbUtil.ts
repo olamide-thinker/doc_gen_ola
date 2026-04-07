@@ -1,4 +1,5 @@
-import { getFirestore } from '../config/firebase';
+import { getFirestore, checkFirebaseInitialized } from '../config/firebase';
+import * as admin from 'firebase-admin';
 
 // This is our central data abstraction layer.
 // Right now it wraps Firebase, but later it can wrap Postgres, MongoDB, etc.
@@ -10,16 +11,12 @@ export const dbUtil = {
    */
   fetchOne: async (collectionName: string, id: string): Promise<any | null> => {
     try {
-      // Mocked out version for now to prevent crashes before Firebase is ready
-      console.log(`[dbUtil.fetchOne] Fetching ${collectionName}/${id}`);
-      return null;
-
-      /*
       const db = getFirestore();
+      const isLive = checkFirebaseInitialized();
       const doc = await db.collection(collectionName).doc(id).get();
+      if (!isLive) return null; // In mock mode, assume nothing exists
       if (!doc.exists) return null;
       return { id: doc.id, ...doc.data() };
-      */
     } catch (error) {
       console.error(`Error in dbUtil.fetchOne for ${collectionName}/${id}:`, error);
       throw error;
@@ -36,20 +33,17 @@ export const dbUtil = {
     offset?: number 
   }): Promise<any[]> => {
     try {
-      console.log(`[dbUtil.fetchAll] Fetching ${params.collectionName}`);
-      return [];
-
-      /*
       const db = getFirestore();
-      let query: FirebaseFirestore.Query = db.collection(params.collectionName);
+      const isLive = checkFirebaseInitialized();
+      if (!isLive) return []; // In mock mode, assume empty collection
       
+      let query: admin.firestore.Query = db.collection(params.collectionName);
       if (params.sort) query = query.orderBy(params.sort);
       if (params.limit) query = query.limit(params.limit);
       if (params.offset) query = query.offset(params.offset);
 
       const snapshot = await query.get();
       return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      */
     } catch (error) {
       console.error(`Error in dbUtil.fetchAll for ${params.collectionName}:`, error);
       throw error;
@@ -61,12 +55,13 @@ export const dbUtil = {
    */
   saveOne: async (collectionName: string, id: string, payload: any): Promise<void> => {
     try {
-      console.log(`[dbUtil.saveOne] Saving to ${collectionName}/${id}`);
-      
-      /*
       const db = getFirestore();
+      const isLive = checkFirebaseInitialized();
+      if (!isLive) {
+        // console.log(`[dbUtil] Mock Save: ${collectionName}/${id}`);
+        return;
+      }
       await db.collection(collectionName).doc(id).set(payload, { merge: true });
-      */
     } catch (error) {
       console.error(`Error in dbUtil.saveOne for ${collectionName}/${id}:`, error);
       throw error;
@@ -78,12 +73,10 @@ export const dbUtil = {
    */
   deleteOne: async (collectionName: string, id: string): Promise<void> => {
     try {
-      console.log(`[dbUtil.deleteOne] Deleting ${collectionName}/${id}`);
-      
-      /*
       const db = getFirestore();
+      const isLive = checkFirebaseInitialized();
+      if (!isLive) return;
       await db.collection(collectionName).doc(id).delete();
-      */
     } catch (error) {
       console.error(`Error in dbUtil.deleteOne for ${collectionName}/${id}:`, error);
       throw error;

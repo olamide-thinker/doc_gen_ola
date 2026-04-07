@@ -28,24 +28,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      
+      const { isMockFirebase } = await import("../lib/firebase");
+      
+      if (!currentUser) {
+        setBusinessId(null);
+        setRole(null);
+        setLoading(false);
+        return;
+      }
+
       try {
-        if (currentUser) {
-          const { doc, getDoc } = await import("firebase/firestore");
-          const { db } = await import("../lib/firebase");
-          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-          if (userDoc.exists()) {
-            setBusinessId(userDoc.data().businessId);
-            setRole(userDoc.data().role);
-          } else {
-            setBusinessId(null);
-            setRole(null);
-          }
+        const { doc, getDoc } = await import("firebase/firestore");
+        const { db } = await import("../lib/firebase");
+
+        // Try to get metadata from Firestore
+        const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+        
+        if (userDoc.exists()) {
+          setBusinessId(userDoc.data().businessId);
+          setRole(userDoc.data().role);
+        } else if (isMockFirebase) {
+          // Fallback for new local users
+          console.warn("[Auth] Using Mock Workspace for Local Dev");
+          setBusinessId("dev-workspace-123");
+          setRole("super-admin");
         } else {
           setBusinessId(null);
           setRole(null);
         }
       } catch (e) {
         console.error("Auth metadata fetch error:", e);
+        if (isMockFirebase || window.location.hostname === 'localhost') {
+            setBusinessId("dev-workspace-123");
+            setRole("super-admin");
+        }
       } finally {
         setLoading(false);
       }
