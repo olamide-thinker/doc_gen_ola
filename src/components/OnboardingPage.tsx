@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { Briefcase, Users, ArrowRight, Check, ShieldCheck, Mail, X, Plus, LogOut, User as UserIcon } from '../lib/icons/lucide';
 import { cn } from '../lib/utils';
-import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { api } from '../lib/api';
+import { API_BASE } from '../lib/workspace-persist';
 
 const OnboardingPage: React.FC = () => {
   const [step, setStep] = useState(1);
@@ -16,7 +16,7 @@ const OnboardingPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [joinBusinessName, setJoinBusinessName] = useState<string | null>(null);
   
-  const { user, refreshBusiness, logout } = useAuth();
+  const { user, refreshProfile, logout } = useAuth();
   const navigate = useNavigate();
 
   const queryParams = new URLSearchParams(window.location.search);
@@ -24,15 +24,16 @@ const OnboardingPage: React.FC = () => {
 
   React.useEffect(() => {
     if (joinId) {
-      const fetchJoinBusiness = async () => {
-        const { doc, getDoc } = await import("firebase/firestore");
-        const { db } = await import("../lib/firebase");
-        const bDoc = await getDoc(doc(db, "businesses", joinId));
-        if (bDoc.exists()) {
-          setJoinBusinessName(bDoc.data().name);
+      const fetchJoinBusinessData = async () => {
+        try {
+          // We can call an unauthenticated or minimally authenticated API to get public name
+          // For now, let's keep it simple or assume joinId is enough
+          setJoinBusinessName("the workspace");
+        } catch (e) {
+          console.error(e);
         }
       };
-      fetchJoinBusiness();
+      fetchJoinBusinessData();
     }
   }, [joinId]);
 
@@ -40,24 +41,28 @@ const OnboardingPage: React.FC = () => {
     if (!joinId || !user) return;
     setIsSubmitting(true);
     try {
-      const { doc, updateDoc, arrayUnion, setDoc } = await import("firebase/firestore");
-      const { db } = await import("../lib/firebase");
-
-      // 1. Add user to business members
-      await updateDoc(doc(db, "businesses", joinId), {
-        members: arrayUnion(user.email)
+      const token = await user.getIdToken();
+      const response = await fetch(`${API_BASE}/organizations/join/${joinId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
 
-      // 2. Update user profile
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
-        email: user.email,
-        businessId: joinId,
-        role: 'member',
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      if (!response.ok) throw new Error('Failed to join organization');
+      
+      // If a project ID is in the URL, add the user to that specific project too.
+      const projectId = queryParams.get('project');
+      if (projectId && user.email) {
+        try {
+          await api.addMember('project', projectId, user.email);
+          localStorage.setItem('invsys_active_project', projectId);
+        } catch (e) {
+          console.error('[Onboarding] Failed to auto-join project:', e);
+        }
+      }
 
-      await refreshBusiness();
+      await refreshProfile();
       navigate('/dashboard');
     } catch (e) {
       console.error(e);
@@ -70,30 +75,35 @@ const OnboardingPage: React.FC = () => {
     if (!businessName.trim() || !user) return;
     setIsSubmitting(true);
     try {
-      const businessId = crypto.randomUUID();
-      const businessRef = doc(db, 'businesses', businessId);
+      const token = await user.getIdToken();
       
-      // 1. Create Business Document
-      await setDoc(businessRef, {
-        id: businessId,
-        name: businessName,
-        ownerId: user.uid,
-        ownerEmail: user.email,
-        members: [user.email],
-        createdAt: new Date().toISOString(),
+      // 1. Create Organization & Initial Project via NestJS API
+      const response = await fetch(`${API_BASE}/organizations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name: businessName })
       });
 
-      // 2. Link user to business
-      const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, {
-        uid: user.uid,
-        email: user.email,
-        businessId: businessId,
-        role: 'super-admin',
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      if (!response.ok) throw new Error('Failed to create organization');
+      
+      const { organizationId } = await response.json();
 
-      // Move to next step or dashboard
+      // 2. Sync user profile to Postgres
+      await fetch(`${API_BASE}/users/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          businessId: organizationId,
+          role: 'super-admin'
+        })
+      });
+
       setStep(2);
     } catch (error) {
       console.error('Error creating business:', error);
@@ -124,12 +134,10 @@ const OnboardingPage: React.FC = () => {
     if (!user) return;
     setIsSubmitting(true);
     try {
-      // If project name provided, we'll handle it via API once in dashboard or 
-      // we can save it to localStorage for the API to pick up during migration
       if (projectName.trim()) {
         localStorage.setItem('invsys_initial_project', projectName.trim());
       }
-      await refreshBusiness();
+      await refreshProfile();
       navigate('/dashboard');
     } catch (error) {
       console.error('Error finalizing onboarding:', error);
@@ -140,7 +148,6 @@ const OnboardingPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* Top Navbar */}
       <nav className="fixed top-0 left-0 w-full h-20 px-8 flex items-center justify-between z-50 bg-background/50 backdrop-blur-xl border-b border-border/50">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
@@ -173,14 +180,12 @@ const OnboardingPage: React.FC = () => {
         </div>
       </nav>
 
-      {/* Background Orbs */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 opacity-30">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 blur-[120px] rounded-full animate-pulse" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
       <div className="w-full max-w-md pt-20">
-        {/* Progress Header */}
         <div className="flex items-center justify-between mb-12">
             <div className="flex flex-col gap-1">
                 <h1 className="text-2xl font-black text-foreground tracking-tight">Onboarding</h1>
@@ -222,7 +227,7 @@ const OnboardingPage: React.FC = () => {
               </button>
               
               <button 
-                onClick={() => window.location.href = '/onboarding'}
+                onClick={() => navigate('/onboarding')}
                 className="mt-6 text-[10px] uppercase font-black tracking-widest text-muted-foreground hover:text-foreground transition-colors"
               >
                 Or create your own business

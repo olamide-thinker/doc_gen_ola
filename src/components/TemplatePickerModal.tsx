@@ -2,14 +2,68 @@ import React from "react";
 import { X, LayoutGrid, FileText, Plus, Search } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { type TemplateDefinition, TEMPLATES } from "../lib/templates";
+import { API_BASE } from "../lib/workspace-persist";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (template: TemplateDefinition) => void;
+  onFileUpload?: (file: { name: string, type: 'pdf' | 'image' | 'video', url: string, size: number }) => void;
 }
 
-export const TemplatePickerModal: React.FC<Props> = ({ isOpen, onClose, onSelect }) => {
+export const TemplatePickerModal: React.FC<Props> = ({ 
+  isOpen, 
+  onClose, 
+  onSelect,
+  onFileUpload 
+}) => {
+  const fileInputRefs = {
+    pdf: React.useRef<HTMLInputElement>(null),
+    image: React.useRef<HTMLInputElement>(null),
+    video: React.useRef<HTMLInputElement>(null),
+  };
+
+  const handleNativeUpload = async (type: 'pdf' | 'image' | 'video', e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onFileUpload) return;
+
+    try {
+      // 1. Get auth token
+      const { auth } = await import('../lib/firebase');
+      const token = await auth.currentUser?.getIdToken();
+
+      // 2. Prepare FormData
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // 3. Upload to backend
+      const response = await fetch(`${API_BASE}/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) throw new Error('Upload failed');
+      const data = await response.json();
+
+      // 4. Trigger callback with server URL
+      onFileUpload({
+        name: file.name,
+        type: type,
+        url: data.url,
+        size: file.size
+      });
+      
+      onClose();
+    } catch (error) {
+      console.error('File upload error:', error);
+      alert('Failed to upload file. Please try again.');
+    } finally {
+      e.target.value = ""; // Reset
+    }
+  };
   if (!isOpen) return null;
 
   return (
@@ -28,8 +82,8 @@ export const TemplatePickerModal: React.FC<Props> = ({ isOpen, onClose, onSelect
                 <LayoutGrid size={20} />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-foreground">Select a Template</h2>
-                <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-widest opacity-60">Choose a structure for your new document</p>
+                <h2 className="text-lg font-bold text-foreground font-lexend uppercase tracking-wider">Add File</h2>
+                <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-widest opacity-60">Choose a resource type or document structure</p>
               </div>
             </div>
             <button 
@@ -59,8 +113,56 @@ export const TemplatePickerModal: React.FC<Props> = ({ isOpen, onClose, onSelect
         </div>
 
         {/* Grid Area */}
-        <div className="flex-1 overflow-y-auto p-8 scrollbar-thin">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="flex-1 overflow-y-auto p-8 scrollbar-thin space-y-10">
+          {/* File Type Section */}
+          <section className="space-y-6">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50 px-1">
+              File Type
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                { id: 'pdf', label: 'PDF Document', icon: FileText, color: 'blue', accept: 'application/pdf' },
+                { id: 'image', label: 'Image / Photo', icon: Plus, color: 'emerald', accept: 'image/*' },
+                { id: 'video', label: 'Video Clip', icon: Plus, color: 'purple', accept: 'video/*' },
+              ].map((type) => (
+                <div key={type.id} className="relative">
+                  <label
+                    htmlFor={`file-upload-${type.id}`}
+                    className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-muted/20 border border-border/60 hover:border-primary/40 hover:bg-card transition-all text-left cursor-pointer"
+                  >
+                    <div className={cn(
+                      "w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg transition-all duration-300 group-hover:scale-110",
+                      type.color === 'blue' && "bg-blue-500 shadow-blue-500/20",
+                      type.color === 'emerald' && "bg-emerald-500 shadow-emerald-500/20",
+                      type.color === 'purple' && "bg-purple-500 shadow-purple-500/20",
+                    )}>
+                      <type.icon size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-[11px] font-black uppercase tracking-widest text-foreground group-hover:text-primary transition-colors">
+                        {type.label}
+                      </h4>
+                      <p className="text-[9px] text-muted-foreground mt-0.5 font-bold uppercase tracking-tighter opacity-60">Upload resource</p>
+                    </div>
+                  </label>
+                  <input
+                    id={`file-upload-${type.id}`}
+                    type="file"
+                    onChange={(e) => handleNativeUpload(type.id as any, e)}
+                    className="hidden"
+                    accept={type.accept}
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Template Section */}
+          <section className="space-y-6">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50 px-1">
+              Select a Template
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Blank Template */}
             <button 
               onClick={() => onSelect(TEMPLATES[0])}
@@ -134,6 +236,7 @@ export const TemplatePickerModal: React.FC<Props> = ({ isOpen, onClose, onSelect
               </button>
             ))}
           </div>
+          </section>
         </div>
       </div>
     </div>

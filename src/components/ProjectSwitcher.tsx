@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-import { ChevronDown, Plus, LayoutGrid, Boxes, Calculator, Check, FolderOpen } from "../lib/icons/lucide";
+import { useNavigate } from "react-router-dom";
+import { ChevronDown, Plus, LayoutGrid, Boxes, Check, FolderOpen, LayoutDashboard } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { WorkspaceProject } from "../store";
 
@@ -16,6 +17,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
   onSelect,
   onCreateNew,
 }) => {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   
@@ -93,7 +95,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
               ))}
             </div>
 
-            <div className="mt-3 pt-3 border-t border-white/5">
+            <div className="mt-3 pt-3 border-t border-white/5 space-y-1">
               <button
                 onClick={() => {
                   onCreateNew();
@@ -104,7 +106,16 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                 <div className="w-8 h-8 rounded-xl bg-lime-400/20 flex items-center justify-center">
                   <Plus size={14} />
                 </div>
-                New Specialist Project
+                New Project
+              </button>
+              <button
+                onClick={() => { navigate("/projects"); setIsOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest text-white/40 hover:bg-white/5 hover:text-white/70 transition-all"
+              >
+                <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center">
+                  <LayoutDashboard size={14} />
+                </div>
+                View All Projects
               </button>
             </div>
           </div>

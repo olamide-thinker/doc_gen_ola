@@ -49,6 +49,62 @@ export interface InvoiceCode {
   color: string;
 }
 
+export interface AnnotationReply {
+  id: string;
+  text: string;
+  userName: string;
+  userPhoto?: string;
+  createdAt: string;
+}
+
+// A single pin, highlight, or drawing placed on a file by a team member
+export interface Annotation {
+  id: string;
+  x: number;          // position as percentage (0-100)
+  y: number;
+  text: string;
+  userName: string;
+  userPhoto?: string; // avatar URL — stored at creation time
+  createdAt: string;  // ISO-8601 for sorting
+  type: 'pin' | 'highlight' | 'draw';
+  path?: {x: number, y: number}[]; // array of points for freehand drawing
+  replies?: AnnotationReply[];     // nested replies
+  timestamp?: number; // video-only: seconds into the video
+  color?: string; // custom color for the annotation
+}
+
+export type MemberRole = 'owner' | 'editor' | 'commenter' | 'viewer';
+
+export interface DocumentMember {
+  email: string;
+  role: MemberRole;
+}
+
+/** True if the role is allowed to mutate document content. Mirrors backend canWrite(). */
+export const canWrite = (role: MemberRole | undefined | null): boolean =>
+  role === 'owner' || role === 'editor';
+
+/** Normalises legacy 'member' values to 'editor'. Mirrors backend normalizeRole(). */
+export const normalizeMemberRole = (raw: any): MemberRole => {
+  if (raw === 'owner') return 'owner';
+  if (raw === 'editor' || raw === 'member') return 'editor';
+  if (raw === 'commenter') return 'commenter';
+  if (raw === 'viewer') return 'viewer';
+  return 'viewer';
+};
+
+export interface FileAttachment {
+  id: string;
+  name: string;
+  type: "pdf" | "image" | "video";
+  url: string; // Base64 or Blob URL
+  size?: number;
+  createdAt: string;
+  annotations?: Annotation[];
+  ownerName?: string;
+  ownerPhoto?: string;
+}
+
 export interface DocData {
   contact: Contact;
   title: string;
@@ -68,20 +124,48 @@ export interface DocData {
   reference?: string;
   signature?: string;
   receiptMessage?: string;
-  totalInvoiceAmount?: number;
   amountPaid?: number;
   outstandingBalance?: number;
   acknowledgement?: string;
+  // File management
+  totalInvoiceAmount?: number;
+  files?: FileAttachment[];
   // Template metadata — stored at creation for display purposes only
   _templateColor?: string;
   _templateName?: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  projectId: string;
+  userId: string;
+  email: string;
+  role: string;
+  metadata?: any;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectOwner {
+  id: string;
+  email: string | null;
+  fullName: string | null;
+  photo: string | null;
 }
 
 export interface WorkspaceProject {
   id: string;
   name: string;
   createdAt: string;
-  members?: string[];
+  members?: DocumentMember[]; // stores email + role locally
+  ownerId?: string;
+  owner?: ProjectOwner;
+  isOwner?: boolean;
+  businessId?: string;
+  /** Caller's role within this project — populated by GET /api/workspace/projects */
+  myRole?: MemberRole;
+  /** Map of email → role for every member of the project */
+  memberRoles?: Record<string, MemberRole>;
 }
 
 export interface TotalPrice {

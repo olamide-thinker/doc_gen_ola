@@ -30,18 +30,22 @@ import {
   LogOut,
   Boxes,
   Calculator,
-  ScrollText
+  ScrollText,
+  Image as ImageIcon,
+  Video,
+  Eye,
 } from "../lib/icons/lucide";
+import { DocumentMember, MemberRole } from "../types";
 import { cn } from "../lib/utils";
-import { api } from "../lib/api";
+import { api, initializeWorkspace, isPlayground, getPlaygroundId } from "../lib/api";
 import { type WorkspaceFolder as FolderType, type WorkspaceDocument as DocumentType } from "../store";
 import { type TemplateDefinition, TEMPLATES } from "../lib/templates";
 import { type InvoiceCode } from "../types";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore, authStore, connectWorkspace, workspaceProvider, authProvider } from "../store";
-import { useQueryClient } from "@tanstack/react-query";
+import { workspaceStore, authStore, connectProject, workspaceProvider, authProvider } from "../store";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { EditTemplateModal } from "./EditTemplateModal";
 import CreateInvoiceModal, { type CreateInvoiceFormData } from "./CreateInvoiceModal";
 import { useAuth } from "../context/AuthContext";
@@ -51,6 +55,8 @@ import { ProjectSwitcher } from "./ProjectSwitcher";
 import { CreateProjectModal } from "./CreateProjectModal";
 import { TemplatePickerModal } from "./TemplatePickerModal";
 import { MemberManagementModal } from "./MemberManagementModal";
+import { FileViewerModal } from "./FileViewerModal";
+import { FileAttachment } from "../types";
 import {
   DndContext, 
   closestCenter,
@@ -77,6 +83,7 @@ const Dashboard: React.FC = () => {
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
+  const isSearching = searchQuery.length > 0;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<TemplateDefinition | null>(null);
   const [createModal, setCreateModal] = useState<{ open: boolean; template?: TemplateDefinition }>({ open: false });
@@ -84,40 +91,30 @@ const Dashboard: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
-  const [memberModal, setMemberModal] = useState<{ open: boolean; type: 'project' | 'folder' | 'document'; id: string; name: string; members: string[] } | null>(null);
+  const [memberModal, setMemberModal] = useState<{ open: boolean; type: 'project' | 'folder' | 'document'; id: string; name: string; members: (string | DocumentMember)[]; isOwner?: boolean } | null>(null);
   
-  const [activeProjectId, setActiveProjectId] = useState<string>(() => {
-    return localStorage.getItem("invsys_active_project") || "playground";
-  });
   const [activeModule, setActiveModule] = useState<"documents" | "inventory" | "accounting">("documents");
   const [activeView, setActiveView] = useState<"home" | "templates">("home");
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isTemplatePickerOpen, setIsTemplatePickerOpen] = useState(false);
+  const [viewingFile, setViewingFile] = useState<FileAttachment | null>(null);
+  const [viewingFileDocId, setViewingFileDocId] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [renamingItem, setRenamingItem] = useState<any>(null);
+  const [isCreatingDoc, setIsCreatingDoc] = useState(false);
   
-  const { user: currentUser, logout, businessId, role } = useAuth();
+  const { user: currentUser, logout, businessId, businessName: authBusinessName, projectId: activeProjectId, setProject, role, refreshProfile } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const isMockMode = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
-
-  const [businessName, setBusinessName] = useState("Your Business");
+  const [businessName, setBusinessName] = useState(authBusinessName || "Your Business");
   const [businessOwnerId, setBusinessOwnerId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchBusinessInfo = async () => {
-        if (!businessId || isMockMode) {
-            setBusinessName("Development Workspace");
-            return;
-        }
-        const { doc, getDoc } = await import("firebase/firestore");
-        const { db } = await import("../lib/firebase");
-        const bDoc = await getDoc(doc(db, "businesses", businessId));
-        if (bDoc.exists()) {
-            setBusinessName(bDoc.data().name);
-            setBusinessOwnerId(bDoc.data().ownerId);
-        }
-    };
-    fetchBusinessInfo();
-  }, [businessId, isMockMode]);
+    if (authBusinessName) {
+      setBusinessName(authBusinessName);
+    }
+  }, [authBusinessName]);
 
   const params = new URLSearchParams(location.search);
   const currentFolderId = params.get("folder");
@@ -133,31 +130,97 @@ const Dashboard: React.FC = () => {
     })
   );
 
-  // --- Synced Stores ---
+  // --- REST Queries (Tanstack) ---
+  const { data: projects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.getProjects(),
+    enabled: !!currentUser,
+  });
+
+  const { data: allFolders = [], isLoading: isLoadingFolders } = useQuery({
+    queryKey: ['folders', activeProjectId],
+    queryFn: () => api.getFolders(activeProjectId!),
+    enabled: !!currentUser && !!activeProjectId,
+  });
+
+  const { data: allDocuments = [], isLoading: isLoadingDocs } = useQuery({
+    queryKey: ['documents', activeProjectId],
+    queryFn: () => api.getDocuments(activeProjectId!),
+    enabled: !!currentUser && !!activeProjectId,
+  });
+
+  // --- Synced Stores (Identity/Auth only) ---
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
 
   // --- Presence / Awareness ---
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
   const [isWorkspaceReady, setIsWorkspaceReady] = useState(false);
+  const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [myClientId, setMyClientId] = useState<string>("unknown");
 
   useEffect(() => {
-    if (!currentUser || !businessId) return;
+    if (!currentUser) return;
 
     let cleanup: (() => void) | undefined;
 
     const startSync = async () => {
+      setIsSwitchingWorkspace(true);
       const token = await currentUser.getIdToken();
-      const providers = connectWorkspace(businessId, token);
       
+      // Map 'playground' to a personalized room name
+      const targetProjectId = isPlayground(activeProjectId)
+        ? getPlaygroundId(currentUser.uid) 
+        : activeProjectId;
+
+      // NAVIGATION GUARD: If we have no active project and are trying to see dashboard, redirect
+
+      // NAVIGATION GUARD: If we have no active project and are trying to see dashboard, redirect
+      if (!targetProjectId || targetProjectId === 'null' || targetProjectId === 'undefined') {
+        console.warn('[Guard] 🚨 Invalid Project ID on Dashboard. Redirecting to projects list.');
+        navigate('/projects');
+        return;
+      }
+
+      const providers = connectProject(targetProjectId, token, businessId || undefined);
+
+      // Proactive check: if already synced, release immediately
+      if (providers.workspaceProvider.synced) {
+        setIsSwitchingWorkspace(false);
+      }
+
+      // We still sync folders/docs via Hocuspocus, but projects are REST now
+      const onSynced = () => {
+        console.log('[Dashboard] 🏁 Sync Complete. Releasing overlay.');
+        setIsSwitchingWorkspace(false);
+      };
+      providers.workspaceProvider.on('synced', onSynced);
+
+      // FAILSAFE: Force release after 5 seconds to prevent permanent lockout
+      const failsafe = setTimeout(() => {
+        setIsSwitchingWorkspace(false);
+      }, 5000);
+
       const updatePresence = () => {
         const states = providers.authProvider.awareness?.getStates();
         if (!states) return;
         const clients: any[] = [];
+        const activeProj = projectsQuery.find((p: any) => p.id === targetProjectId);
+
         states.forEach((state: any, clientId: number) => {
           if (state.user && state.user.email) {
-            clients.push({ id: clientId.toString(), user: state.user });
+            const email = state.user.email;
+            // Lookup role from the project members list
+            const member = (activeProj?.members || []).find((m: any) => 
+               (typeof m === 'string' ? m : m.email) === email
+            );
+            const role = member ? (typeof member === 'object' ? member.role : 'editor') : (state.user.id === activeProj?.ownerId ? 'owner' : 'editor');
+
+            clients.push({ 
+              id: clientId.toString(), 
+              user: state.user,
+              role: role
+            });
           }
         });
         setConnectedClients(clients);
@@ -176,12 +239,14 @@ const Dashboard: React.FC = () => {
       setIsWorkspaceReady(true);
       cleanup = () => {
         providers.authProvider.awareness?.off('change', updatePresence);
+        providers.workspaceProvider.off('synced', onSynced);
+        clearTimeout(failsafe);
       };
     };
 
     startSync();
     return () => cleanup?.();
-  }, [currentUser, businessId]);
+  }, [currentUser, businessId, activeProjectId]);
 
   // --- Auto-Kick Security Logic ---
   useEffect(() => {
@@ -193,67 +258,93 @@ const Dashboard: React.FC = () => {
   // --- Derived State ---
   const folders = workspaceAction.folders || [];
   const documents = workspaceAction.documents || [];
-  const projects = (workspaceAction.projects || []) as any[];
+  const projectsQuery = projects; // Renamed to avoid confusion if needed
 
-  // Filter items by project AND current folder AND membership
-  const folderItems = folders.filter(f => 
-    f.projectId === activeProjectId && 
-    f.parentId === currentFolderId &&
-    (isMockMode || (f.members || []).includes(currentUser?.email || ""))
-  );
+  // Owners always count as project members — inherit full visibility.
+  const userEmail = currentUser?.email || "";
+
+  const normalizeMembers = (list: any): DocumentMember[] => {
+    return (list || []).map((m: any) => typeof m === 'string' ? { email: m, role: 'editor' } : m);
+  };
+
+  const projectContext = useMemo(() => {
+    const activeProject = projects.find(p => p.id === activeProjectId);
+    if (!activeProject) return { isMember: false, role: 'viewer' as MemberRole };
+    
+    if (activeProject.ownerId && activeProject.ownerId === currentUser?.uid) return { isMember: true, role: 'editor' as MemberRole };
+    if (activeProject.isOwner) return { isMember: true, role: 'editor' as MemberRole };
+    
+    const projectMembers = normalizeMembers(activeProject.members);
+    const m = projectMembers.find(pm => pm.email === userEmail);
+    return { isMember: !!m, role: (m?.role || 'viewer') as MemberRole };
+  }, [projects, activeProjectId, userEmail, currentUser]);
+
+  const isProjectMember = projectContext.isMember;
+  const canEditProject = projectContext.role === 'editor';
+
+  // Filter items by project AND current folder.
+  const folderItems = useMemo(() => {
+    return allFolders.filter(f =>
+      f.projectId === activeProjectId &&
+      (f.parentId === currentFolderId || (f.metadata as any)?.parentId === currentFolderId) &&
+      (isProjectMember || normalizeMembers(f.members).some(m => m.email === userEmail))
+    );
+  }, [allFolders, activeProjectId, currentFolderId, isProjectMember, userEmail]);
+
+  const docItems = useMemo(() => {
+    return allDocuments.filter(d =>
+      d.projectId === activeProjectId &&
+      (d.folderId === currentFolderId) &&
+      (isProjectMember || normalizeMembers(d.members).some(m => m.email === userEmail))
+    );
+  }, [allDocuments, activeProjectId, currentFolderId, isProjectMember, userEmail]);
   
-  const docItems = documents.filter(d => 
-    d.projectId === activeProjectId && 
-    d.folderId === currentFolderId
-  );
-  
-  const currentFolder = currentFolderId 
-    ? workspaceAction.folders.find(f => f.id === currentFolderId)
-    : null;
+  const currentFolder = useMemo(() => {
+    return currentFolderId ? allFolders.find(f => f.id === currentFolderId) : null;
+  }, [allFolders, currentFolderId]);
 
   const getFolderPath = (id: string | null): FolderType[] => {
     if (!id) return [];
-    const allFolders = workspaceAction.folders;
     const path: FolderType[] = [];
     let curr = id;
     const email = currentUser?.email || "";
     while (curr) {
       const folder = allFolders.find(f => f.id === curr);
-      if (folder && (isMockMode || (folder.members || []).includes(email))) {
-        path.unshift(folder as FolderType);
-        curr = folder.parentId || "";
+      if (folder && (isProjectMember || (folder.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === userEmail))) {
+        path.unshift(folder as any);
+        curr = folder.parentId || (folder.metadata as any)?.parentId || "";
       } else curr = "";
     }
     return path;
   };
   const folderPath = getFolderPath(currentFolderId);
 
-  const docById = useMemo(() => {
-    const map = new Map<string, DocumentType>();
-    documents.forEach(d => map.set(d.id, d));
-    return map;
-  }, [documents]);
-
-  const templates = TEMPLATES; 
-  const isLoadingTemplates = false;
-
-  const isSearching = searchQuery.trim().length >= 2;
-
-  const searchResults = isSearching 
-    ? workspaceAction.documents.filter(d => 
-        d.projectId === activeProjectId && 
-        (isMockMode || (d.members || []).includes(currentUser?.email || "")) && (
-          d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-          d.content?.contact?.name?.toLowerCase().includes(searchQuery.toLowerCase())
-        )
+  const searchResults = useMemo(() => {
+    if (!isSearching) return [];
+    return allDocuments.filter(d =>
+      d.projectId === activeProjectId &&
+      (isProjectMember || (d.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === userEmail)) && (
+        d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.content?.contact?.name?.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : [];
+    );
+  }, [allDocuments, isSearching, activeProjectId, isProjectMember, userEmail, searchQuery]);
 
   const searchInvoices = searchResults.filter(d => !d.content?.isReceipt);
   const searchReceipts = searchResults.filter(d => d.content?.isReceipt);
 
   const items = [
-    ...folderItems.map(f => ({ ...f, id: `f-${f.id}`, _type: 'folder' as const, _realId: f.id })),
+    ...folderItems.map(f => {
+      const subFolders = allFolders.filter(sf => sf.parentId === f.id).length;
+      const subDocs = allDocuments.filter(sd => sd.folderId === f.id).length;
+      return { 
+        ...f, 
+        id: `f-${f.id}`, 
+        _type: 'folder' as const, 
+        _realId: f.id,
+        stats: { folders: subFolders, files: subDocs }
+      };
+    }),
     ...docItems.map(d => ({ ...d, id: `d-${d.id}`, _type: 'document' as const, _realId: d.id }))
   ];
 
@@ -262,8 +353,9 @@ const Dashboard: React.FC = () => {
   // --- Actions ---
   const handleCreateFolder = async () => {
     const name = prompt("Folder Name:");
-    if (!name || !currentUser?.email) return;
+    if (!name || !currentUser?.email || !activeProjectId) return;
     await api.createFolder(name, activeProjectId, currentUser.email, currentFolderId);
+    queryClient.invalidateQueries({ queryKey: ['folders', activeProjectId] });
   };
 
   const handleCreateDocument = async (template?: TemplateDefinition) => {
@@ -272,12 +364,11 @@ const Dashboard: React.FC = () => {
 
   const handleModalSubmit = async (formData: CreateInvoiceFormData) => {
     if (!currentUser?.email) return;
+    setIsCreatingDoc(true);
     const isReceipt = createModal.template?.content?.isReceipt;
     const invoiceCode = isReceipt ? undefined : api.getNextInvoiceNumber();
     const name = formData.projectName.trim() || (invoiceCode?.text ?? "New Invoice");
     
-    // Construct initial content
-    const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
     const content: any = {
       contact: {
         name: formData.clientName || "Client Name",
@@ -287,7 +378,7 @@ const Dashboard: React.FC = () => {
         email: formData.email || undefined,
       },
       title: formData.description || name,
-      date: now,
+      date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
       table: createModal.template?.content?.table || {
         columns: [
           { id: "A", label: "S/N", type: "index", width: "60px" },
@@ -297,7 +388,7 @@ const Dashboard: React.FC = () => {
           { id: "E", label: "Total (₦)", type: "formula", formula: "C * D", width: "140px" }
         ],
         rows: [{ id: crypto.randomUUID(), rowType: "row", B: "Item", C: 1, D: 0 }],
-        summary: [{ id: "vat", label: "VAT (7.5%)", type: "formula", formula: "subTotal * 0.075" }]
+        summary: [{ id: "subTotal", label: "Sub Total", type: "formula", formula: "sum(E)" }]
       },
       footer: createModal.template?.content?.footer || { notes: "", emphasis: [] },
       invoiceCode,
@@ -306,15 +397,38 @@ const Dashboard: React.FC = () => {
       _templateColor: createModal.template?.color
     };
 
-    const newDoc = await api.createDocument(name, content, activeProjectId, currentUser.email, currentFolderId);
-    setCreateModal({ open: false });
-    navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
+    try {
+      let newDoc;
+      // All new documents — whether from a template or blank — go through the
+      // invoices table so they appear in the invoice management flow.
+      newDoc = await api.createInvoice(name, content, activeProjectId!, currentUser.uid);
+
+      if (!newDoc?.id) {
+        throw new Error('Server returned no document ID. Please try again.');
+      }
+
+      setCreateModal({ open: false });
+      navigate(isReceipt ? `/receipt-editor/${newDoc.id}` : `/editor/${newDoc.id}`);
+    } catch (err: any) {
+      console.error('[Dashboard] Failed to create invoice:', err);
+      alert(err.message || 'Failed to create invoice. Please try again.');
+    } finally {
+      setIsCreatingDoc(false);
+    }
   };
 
-  const handleDelete = (item: any) => {
+  const handleDelete = async (item: any) => {
     if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
-    if (item._type === 'folder') api.deleteFolder(item._realId);
-    else api.deleteDocument(item._realId);
+    const type = item._type as 'folder' | 'document';
+    const id = item._realId;
+    
+    if (type === 'folder') {
+      await api.deleteFolder(activeProjectId!, id);
+      queryClient.invalidateQueries({ queryKey: ['folders', activeProjectId] });
+    } else {
+      await api.deleteDocument(activeProjectId!, id);
+      queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+    }
   };
 
   const handleDuplicate = (item: any) => {
@@ -324,10 +438,19 @@ const Dashboard: React.FC = () => {
   };
 
   const handleRename = (item: any) => {
-    const newName = prompt("New Name:", item.name);
-    if (!newName || newName === item.name) return;
-    if (item._type === 'folder') api.renameFolder(item._realId, newName);
-    else api.renameDocument(item._realId, newName);
+    setRenamingItem(item);
+    setNewName(item.name);
+    setIsRenaming(true);
+  };
+
+  const confirmRename = () => {
+    if (!renamingItem || !newName.trim() || newName === renamingItem.name) {
+      setIsRenaming(false);
+      return;
+    }
+    if (renamingItem._type === 'folder') api.renameFolder(renamingItem._realId, newName);
+    else api.renameDocument(renamingItem._realId, newName);
+    setIsRenaming(false);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -336,353 +459,335 @@ const Dashboard: React.FC = () => {
       setActiveId(null);
       return;
     }
-    
     const activeItem = items.find(i => i.id === active.id);
     const overItem = items.find(i => i.id === over.id);
+    if (!activeItem || !overItem) { setActiveId(null); return; }
 
-    if (!activeItem || !overItem) {
-      setActiveId(null);
-      return;
-    }
-
-    if (overItem && overItem._type === 'folder' && activeItem && activeItem._type === 'document') {
+    if (overItem._type === 'folder' && activeItem._type === 'document') {
        api.moveDocument(activeItem._realId, overItem._realId);
-    } else if (overItem && activeItem) {
+    } else {
        api.reorderItems(currentFolderId, active.id as string, over.id as string);
     }
-    
     setActiveId(null);
   };
 
   return (
-    <div className="flex h-screen bg-background text-foreground transition-all duration-300 font-lexend overflow-hidden">
-      {/* Unified Sidebar */}
-      <aside className="w-64 border-r border-border bg-card hidden md:flex flex-col p-6 space-y-8">
-        {/* Brand */}
-        <div className="flex items-center gap-3 px-2">
-          <div className="p-2 bg-primary rounded-lg shadow-sm">
-            <FileText size={20} className="text-primary-foreground" strokeWidth={2.5} />
-          </div>
-          <h1 className="text-sm font-bold tracking-tight uppercase text-foreground">INV-SYS Pro</h1>
-        </div>
-
-        {/* Navigation Sections */}
-        <div className="flex-1 space-y-10">
-          {/* Library Section */}
-          <div className="space-y-4">
-            <h3 className="px-2 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-50 flex items-center gap-2">
-              <Folder size={12} /> Library
-            </h3>
-            <nav className="space-y-1">
-              <SidebarItem 
-                icon={<Clock size={18} />} 
-                label="Home" 
-                active={activeView === "home" && !currentFolderId} 
-                onClick={() => { setActiveView("home"); navigate("/dashboard"); }} 
-              />
-              <SidebarItem 
-                icon={<ScrollText size={18} />} 
-                label="Templates" 
-                active={activeView === "templates"} 
-                onClick={() => setActiveView("templates")} 
-              />
-              <SidebarItem icon={<Users size={18} />} label="Manage Team" onClick={() => {
-                  setActiveCollaboratorTab('team');
-                  setIsCollaboratorsOpen(true);
-              }} />
-              <SidebarItem icon={<Trash size={18} />} label="Trash bin" onClick={() => alert("Trash feature coming soon")} />
-            </nav>
-          </div>
-
-          {/* Modules Section */}
-          <div className="space-y-4">
-            <h3 className="px-2 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-50 flex items-center gap-2">
-              <Boxes size={12} /> Modules
-            </h3>
-            <nav className="space-y-1">
-              <SidebarItem 
-                icon={<FileText size={18} />} 
-                label="Documents" 
-                active={activeModule === "documents"} 
-                onClick={() => setActiveModule("documents")} 
-              />
-              <SidebarItem 
-                icon={<Boxes size={18} />} 
-                label="Project Scope" 
-                active={false} 
-                onClick={() => setIsProjectModalOpen(true)} 
-              />
-              <SidebarItem 
-                icon={<LayoutGrid size={18} />} 
-                label="Inventory" 
-                active={activeModule === "inventory"} 
-                onClick={() => setActiveModule("inventory")} 
-              />
-              <SidebarItem 
-                icon={<Calculator size={18} />} 
-                label="Accounting" 
-                active={activeModule === "accounting"} 
-                onClick={() => setActiveModule("accounting")} 
-              />
-            </nav>
-          </div>
-        </div>
-
-        {/* Footer / User */}
-        <div className="pt-6 border-t border-border/50">
-          <div 
-            className="flex items-center gap-3 px-3 py-3 rounded-2xl bg-muted/20 group relative overflow-hidden transition-all hover:bg-muted/40 cursor-pointer"
+    <>
+      <AnimatePresence>
+        {isSwitchingWorkspace && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-background/60 backdrop-blur-md flex flex-col items-center justify-center gap-6"
           >
-            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden border border-border/50">
-               {currentUser?.photoURL ? (
-                 <img src={currentUser.photoURL} alt="" className="w-full h-full object-cover" />
-               ) : (
-                 <UserIcon className="text-primary" size={16} />
-               )}
+            <div className="relative">
+              <div className="w-16 h-16 rounded-3xl bg-primary/20 animate-pulse" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <RefreshCw className="text-primary animate-spin" size={32} />
+              </div>
             </div>
-            <div className="flex-1 min-w-0 pr-8">
-              <p className="text-[11px] font-black truncate text-foreground">{currentUser?.displayName || 'User'}</p>
-              <p className="text-[9px] text-muted-foreground truncate uppercase tracking-widest font-bold opacity-60">{role || 'Admin'}</p>
+            <div className="flex flex-col items-center gap-2">
+              <h2 className="text-xl font-black uppercase tracking-widest text-foreground">Switching Workspace</h2>
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest opacity-60">Synchronizing secure data...</p>
             </div>
-            <button 
-              onClick={() => logout()}
-              className="absolute right-2 p-2 hover:bg-destructive/10 hover:text-destructive rounded-lg transition-all text-muted-foreground group-hover:opacity-100"
-              title="Sign Out"
-            >
-              <LogOut size={14} />
-            </button>
-          </div>
-        </div>
-      </aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <main className="flex-1 flex flex-col bg-background relative overflow-hidden">
-        {/* Header */}
-        <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background sticky top-0 z-10">
-          <div className="flex items-center gap-2 flex-1">
-            <div className="relative w-full max-w-sm group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-foreground transition-colors" size={14} />
-              <input 
-                type="text" 
-                placeholder="Search documents..." 
-                className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-transparent focus:border-border focus:bg-card rounded-xl outline-none text-xs transition-all" 
-                value={searchQuery} 
-                onChange={(e) => setSearchQuery(e.target.value)} 
-              />
-            </div>
-            {currentFolderId && (
-              <button 
-                onClick={() => navigate(-1)} 
-                className="p-2 h-8 px-3 flex items-center gap-2 hover:bg-muted rounded-lg transition-all text-xs font-bold text-muted-foreground"
-              >
-                <ArrowLeft size={14} /> Back
-              </button>
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Sub-Header / Toolbar */}
+      <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background/30 sticky top-0 z-10 shrink-0">
+        <div className="flex items-center gap-2 flex-1">
+          <div className="relative w-full max-w-sm group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-foreground transition-colors" size={14} />
+            <input 
+              type="text" 
+              placeholder="Search documents..." 
+              className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-transparent focus:border-border focus:bg-card rounded-xl outline-none text-xs transition-all" 
+              value={searchQuery} 
+              onChange={(e) => setSearchQuery(e.target.value)} 
+            />
+          </div>
+          {currentFolderId && (
+            <button 
+              onClick={() => navigate(-1)} 
+              className="p-2 h-8 px-3 flex items-center gap-2 hover:bg-muted rounded-lg transition-all text-xs font-bold text-muted-foreground"
+            >
+              <ArrowLeft size={14} /> Back
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="flex bg-muted/30 p-1 rounded-xl border border-border/50">
+             <button 
+              onClick={() => setViewMode("grid")}
+              className={cn("p-1.5 rounded-lg transition-all", viewMode === "grid" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground")}
+             >
+               <LayoutGrid size={14} />
+             </button>
+             <button 
+              onClick={() => setViewMode("list")}
+              className={cn("p-1.5 rounded-lg transition-all", viewMode === "list" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground")}
+             >
+               <List size={14} />
+             </button>
+          </div>
+
+          <div className="h-4 w-px bg-border/50 mx-1" />
+
+          {/* Active Users Avatars */}
+          <div className="flex -space-x-1.5 overflow-hidden">
+            {connectedClients.map((client: any) => {
+              if (client.id === myClientId) return null;
+              return (
+                <div 
+                  key={client.id}
+                  title={client.user?.name}
+                  className="w-7 h-7 rounded-sm border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group shrink-0"
+                  style={{ backgroundColor: client.user?.color || '#cbd5e1' }}
+                >
+                  {client.user?.name?.charAt(0) || '?'}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="h-4 w-px bg-border/50 mx-1" />
+
+          <button
+             onClick={() => {
+               setActiveCollaboratorTab('live');
+               setIsCollaboratorsOpen(true);
+             }}
+             className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-xl border border-primary/20 hover:bg-primary/20 transition-all font-black text-[10px] uppercase tracking-widest relative"
+          >
+             <Users size={14} />
+             <span className="hidden sm:inline">Stream</span>
+             {connectedClients.length > 0 && (
+               <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-[8px] font-black border-2 border-background animate-in zoom-in duration-300">
+                  {connectedClients.length}
+               </span>
+             )}
+          </button>
+        </div>
+      </header>
+
+      {/* Browser Area */}
+      <section 
+        className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin"
+        onClick={() => setSelectedId(null)}
+      >
+        {activeView === "templates" && (
+          <div className="mb-12">
+             <div className="flex flex-col gap-2 mb-8">
+               <h2 className="text-xl font-bold text-foreground">Template Library</h2>
+               <p className="text-xs text-muted-foreground">Select a template to serve as the structure for your new document.</p>
+             </div>
+             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
+               {TEMPLATES.map((template: TemplateDefinition) => (
+                  <TemplateCard 
+                    key={template.id} 
+                    template={template} 
+                    onClick={() => handleCreateDocument(template)}
+                    onEdit={() => setEditingTemplate(template)}
+                    onDelete={() => api.deleteTemplate(template.id)}
+                    onPin={() => api.togglePinTemplate(template.id)}
+                  />
+                ))}
+             </div>
+          </div>
+        )}
+
+        {isSearching && (
+          <div className="mb-8">
+            {searchResults.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground">
+                <Search size={32} className="mx-auto mb-3 opacity-30" />
+                <p className="text-sm font-semibold">No results for "{searchQuery}"</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {searchInvoices.map(doc => (
+                  <button
+                    key={doc.id}
+                    onClick={() => { setSearchQuery(""); navigate(`/invoice/${doc.id}`); }}
+                    className="w-full text-left flex items-center gap-4 p-4 bg-card border border-border rounded-lg hover:border-primary/40 transition-all group"
+                  >
+                    <div className="p-2 bg-primary/5 rounded-md border border-primary/10 transition-colors group-hover:bg-primary/10">
+                      <FileText size={16} className="text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground truncate">{doc.name}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{doc.content?.contact?.name} • {doc.content?.date}</p>
+                    </div>
+                    <ArrowLeft size={13} className="text-muted-foreground group-hover:text-primary rotate-180 transition-colors" />
+                  </button>
+                ))}
+              </div>
             )}
           </div>
+        )}
 
-          <div className="flex items-center gap-4">
-            <ProjectSwitcher 
-                projects={projects}
-                activeProjectId={activeProjectId}
-                onSelect={(id) => {
-                    setActiveProjectId(id);
-                    localStorage.setItem("invsys_active_project", id);
-                    navigate("/dashboard");
-                }}
-                onCreateNew={() => setIsProjectModalOpen(true)}
-            />
-
-            <div className="w-px h-8 bg-border opacity-50" />
-
-            <div className="flex items-center -space-x-1.5 overflow-hidden">
-              {connectedClients.map((client) => {
-                const isMe = client.user?.email === currentUser?.email;
-                return (
-                  <div 
-                    key={client.id}
-                    title={client.user?.name}
-                    className="w-7 h-7 rounded-full border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group"
-                    style={{ backgroundColor: client.user?.color || '#cbd5e1' }}
-                  >
-                    {client.user?.name?.charAt(0) || '?'}
-                  </div>
-                );
-              })}
-            </div>
-            
-            <div className="flex items-center gap-1.5">
-                <button
-                  onClick={toggleTheme}
-                  className="w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
-                >
-                  {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-                </button>
-                
-                <button
-                  onClick={() => {
-                    setActiveCollaboratorTab('live');
-                    setIsCollaboratorsOpen(true);
-                  }}
-                  className="w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all relative group"
-                >
-                  <Users size={18} />
-                  {connectedClients.length > 1 && (
-                    <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-primary rounded-full border-2 border-card" />
-                  )}
-                </button>
-              </div>
-          </div>
-        </header>
-
-        {/* Browser Area */}
-        <section 
-          className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin"
-          onClick={() => setSelectedId(null)}
-        >
-          {activeView === "templates" && (
-            <div className="mb-12">
-               <div className="flex flex-col gap-2 mb-8">
-                 <h2 className="text-xl font-bold text-foreground">Template Library</h2>
-                 <p className="text-xs text-muted-foreground">Select a template to serve as the structure for your new document.</p>
-               </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-                 {templates.map((template: TemplateDefinition) => (
-                    <TemplateCard 
-                      key={template.id} 
-                      template={template} 
-                      onClick={() => handleCreateDocument(template)}
-                      onEdit={() => setEditingTemplate(template)}
-                      onDelete={() => api.deleteTemplate(template.id)}
-                      onPin={() => api.togglePinTemplate(template.id)}
-                    />
-                  ))}
+        {!isSearching && (
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex flex-col gap-1.5">
+               <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
+                 <Folder size={18} className="text-primary/70 shrink-0" />
+                 {currentFolder ? currentFolder.name : "Library"}
+               </h2>
+               <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
+                 <button onClick={() => navigate('/dashboard')} className="hover:text-primary transition-colors">Home</button>
+                 {folderPath.map((folder, idx) => (
+                   <React.Fragment key={folder.id}>
+                     <span className="opacity-30">/</span>
+                     <button 
+                       onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
+                       className={cn("hover:text-primary transition-colors", idx === folderPath.length - 1 && "text-primary/80 pointer-events-none")}
+                     >
+                       {folder.name}
+                     </button>
+                   </React.Fragment>
+                 ))}
                </div>
             </div>
-          )}
 
-          {isSearching && (
-            <div className="mb-8">
-              {searchResults.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground">
-                  <Search size={32} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm font-semibold">No results for "{searchQuery}"</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {searchInvoices.map(doc => (
-                    <button
-                      key={doc.id}
-                      onClick={() => { setSearchQuery(""); navigate(`/invoice-preview/${doc.id}`); }}
-                      className="w-full text-left flex items-center gap-4 p-4 bg-card border border-border rounded-lg hover:border-primary/40 transition-all group"
-                    >
-                      <div className="p-2 bg-primary/5 rounded-md border border-primary/10 transition-colors group-hover:bg-primary/10">
-                        <FileText size={16} className="text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-foreground truncate">{doc.name}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{doc.content?.contact?.name} • {doc.content?.date}</p>
-                      </div>
-                      <ArrowLeft size={13} className="text-muted-foreground group-hover:text-primary rotate-180 transition-colors" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {!isSearching && (
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex flex-col gap-1.5">
-                 <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
-                   <Folder size={18} className="text-primary/70 shrink-0" />
-                   {currentFolder ? currentFolder.name : "Library"}
-                 </h2>
-                 <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
-                   <button onClick={() => navigate('/dashboard')} className="hover:text-primary transition-colors">Home</button>
-                   {folderPath.map((folder, idx) => (
-                     <React.Fragment key={folder.id}>
-                       <span className="opacity-30">/</span>
-                       <button 
-                         onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
-                         className={cn("hover:text-primary transition-colors", idx === folderPath.length - 1 && "text-primary/80 pointer-events-none")}
-                       >
-                         {folder.name}
-                       </button>
-                     </React.Fragment>
-                   ))}
-                 </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="flex p-0.5 bg-muted/50 rounded-lg">
-                  <button onClick={() => setViewMode("grid")} className={cn("p-1.5 rounded-md transition-all", viewMode === "grid" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground")}><LayoutGrid size={14} /></button>
-                  <button onClick={() => setViewMode("list")} className={cn("p-1.5 rounded-md transition-all", viewMode === "list" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground")}><List size={14} /></button>
-                </div>
-
+            <div className="flex items-center gap-4">
+              {canEditProject ? (
                 <div className="flex items-center gap-2">
                   <button onClick={handleCreateFolder} className="px-4 py-2 border border-border bg-card text-[10px] font-bold tracking-widest text-foreground rounded-xl hover:bg-muted/50 flex items-center gap-2 transition-all"><Plus size={14} /> FOLDER</button>
                   <button onClick={() => setIsTemplatePickerOpen(true)} className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"><Plus size={14} /> NEW DOC</button>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center gap-2 px-4 py-2 bg-muted/40 rounded-xl border border-border/50 text-muted-foreground">
+                  <Eye size={14} className="opacity-60" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">Read Only View</span>
+                </div>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
-          {!isSearching && (
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id as string)} onDragEnd={handleDragEnd}>
-              <SortableContext items={items.map(i => i.id)} strategy={viewMode === "grid" ? rectSortingStrategy : verticalListSortingStrategy}>
-                <div className={cn("gap-6", viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "flex flex-col gap-2")}>
-                  <AnimatePresence>
-                    {items.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase())).map((item) => (
-                      <SortableItem 
-                        key={item.id} 
-                        item={item} 
-                        mode={viewMode} 
-                        onRename={() => handleRename(item)}
-                        onDuplicate={() => handleDuplicate(item)}
-                        onDelete={() => handleDelete(item)}
-                        onCopy={() => setClipboard({ id: item._realId, name: item.name, type: item._type })}
-                        isSelected={selectedId === item.id}
-                        onClick={() => setSelectedId(item.id)}
-                        onDoubleClick={() => {
-                          if (item._type === 'folder') {
-                            navigate(`/dashboard?folder=${item._realId}`, { state: { fromFolder: currentFolderId } });
-                          } else {
-                            const isReceipt = item.content?.isReceipt;
-                            navigate(isReceipt ? `/receipt-editor/${item._realId}` : `/invoice-preview/${item._realId}`, { state: { fromFolder: currentFolderId } });
-                          }
-                        }}
-                        onManageMembers={() => {
-                          setMemberModal({
-                            open: true,
-                            type: item._type,
+        {!isSearching && (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id as string)} onDragEnd={handleDragEnd}>
+            <SortableContext items={items.map(i => i.id)} strategy={viewMode === "grid" ? rectSortingStrategy : verticalListSortingStrategy}>
+              <div className={cn("gap-6", viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "flex flex-col gap-2")}>
+                <AnimatePresence>
+                  {items.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase())).map((item) => (
+                    <SortableItem 
+                      key={item.id} 
+                      item={item} 
+                      mode={viewMode} 
+                      onRename={() => handleRename(item)}
+                      onDuplicate={() => handleDuplicate(item)}
+                      onDelete={() => handleDelete(item)}
+                      onCopy={() => setClipboard({ id: item._realId, name: item.name, type: item._type })}
+                      isSelected={selectedId === item.id}
+                      onClick={() => setSelectedId(item.id)}
+                      onDoubleClick={() => {
+                        if (item._type === 'folder') {
+                          navigate(`/dashboard?folder=${item._realId}`, { state: { fromFolder: currentFolderId } });
+                        } else if (item.content?._isResource) {
+                          setViewingFile({
                             id: item._realId,
                             name: item.name,
-                            members: item.members || []
+                            url: item.content.url,
+                            type: item.content.resourceType,
+                            createdAt: item.createdAt || new Date().toISOString(),
+                            annotations: item.content.annotations || [],
+                            ownerName: item.content.ownerName,
+                            ownerPhoto: item.content.ownerPhoto
                           });
-                        }}
-                        currentUserEmail={currentUser?.email || ""}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </SortableContext>
-              <DragOverlay dropAnimation={null}>
-                {activeId ? <ItemCard item={items.find(i => i.id === activeId)} mode={viewMode} /> : null}
-              </DragOverlay>
-            </DndContext>
-          )}
-        </section>
-      </main>
+                          setViewingFileDocId(item._realId);
+                        } else {
+                          navigate(item.content?.isReceipt ? `/receipt-editor/${item._realId}` : `/invoice/${item._realId}`, { state: { fromFolder: currentFolderId } });
+                        }
+                      }}
+                      onManageMembers={() => {
+                        setMemberModal({
+                          open: true,
+                          type: item._type,
+                          id: item._realId,
+                          name: item.name,
+                          members: item.members || [],
+                          isOwner: (item as any).isOwner || canEditProject
+                        });
+                      }}
+                      currentUserEmail={currentUser?.email || ""}
+                      canEdit={canEditProject || (item as any).isOwner}
+                    />
+                  ))}
+                </AnimatePresence>
+                {!isSearching && items.length === 0 && (
+                   <div className="col-span-full py-20 text-center text-muted-foreground/30 flex flex-col items-center gap-4">
+                      <Folder size={64} strokeWidth={1} />
+                      <p className="text-xs font-black uppercase tracking-widest">This folder is empty</p>
+                   </div>
+                )}
+              </div>
+            </SortableContext>
+            <DragOverlay dropAnimation={null}>
+              {activeId ? <ItemCard item={items.find(i => i.id === activeId)} mode={viewMode} /> : null}
+            </DragOverlay>
+          </DndContext>
+        )}
+      </section>
 
-      {editingTemplate && <EditTemplateModal template={editingTemplate} onClose={() => setEditingTemplate(null)} onSave={(updated) => api.updateTemplate(updated.id, updated)} />}
-      
-      {createModal.open && <CreateInvoiceModal template={createModal.template} onClose={() => setCreateModal({ open: false })} onSubmit={handleModalSubmit} isLoading={false} />}
-      
-      <TemplatePickerModal isOpen={isTemplatePickerOpen} onClose={() => setIsTemplatePickerOpen(false)} onSelect={(template) => { setIsTemplatePickerOpen(false); handleCreateDocument(template); }} />
+      {/* Modals & Overlays */}
+      {createModal.open && (
+        <CreateInvoiceModal 
+          template={createModal.template} 
+          onClose={() => setCreateModal({ open: false })} 
+          onSubmit={handleModalSubmit}
+          isLoading={isCreatingDoc}
+        />
+      )}
 
-      <CollaboratorsSheet isOpen={isCollaboratorsOpen} onClose={() => setIsCollaboratorsOpen(false)} collaborators={connectedClients} ownerId={businessOwnerId || authAction.governance.ownerId || null} bannedClients={authAction.bannedClients} businessId={businessId} businessName={businessName} initialTab={activeCollaboratorTab} onBanClient={(email) => { if (!authAction.bannedClients.includes(email)) authAction.bannedClients.push(email); }} onMakeOwner={(email) => { authAction.governance.ownerId = email; }} />
+      <TemplatePickerModal
+        isOpen={isTemplatePickerOpen}
+        onClose={() => setIsTemplatePickerOpen(false)}
+        onSelect={(template) => { 
+          setIsTemplatePickerOpen(false); 
+          handleCreateDocument(template); 
+        }}
+        onFileUpload={async (file) => {
+          if (!currentUser?.email) return;
+          const name = file.name;
+          const content = {
+            _isResource: true,
+            resourceType: file.type,
+            url: file.url,
+            size: file.size,
+            name: file.name,
+            ownerName: currentUser.displayName,
+            ownerPhoto: currentUser.photoURL,
+          };
+          await api.createDocument(name, content, activeProjectId!, currentUser.email, currentFolderId);
+          setIsTemplatePickerOpen(false);
+        }}
+      />
 
-      {memberModal?.open && <MemberManagementModal isOpen={memberModal.open} onClose={() => setMemberModal(null)} type={memberModal.type} id={memberModal.id} name={memberModal.name} members={memberModal.members} />}
-      
+      <CollaboratorsSheet 
+        isOpen={isCollaboratorsOpen} 
+        onClose={() => setIsCollaboratorsOpen(false)} 
+        collaborators={connectedClients} 
+        ownerId={businessOwnerId || authAction.governance.ownerId || null} 
+        bannedClients={authAction.bannedClients} 
+        businessId={businessId} 
+        businessName={businessName} 
+        initialTab={activeCollaboratorTab} 
+        onBanClient={(email) => { if (!authAction.bannedClients.includes(email)) authAction.bannedClients.push(email); }} 
+        onUpdateRole={async (email, role) => {
+          try {
+            await api.updateMemberRole('project', activeProjectId!, email, role);
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+          } catch (e: any) {
+            alert(e.message || "Failed to update role");
+          }
+        }}
+      />
+
       {isProjectModalOpen && (
         <CreateProjectModal 
           isOpen={isProjectModalOpen} 
@@ -690,14 +795,78 @@ const Dashboard: React.FC = () => {
           onSubmit={async (name) => {
             if (!currentUser?.email) return;
             const newProj = await api.createProject(name, currentUser.email);
-            setActiveProjectId(newProj.id);
-            localStorage.setItem("invsys_active_project", newProj.id);
-            navigate("/dashboard");
+            setProject(newProj.id);
+            window.location.reload();
           }}
         />
       )}
+
+      {memberModal?.open && (
+        <MemberManagementModal
+          isOpen={memberModal.open}
+          onClose={() => setMemberModal(null)}
+          type={memberModal.type}
+          id={memberModal.id}
+          name={memberModal.name}
+          members={memberModal.members}
+          isOwner={memberModal.isOwner}
+          projectMembers={projects.find(p => p.id === activeProjectId)?.members || []}
+          onMembersChanged={(updated) => {
+            // Keep modal state in sync and refresh the underlying list
+            setMemberModal(m => m ? { ...m, members: updated } : m);
+            if (memberModal.type === 'folder') {
+              queryClient.invalidateQueries({ queryKey: ['folders', activeProjectId] });
+            } else if (memberModal.type === 'document') {
+              queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+            } else if (memberModal.type === 'project') {
+              queryClient.invalidateQueries({ queryKey: ['projects'] });
+            }
+          }}
+        />
+      )}
+
+      <AnimatePresence>
+        {isRenaming && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 shadow-2xl">
+                <h3 className="text-sm font-bold mb-4">Rename Item</h3>
+                <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && confirmRename()} className="w-full h-11 px-4 bg-muted border border-border rounded-xl focus:ring-1 ring-primary outline-none text-xs font-semibold mb-6" />
+                <div className="flex gap-2">
+                   <button onClick={() => setIsRenaming(false)} className="flex-1 h-10 text-[10px] font-bold text-muted-foreground hover:bg-muted rounded-xl transition-all">CANCEL</button>
+                   <button onClick={confirmRename} className="flex-1 h-10 bg-primary text-white text-[10px] font-black rounded-xl hover:opacity-90 transition-all">RENAME</button>
+                </div>
+             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {editingTemplate && <EditTemplateModal template={editingTemplate} onClose={() => setEditingTemplate(null)} onSave={(updated) => api.updateTemplate(updated.id, updated)} />}
+
+      {viewingFile && (
+        <FileViewerModal
+          file={viewingFile}
+          onClose={() => { setViewingFile(null); setViewingFileDocId(null); }}
+          onSaveAnnotations={async (_fileId, annotations) => {
+            if (!viewingFileDocId) return;
+            // Prefer REST cache (source of truth) then fall back to Yjs store
+            const docItem =
+              allDocuments.find((d: any) => d.id === viewingFileDocId) ||
+              workspaceAction.documents.find(d => d.id === viewingFileDocId);
+            if (!docItem) return;
+            const nextContent = { ...(docItem.content || {}), annotations };
+            await api.updateDocument(viewingFileDocId, nextContent);
+            // Refresh react-query cache so reopening the file shows the latest annotations
+            queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+            // Reflect immediately in the currently open viewer so the user sees
+            // their saved pins without closing and reopening
+            setViewingFile(prev => prev ? { ...prev, annotations } : prev);
+          }}
+          role={projectContext.role}
+        />
+      )}
     </div>
-  );
+  </>
+);
 };
 
 const SortableItem = (props: any) => {
@@ -723,14 +892,17 @@ const templateBadgeClass = (color?: string) => {
   }
 };
 
-const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, onRename, onCopy, onManageMembers, isSelected, currentUserEmail }: any) => {
+const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, onRename, onCopy, onManageMembers, isSelected, currentUserEmail, canEdit }: any) => {
   const [showMenu, setShowMenu] = useState(false);
   const isFolder = item._type === 'folder';
+  const folderStats = isFolder && item.stats ? `${item.stats.folders} ${item.stats.folders === 1 ? 'Folder' : 'Folders'} • ${item.stats.files} ${item.stats.files === 1 ? 'File' : 'Files'}` : null;
   const menuRef = useRef<HTMLDivElement>(null);
-  const isLocked = false; // Emergency bypass: Always unlocked
+  const isLocked = false; 
 
-  const subtitle = isFolder ? "Folder" : (item.content?.title ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title) : "Invoice");
-  const badgeLabel: string | undefined = !isFolder ? (item.content?._templateName as string | undefined) : undefined;
+  const subtitle = isFolder ? (folderStats || "Folder") : (item.content?._type === 'resource' || item.content?._isResource) ? `${item.content.resourceType?.toUpperCase() || 'FILE'} Resource` : (item.content?.title ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title) : "Invoice");
+  const isResource = item.content?._isResource;
+  const resourceType = item.content?.resourceType;
+  const badgeLabel: string | undefined = !isFolder && !isResource ? (item.content?._templateName as string | undefined) : undefined;
   const badgeClass = templateBadgeClass(item.content?._templateColor);
 
   useEffect(() => {
@@ -743,21 +915,48 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
     return (
       <div onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick} className={cn("flex items-center justify-between p-3 rounded-lg cursor-pointer group transition-all", isSelected ? "bg-primary/5 ring-1 ring-primary shadow-sm" : "bg-card hover:bg-muted/50 shadow-sm hover:shadow-md")}>
         <div className="flex items-center gap-4">
-          <div className={cn("p-2 rounded-md flex items-center justify-center relative", isFolder ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary")}>
-            {isFolder ? <Folder size={18} /> : <FileText size={18} />}
-            {isLocked && <div className="absolute -top-1 -right-1 bg-background rounded-full p-0.5 shadow-sm"><Shield size={10} className="text-destructive" /></div>}
+          <div className={cn("p-2 rounded-md flex items-center justify-center relative", isFolder ? "bg-amber-500/10 text-amber-600" : isResource ? "bg-slate-100 text-slate-600" : "bg-primary/10 text-primary")}>
+            {isFolder ? <Folder size={18} /> : 
+              isResource ? (
+                resourceType === 'image' ? <ImageIcon size={18} /> :
+                resourceType === 'video' ? <Video size={18} /> :
+                <FileText size={18} />
+              ) : <FileText size={18} />
+            }
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <p className="text-xs font-semibold tracking-tight">{item.name}</p>
               {badgeLabel && <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-sm leading-none", badgeClass)}>{badgeLabel}</span>}
             </div>
-            <p className="text-[10px] text-muted-foreground font-medium">{subtitle} • {new Date(item.updatedAt).toLocaleDateString()}</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="text-[10px] text-muted-foreground font-medium">{subtitle} • {new Date(item.updatedAt).toLocaleDateString()}</p>
+              {item.content?.ownerName && (
+                <>
+                  <span className="text-muted-foreground/30">•</span>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3.5 h-3.5 rounded-full overflow-hidden border border-border/50 bg-muted shrink-0">
+                      {item.content.ownerPhoto ? (
+                        <img src={item.content.ownerPhoto} className="w-full h-full object-cover" alt="" />
+                      ) : (
+                        <UserIcon size={8} className="text-muted-foreground/60" />
+                      )}
+                    </div>
+                    <span className="text-[9px] font-bold text-muted-foreground/80 truncate max-w-[80px]">{item.content.ownerName}</span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
         <div className="relative" ref={menuRef}>
-          <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-all border border-transparent hover:border-border"><MoreHorizontal size={16} /></button>
-          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} />}
+          <button 
+             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} 
+             className="p-2 text-slate-800 dark:text-foreground hover:bg-slate-100 dark:hover:bg-muted rounded-full transition-all border border-transparent hover:border-border/50 active:scale-95 shadow-sm sm:shadow-none"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} canEdit={canEdit} />}
         </div>
       </div>
     );
@@ -771,45 +970,110 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
              <div className="p-4 bg-amber-500/10 rounded-md transition-transform duration-500 hover:scale-110"><Folder size={40} strokeWidth={1.5} className="text-amber-500/80" /></div>
              <span className="text-[9px] font-bold uppercase text-amber-600/60 tracking-widest">Folder</span>
           </div>
+        ) : isResource ? (
+          <div className="flex flex-col items-center justify-center w-full h-full">
+             <div className="w-full h-full relative group/resource overflow-hidden rounded-md">
+                {resourceType === 'image' ? (
+                  <div className="relative w-full h-full group/image overflow-hidden">
+                    <img 
+                      src={item.content.url} 
+                      alt={item.name} 
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover/image:scale-110"
+                    />
+                    <div className="absolute inset-0 bg-black/20 group-hover/image:bg-black/40 flex flex-col items-center justify-center transition-all duration-300">
+                      <ImageIcon size={32} strokeWidth={1.5} className="text-white mb-2 opacity-80 group-hover/image:opacity-100 transition-opacity" />
+                      <span className="text-[9px] font-black uppercase text-white tracking-[0.2em] shadow-sm">IMAGE FILE</span>
+                    </div>
+                  </div>
+                ) : resourceType === 'video' ? (
+                  <div className="relative w-full h-full group/video overflow-hidden bg-slate-900">
+                    <video 
+                      src={item.content.url} 
+                      className="w-full h-full object-cover opacity-60 transition-transform duration-500 group-hover/video:scale-110" 
+                      muted 
+                      playsInline 
+                      preload="metadata"
+                      onMouseOver={(e) => e.currentTarget.play()}
+                      onMouseOut={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
+                    />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center transition-all duration-300">
+                      <div className="p-3 bg-white/20 backdrop-blur-md rounded-full mb-3 group-hover/video:scale-110 transition-transform">
+                        <Video size={24} strokeWidth={1.5} className="text-white" />
+                      </div>
+                      <span className="text-[9px] font-black uppercase text-white tracking-[0.2em] shadow-sm opacity-80">VIDEO PREVIEW</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative w-full h-full group/pdf overflow-hidden bg-slate-50 dark:bg-muted/20 flex flex-col p-4 border border-border/50">
+                    <div className="w-full h-4 bg-slate-200 dark:bg-muted mb-4 rounded-sm px-2 flex items-center justify-between">
+                       <div className="w-8 h-1.5 bg-slate-300 dark:bg-muted-foreground/30 rounded-full" />
+                       <div className="w-4 h-1.5 bg-slate-300 dark:bg-muted-foreground/30 rounded-full" />
+                    </div>
+                    <div className="flex-1 space-y-3 opacity-40">
+                      <div className="h-2 bg-slate-200 dark:bg-muted rounded-full w-3/4" />
+                      <div className="h-2 bg-slate-100 dark:bg-muted rounded-full" />
+                      <div className="h-2 bg-slate-100 dark:bg-muted rounded-full w-5/6" />
+                    </div>
+                    <div className="absolute inset-0 bg-primary/5 dark:bg-primary/5 group-hover/pdf:bg-primary/10 flex flex-col items-center justify-center transition-all">
+                       <FileText size={40} strokeWidth={1.2} className="text-primary/40 dark:text-primary/30 mb-2 group-hover/pdf:scale-110 transition-transform" />
+                       <span className="text-[9px] font-black uppercase text-primary/60 dark:text-primary/40 tracking-[0.2em]">PDF DOCUMENT</span>
+                    </div>
+                  </div>
+                )}
+             </div>
+          </div>
         ) : (
-          <div className={cn("w-full h-full rounded-md overflow-hidden p-1.5 relative", isLocked && "blur-[1.5px] opacity-40 grayscale")}>
+          <div className={cn("w-full h-full rounded-md overflow-hidden p-1.5 relative")}>
              <DocumentThumbnail data={item.content} className="rounded-sm" />
-             {isLocked && (
-               <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/20 backdrop-blur-[0.5px]">
-                 <div className="p-3 bg-card rounded-full shadow-lg border border-border"><Shield size={20} className="text-destructive" /></div>
-                 <p className="text-[10px] font-black uppercase tracking-widest text-destructive mt-3 bg-background/80 px-2 py-0.5 rounded shadow-sm">Restricted</p>
-               </div>
-             )}
           </div>
         )}
         {badgeLabel && <div className="absolute bottom-3 left-3 pointer-events-none"><span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none shadow-sm", badgeClass)}>{badgeLabel}</span></div>}
-        <div className="absolute top-3 right-3" ref={menuRef}>
-          <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="p-1.5 bg-white/90 backdrop-blur shadow-sm border border-border rounded-md hover:bg-white text-foreground opacity-0 group-hover:opacity-100 transition-all duration-200"><MoreHorizontal size={14} /></button>
-          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} />}
-        </div>
+         <div className="absolute top-3 right-3" ref={menuRef}>
+           <button 
+             onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} 
+             className={cn(
+               "p-2 bg-white/90 dark:bg-card/90 backdrop-blur-md shadow-md border border-border/50 rounded-full text-slate-800 dark:text-foreground transition-all duration-200",
+               "hover:bg-white dark:hover:bg-card hover:scale-110 active:scale-95 hover:shadow-lg"
+             )}
+           >
+             <MoreHorizontal size={16} />
+           </button>
+           {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} canEdit={canEdit} />}
+         </div>
+
+         {/* Owner Avatar (Grid View) */}
+         {item.content?.ownerName && (
+           <div className="absolute bottom-2 right-2 flex items-center gap-1.5 p-1 bg-background/60 backdrop-blur-md rounded-full border border-white/10 group-hover:bg-background/80 transition-all">
+              <div className="w-5 h-5 rounded-full overflow-hidden border border-white/20 shadow-sm">
+                {item.content.ownerPhoto ? (
+                  <img src={item.content.ownerPhoto} className="w-full h-full object-cover" alt={item.content.ownerName} />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-muted">
+                    <UserIcon size={12} className="text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+           </div>
+         )}
       </div>
-      <div className="px-1"><p className="text-[12px] font-semibold truncate tracking-tight text-slate-700">{item.name}</p><p className="text-[10px] text-muted-foreground font-medium opacity-70">{subtitle}</p></div>
+      <div className="px-1"><p className="text-[12px] font-semibold truncate tracking-tight text-foreground">{item.name}</p><p className="text-[10px] text-muted-foreground font-medium opacity-70">{subtitle}</p></div>
     </div>
   );
 };
 
-const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, onManageMembers, isFolder }: any) => (
+const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, onManageMembers, isFolder, canEdit }: any) => (
   <div className="absolute right-0 top-full mt-2 w-48 bg-popover border border-border shadow-lg rounded-md p-1 z-50 animate-in fade-in zoom-in duration-150 origin-top-right">
     <button onClick={(e) => { e.stopPropagation(); onManageMembers(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-primary rounded transition-all"><Users size={14} /> Manage Members</button>
-    <button onClick={(e) => { e.stopPropagation(); onRename(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Edit size={14} /> Rename</button>
-    {!isFolder && <button onClick={(e) => { e.stopPropagation(); onCopy(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Copy to Clipboard</button>}
-    <button onClick={(e) => { e.stopPropagation(); onDuplicate(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Duplicate</button>
-    <div className="my-1 border-t border-border mx-1" />
-    <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold text-destructive hover:bg-destructive/5 rounded transition-all"><Trash size={14} /> Delete</button>
+    {canEdit && (
+      <>
+        <button onClick={(e) => { e.stopPropagation(); onRename(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Edit size={14} /> Rename</button>
+        {!isFolder && <button onClick={(e) => { e.stopPropagation(); onCopy(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Copy to Clipboard</button>}
+        <button onClick={(e) => { e.stopPropagation(); onDuplicate(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Duplicate</button>
+        <div className="my-1 border-t border-border mx-1" />
+        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold text-destructive hover:bg-destructive/5 rounded transition-all"><Trash size={14} /> Delete</button>
+      </>
+    )}
   </div>
-);
-
-const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) => (
-  <button onClick={onClick} className={cn("w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group relative overflow-hidden", active ? "bg-primary/5 text-primary shadow-sm" : "text-slate-400 hover:text-slate-200")}>
-    <div className={cn("shrink-0 transition-transform group-hover:scale-110", active && "scale-105")}>{icon}</div>
-    <span className={cn("text-xs font-black tracking-tight", active ? "text-primary" : "text-muted-foreground")}>{label}</span>
-    {active && <div className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-full" />}
-  </button>
 );
 
 const TemplateCard = ({ template, onClick, onEdit, onDelete, onPin }: any) => {

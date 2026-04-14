@@ -14,8 +14,25 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
   onSubmit,
 }) => {
   const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleInitialize = async () => {
+    if (!name.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await onSubmit(name.trim());
+      setName("");
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Failed to create project");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -60,10 +77,19 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                 type="text"
                 autoFocus
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                disabled={loading}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (error) setError(null);
+                }}
                 placeholder="e.g. NNPC Pipeline Expansion"
                 className="w-full h-14 px-6 bg-muted/40 border border-border focus:border-lime-400/50 focus:bg-card rounded-2xl outline-none text-sm font-bold tracking-tight transition-all"
               />
+              {error && (
+                <p className="text-[10px] text-destructive font-bold uppercase tracking-widest ml-1 animate-in fade-in slide-in-from-top-1">
+                  {error}
+                </p>
+              )}
             </div>
 
             <div className="bg-lime-400/5 border border-lime-400/10 rounded-2xl p-4 flex items-center gap-3">
@@ -74,18 +100,12 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             </div>
 
             <button
-              onClick={() => {
-                if (name.trim()) {
-                  onSubmit(name.trim());
-                  setName("");
-                  onClose();
-                }
-              }}
-              disabled={!name.trim()}
+              onClick={handleInitialize}
+              disabled={!name.trim() || loading}
               className="w-full h-14 bg-lime-400 text-lime-950 rounded-2xl font-black text-[13px] uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-lg shadow-lime-400/10 disabled:opacity-50 disabled:shadow-none"
             >
-              Initialize Workspace
-              <Plus size={18} strokeWidth={3} />
+              {loading ? "Initializing..." : "Initialize Workspace"}
+              {!loading && <Plus size={18} strokeWidth={3} />}
             </button>
           </div>
         </motion.div>

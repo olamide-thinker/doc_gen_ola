@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { cn } from "../lib/utils";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
@@ -8,6 +8,8 @@ import {
   Check,
   Users,
   Shield,
+  FileText,
+  Eye
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
@@ -26,16 +28,26 @@ import {
   sortableKeyboardCoordinates,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { DocData, TableRow, InvoiceCode, Contact } from "../types";
+import { type Annotation, type MemberRole, canWrite, DocData, TableRow, InvoiceCode, Contact } from "../types";
 import { api } from "../lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ReceiptPage } from "./ReceiptPage";
-import { resolveSectionTotal, resolveSectionTotalBackward, computeTotalPrice } from "../lib/documentUtils";
+import { 
+  resolveSectionTotal, 
+  resolveSectionTotalBackward, 
+  resolveFormula,
+  computeTotalPrice,
+  getRowNumbering 
+} from "../lib/documentUtils";
+import { AnnotationSystem } from "./AnnotationSystem";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore, authStore, connectWorkspace, connectEditor, authProvider } from "../store";
+import { workspaceStore, authStore, editorStore, connectProject, connectEditor, authProvider } from "../store";
+import { getYjsDoc } from "@syncedstore/core";
+import { Radio, SignalIcon } from "lucide-react";
 
 const ReceiptEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const containerRef = React.useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const fromFolder = location.state?.fromFolder;
@@ -43,27 +55,78 @@ const ReceiptEditor: React.FC = () => {
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
-  const { user: currentUser, businessId } = useAuth();
-  
+  // Real-time collaborative receipt content — shared with every client
+  // connected to the `doc-{id}` Hocuspocus room.
+  const editorAction = useSyncedStore(editorStore);
+  const { user: currentUser, businessId, businessName: ctxBusinessName, projectId } = useAuth();
+
+  const { data: docMetadataRaw, isLoading: isLoadingMetadata } = useQuery({
+    queryKey: ['document', id],
+    queryFn: () => api.getDocument(id!),
+    enabled: !!id && !!currentUser,
+  });
+
+  // some drivers/setups might return the JSONB metadata as a string
+  const docMetadata = useMemo(() => {
+    if (!docMetadataRaw) return null;
+    const meta = (docMetadataRaw as any).metadata;
+    if (typeof meta === 'string') {
+      try {
+        return { ...docMetadataRaw, metadata: JSON.parse(meta) };
+      } catch (e) {
+        console.error("Failed to parse document metadata:", e);
+      }
+    }
+    return docMetadataRaw;
+  }, [docMetadataRaw]);
+
+  // active project resolved from the document's own projectId, or fallback to the one in context
+  const resolvedProjectId = (docMetadata as any)?.metadata?.projectId || docMetadata?.projectId || projectId;
+
+  const { data: allProjects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.getProjects(),
+    enabled: !!currentUser,
+  });
+
+  const activeProject = useMemo(() => {
+    return allProjects.find((p: any) => p.id === resolvedProjectId);
+  }, [allProjects, resolvedProjectId]);
+
+  const { data: allDocuments = [] } = useQuery({
+    queryKey: ['documents', resolvedProjectId],
+    queryFn: () => api.getDocuments(resolvedProjectId!),
+    enabled: !!currentUser && !!resolvedProjectId,
+  });
+
+  const availableEmails = useMemo(() => {
+    if (!activeProject || !docMetadata) return [];
+    const projectMembers = (activeProject.members || []).map(m => (typeof m === 'string' ? m : m.email));
+    const docMembers = (docMetadata.members || []).map((m: any) => (typeof m === 'string' ? m : m.email));
+    return projectMembers.filter(email => !docMembers.includes(email));
+  }, [activeProject, docMetadata]);
+
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
   const [isSyncReady, setIsSyncReady] = useState(false);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
   const [myClientId, setMyClientId] = useState<string>("unknown");
-  const [businessName, setBusinessName] = useState("Your Business");
 
-  useEffect(() => {
-    const fetchBusinessName = async () => {
-        if (!businessId) return;
-        const { doc, getDoc } = await import("firebase/firestore");
-        const { db } = await import("../lib/firebase");
-        const bDoc = await getDoc(doc(db, "businesses", businessId));
-        if (bDoc.exists()) {
-            setBusinessName(bDoc.data().name);
-        }
-    };
-    fetchBusinessName();
-  }, [businessId]);
+  const { data: parentInvoiceData } = useQuery({
+    queryKey: ['invoice-management', (docMetadata as any)?.metadata?.invoiceId],
+    queryFn: () => api.getInvoiceManagement((docMetadata as any).metadata.invoiceId!),
+    enabled: !!(docMetadata as any)?.metadata?.invoiceId,
+  });
+
+  const parentInvoiceCode = useMemo(() => {
+    if (!parentInvoiceData) return null;
+    return parentInvoiceData.draft?.invoiceCode?.text || 
+           parentInvoiceData.versions?.[0]?.content?.invoiceCode?.text || "—";
+  }, [parentInvoiceData]);
+
+  // Business name comes from AuthContext (reads /api/users/profile).
+  // Firestore has been fully deprecated in this codebase.
+  const businessName = ctxBusinessName || "Your Business";
 
   useEffect(() => {
     if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
@@ -78,56 +141,163 @@ const ReceiptEditor: React.FC = () => {
 
     const startSync = async () => {
       const token = await currentUser.getIdToken();
-      const workspaceProviders = connectWorkspace(businessId, token);
+      // 1. Project room — workspace data & team list
+      connectProject(resolvedProjectId!, token, businessId!);
+      // 2. Per-document room — real-time receipt content + presence
       const editorProvider = connectEditor(id, token);
-      
+
+      // Per-document presence: only users on THIS receipt show up here.
       const updatePresence = () => {
-        const states = workspaceProviders.authProvider.awareness?.getStates();
+        const states = editorProvider.awareness?.getStates();
         if (!states) return;
         const clients: any[] = [];
         states.forEach((state: any, clientId: number) => {
           if (state.user && state.user.email) {
-            clients.push({ id: clientId.toString(), user: state.user });
+            // Find their persistent role
+            const email = state.user.email;
+            const member = (docMetadata?.members || []).find((m: any) =>
+              (typeof m === 'string' ? m : m.email) === email,
+            );
+            const role = member ? (typeof member === 'object' ? member.role : 'editor') : (state.user.id === docMetadata?.userId ? 'owner' : 'editor');
+
+            clients.push({ 
+              id: clientId.toString(), 
+              user: state.user,
+              role: role 
+            });
           }
         });
         setConnectedClients(clients);
       };
 
-      workspaceProviders.authProvider.awareness?.on('change', updatePresence);
-      setMyClientId(workspaceProviders.authProvider.awareness?.clientID.toString() || "unknown");
-      workspaceProviders.authProvider.awareness?.setLocalStateField('user', { 
+      editorProvider.awareness?.on('change', updatePresence);
+      setMyClientId(editorProvider.awareness?.clientID.toString() || "unknown");
+      editorProvider.awareness?.setLocalStateField('user', {
         name: currentUser.displayName || "Anonymous",
         email: currentUser.email || "guest@system.com",
         photo: currentUser.photoURL,
         id: currentUser.uid,
-        color: '#' + Math.floor(Math.random()*16777215).toString(16)
+        color: '#' + Math.floor(Math.random() * 16777215).toString(16),
+        docId: id,
       });
+
+      // Seed the shared content from REST on first open (skipped if another
+      // peer already has the doc in memory — we'll get their state via sync).
+      const seedIfEmpty = async () => {
+        try {
+          if (Object.keys(editorStore.content || {}).length > 0) return;
+          const all = await api.getDocuments(resolvedProjectId!);
+          const found = all.find((d: any) => d.id === id);
+          if (found?.content && Object.keys(editorStore.content || {}).length === 0) {
+            Object.assign(editorStore.content, found.content);
+            console.log('[ReceiptEditor] 📥 Seeded content from REST');
+          }
+        } catch (e) {
+          console.error('[ReceiptEditor] seed from REST failed', e);
+        }
+      };
+
+      editorProvider.on('synced', seedIfEmpty);
+      setTimeout(seedIfEmpty, 600);
 
       setIsSyncReady(true);
       cleanup = () => {
-        workspaceProviders.authProvider.awareness?.off('change', updatePresence);
+        editorProvider.awareness?.off('change', updatePresence);
+        editorProvider.off('synced', seedIfEmpty);
       };
     };
 
     startSync();
     return () => cleanup?.();
-  }, [currentUser, businessId, id]);
+  }, [currentUser, businessId, id, resolvedProjectId]);
 
-  const docMetadata = workspaceAction.documents?.find((d: any) => d.id === id);
-  const docData = docMetadata?.content;
+  // --- Collaborative auto-save ---------------------------------------------
+  // Any Yjs update on the editor doc schedules a debounced REST save.
+  useEffect(() => {
+    if (!id || !isSyncReady) return;
+    const yDoc = getYjsDoc(editorStore);
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-  // Fetch parent invoice for breadcrumb
-  const parentInvoice = workspaceAction.documents?.find(d => d.id === docMetadata?.invoiceId);
+    const scheduleSave = () => {
+      if (isReadOnly) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          if (!editorStore.content || Object.keys(editorStore.content).length === 0) return;
+          const snapshot = JSON.parse(JSON.stringify(editorStore.content));
+          api.updateDocument(id, snapshot).catch(err =>
+            console.warn('[ReceiptEditor] auto-save failed:', err)
+          );
+        } catch (e) {
+          console.error('[ReceiptEditor] failed to snapshot content for auto-save', e);
+        }
+      }, 2000);
+    };
 
-  const isLoadingDoc = !docMetadata;
+    yDoc.on('update', scheduleSave);
+    return () => {
+      yDoc.off('update', scheduleSave);
+      if (timer) clearTimeout(timer);
+    };
+  }, [id, isSyncReady]);
+
+  // `docData` is the real-time collaborative proxy — mutations broadcast to
+  // every peer on this receipt via Yjs.
+  const docData = (
+    editorAction.content && Object.keys(editorAction.content).length > 0
+      ? (editorAction.content as any)
+      : undefined
+  );
+
+  // parent invoice for the breadcrumb — read from the parentInvoiceData query
+  // so it's reliable and handles IDs across the documents/invoices tables.
+  const parentInvoiceRef = parentInvoiceCode;
+
+  const isLoadingDoc = isLoadingMetadata || !docMetadata;
   const [headerHeight, setHeaderHeight] = useState<number>(
     () => Number(localStorage.getItem("headerHeight")) || 128,
   );
+
+  // Resolved user role and editability
+  const userRole = React.useMemo<MemberRole>(() => {
+    if (!currentUser?.email) return 'viewer';
+    if (docMetadata?.isOwner) return 'owner';
+    const activeProject = workspaceAction.projects?.find((p: any) => p.id === projectId);
+    if (activeProject?.myRole) return activeProject.myRole as MemberRole;
+    const member = (docMetadata?.members || []).find((m: any) =>
+      (typeof m === 'string' ? m : m.email) === currentUser.email,
+    );
+    if (member) return (typeof member === 'object' ? member.role : 'editor') as MemberRole;
+    return 'viewer';
+  }, [docMetadata, currentUser?.email, workspaceAction.projects, projectId]);
+
+  const isReadOnly = React.useMemo(() => {
+    if (docMetadata?.status === 'finalised' || docMetadata?.status === 'voided') return true;
+    return !canWrite(userRole);
+  }, [userRole, docMetadata?.status]);
+
+  // Annotation state persisted in REST metadata
+  const annotations = React.useMemo(() => {
+    return docMetadata?.metadata?.annotations || [];
+  }, [docMetadata?.metadata?.annotations]);
+
+  const handleSaveAnnotations = async (next: Annotation[]) => {
+    if (isReadOnly) return;
+    if (!docMetadata || !docData) return;
+    const updatedMetadata = {
+      ...(docMetadata.metadata || {}),
+      annotations: next
+    };
+    // Optimistic update
+    docMetadata.metadata = updatedMetadata;
+    // Persist via API
+    await api.updateDocument(docMetadata.id, docData, updatedMetadata);
+    queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+  };
   const [headerImage, setHeaderImage] = useState<string>(
     () => localStorage.getItem("receiptHeaderImage") || "/Shan-PaymentReceipt.png",
   );
   const [isPreview, setIsPreview] = useState(false);
-  const useSections = docData?.useSections ?? false;
 
   useEffect(() => {
     localStorage.setItem("receiptHeaderImage", headerImage);
@@ -138,8 +308,13 @@ const ReceiptEditor: React.FC = () => {
       const receiptNo = docData.invoiceCode?.text || "Receipt";
       const clientName = docData.contact?.name || "Client";
       document.title = `${receiptNo} - ${clientName}`;
+
+      // Auto-sync reference from parent invoice if missing/empty
+      if (parentInvoiceRef && (!docData.reference || docData.reference === "--") && !isReadOnly) {
+        docData.reference = parentInvoiceRef;
+      }
     }
-  }, [docData]);
+  }, [docData, parentInvoiceRef, isReadOnly]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -174,11 +349,16 @@ const ReceiptEditor: React.FC = () => {
   const updateDocData = (
     newData: DocData | ((prev: DocData | null) => DocData | null),
   ) => {
-    if (!docMetadata || !docMetadata.content) return;
+    // Collaborative source of truth: editorStore.content.
+    if (!editorStore.content) return;
     const next = typeof newData === "function" ? newData(docData as any) : newData;
-    if (next) {
-       Object.assign(docMetadata.content, next);
+    if (!next) return;
+    const currentKeys = Object.keys(editorStore.content);
+    const nextKeys = new Set(Object.keys(next));
+    for (const k of currentKeys) {
+      if (!nextKeys.has(k)) delete (editorStore.content as any)[k];
     }
+    Object.assign(editorStore.content, next);
   };
 
   const onRemoveRow = (targetId: string) => {
@@ -197,117 +377,54 @@ const ReceiptEditor: React.FC = () => {
     }
   };
 
-  const isMockMode = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
-  const isMember = isMockMode || (docMetadata && (docMetadata.members || []).includes(currentUser?.email || ""));
+  const email = currentUser?.email || "";
+  const isProjectMember = workspaceAction.projects?.some(
+    (p: any) => p.id === (docMetadata?.projectId || projectId) && 
+      (p.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === email)
+  );
+  const isMember = isProjectMember || (docMetadata && 
+    (docMetadata.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === email)
+  );
 
-  if (isLoadingDoc || !docData)
+  const useSections = docData?.useSections ?? false;
+
+  const rowNumbering = React.useMemo(
+    () => getRowNumbering(docData?.table.rows || [], useSections),
+    [docData?.table.rows, useSections],
+  );
+
+  // Only gate on metadata + sync. If the collaborative `docData` is still empty
+  // after sync we render an empty editor rather than hanging — this can happen
+  // right after a brand-new receipt is created and no peer has any state yet.
+  if (isLoadingDoc || !isSyncReady)
     return (
       <div className="flex items-center justify-center h-screen bg-background text-primary">
         <RefreshCw className="animate-spin" size={32} />
       </div>
     );
 
-  // Removed Access Denied guard to restore editability
+  if (!docData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-background text-muted-foreground gap-3">
+        <RefreshCw className="animate-spin" size={24} />
+        <p className="text-[10px] font-black uppercase tracking-widest">Waiting for receipt content…</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest border border-border rounded-lg hover:bg-muted"
+        >
+          Reload
+        </button>
+      </div>
+    );
+  }
 
-  const resolveFormula = (
-    rowData: TableRow | Record<string, number>,
-    formula: string | undefined,
-    context: Record<string, number> = {},
-  ): number => {
-    if (!formula) return 0;
-    try {
-      let expression = formula.replace(/(\d*\.?\d+)\s*%/g, "($1/100)");
-      Object.keys(context).forEach((key) => {
-        expression = expression.replace(new RegExp(`\\b${key}\\b`, "g"), String(Number(context[key]) || 0));
-      });
-      const matches = formula.match(/[A-Z]+/g) || [];
-      matches.forEach((cid) => {
-        if (context[cid] !== undefined) return;
-        expression = expression.replace(new RegExp(`\\b${cid}\\b`, "g"), String(Number((rowData as any)[cid]) || 0));
-      });
-      const idMatches = formula.match(/[a-z][a-zA-Z0-9]+/g) || [];
-      idMatches.forEach((mid) => {
-        if (context[mid] !== undefined) return;
-        expression = expression.replace(new RegExp(`\\b${mid}\\b`, "g"), String(Number((rowData as any)[mid]) || 0));
-      });
-      if (/[^0-9\s+\-*/().]/.test(expression)) return 0;
-      return new Function(`return ${expression}`)();
-    } catch {
-      return 0;
-    }
-  };
+  // Removed Access Denied guard to restore editability
 
   const { subTotal, summaries, grandTotal } = 
     docData ? computeTotalPrice(docData) : { subTotal: 0, summaries: [], grandTotal: 0 };
-  
+
   const summaryForRender = summaries;
 
-  const getRowNumbering = (rows: TableRow[], useSections: boolean = false): Record<string, string> => {
-    const numbering: Record<string, string> = {};
-    let l1 = 0;
-    let l2 = 0;
-    let l3 = 0;
-    let inLevel1 = false;
-    let inLevel2 = false;
-
-    rows.forEach((row) => {
-      if (!useSections) {
-        if (row.rowType === "row" || !row.rowType) {
-          l1++;
-          numbering[row.id] = `${l1}`;
-        } else {
-          numbering[row.id] = "";
-        }
-        return;
-      }
-
-      const type = row.rowType || "row";
-
-      if (type === "section-header") {
-        l1++;
-        l2 = 0;
-        l3 = 0;
-        inLevel1 = true;
-        inLevel2 = false;
-        numbering[row.id] = `${l1}`;
-      } else if (type === "sub-section-header") {
-        if (inLevel1) {
-          l2++;
-          l3 = 0;
-          inLevel2 = true;
-          numbering[row.id] = `${l1}.${l2}`;
-        } else {
-          // Acts as a top-level item if no Level 1 active
-          l1++;
-          l2 = 0;
-          l3 = 0;
-          inLevel1 = true;
-          inLevel2 = true;
-          numbering[row.id] = `${l1}`;
-        }
-      } else if (type === "section-total") {
-        inLevel1 = false;
-        inLevel2 = false;
-        numbering[row.id] = "";
-      } else if (type === "row") {
-        if (inLevel2) {
-          l3++;
-          numbering[row.id] = `${l1}.${l2}.${l3}`;
-        } else if (inLevel1) {
-          l2++;
-          numbering[row.id] = `${l1}.${l2}`;
-        } else {
-          l1++;
-          numbering[row.id] = `${l1}`;
-        }
-      } else {
-        numbering[row.id] = "";
-      }
-    });
-    return numbering;
-  };
-
-  const rowNumbering = docData ? getRowNumbering(docData.table.rows, useSections) : {};
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -341,111 +458,105 @@ const ReceiptEditor: React.FC = () => {
   const pages = [{ rows: docData.table.rows, isFirstPage: true, showRows: true, showTotals: true, showFooter: true, isEndOfRows: true }];
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden print:overflow-visible print:h-auto">
-      {/* ── Sticky breadcrumb header ── */}
-      <header className="h-14 border-b border-border bg-white flex items-center gap-2 px-6 shrink-0 shadow-sm z-10 no-print print:hidden">
+    <div className="flex flex-col h-screen bg-background overflow-hidden font-sans transition-colors duration-300">
+      {/* ── Sticky Workspace Header ── */}
+      <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300">
         <button
-          onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
-          className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-700 transition-colors uppercase tracking-widest shrink-0"
+          onClick={() => {
+            const invId = (docMetadata as any)?.metadata?.invoiceId;
+            if (invId) {
+              navigate(`/invoice/${invId}`);
+            } else {
+              navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard");
+            }
+          }}
+          className="p-2 hover:bg-muted rounded-xl transition-colors text-muted-foreground transition-all active:scale-90"
+          title="Back to Invoice"
         >
-          <ArrowLeft size={13} /> {fromFolder ? "Back to Folder" : "All Files"}
+          <ArrowLeft size={18} />
         </button>
-        {docMetadata?.invoiceId && parentInvoice && (
-          <>
-            <span className="text-slate-200 font-thin text-base">/</span>
-            <button
-              onClick={() => navigate(`/invoice-preview/${docMetadata.invoiceId}`)}
-              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-            >
-              {parentInvoice.content?.invoiceCode?.text ? (
-                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-primary/10 text-primary tracking-wider font-lexend">
-                  {parentInvoice.content.invoiceCode.text}
+        <div className="w-px h-6 bg-border/40 mx-2" />
+        <div className="flex flex-col">
+          <h2 className="text-xs font-bold text-foreground">Receipt Editor</h2>
+          <div className="flex items-center gap-1.5 opacity-60">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">
+              {docMetadata?.name || "Untitled"}
+            </p>
+            {parentInvoiceRef && (
+              <>
+                <span className="text-muted-foreground/30 text-[10px]">/</span>
+                <span className="text-[10px] text-primary/60 uppercase tracking-widest font-black">
+                  Ref: {parentInvoiceRef}
                 </span>
-              ) : (
-                <span className="text-xs font-semibold text-slate-600 truncate max-w-[160px]">
-                  {parentInvoice.name}
-                </span>
-              )}
-            </button>
-          </>
-        )}
-        <span className="text-slate-200 font-thin text-base">/</span>
-        {docData.invoiceCode?.text ? (
-          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-slate-800 text-white tracking-wider font-lexend">
-            {docData.invoiceCode.text}
-          </span>
-        ) : (
-          <span className="text-xs font-semibold text-slate-700 truncate max-w-[200px]">
-            {docMetadata?.name || "Receipt"}
-          </span>
-        )}
-
-        {/* Save indicator */}
-        <div className="ml-auto flex items-center gap-3">
-            <span className="text-[10px] font-bold tracking-widest uppercase text-emerald-500 flex items-center gap-1.5">
-              <Check size={11} /> Real-time Sync
-            </span>
-          <button
-            onClick={() => {
-              if (docData) docData.showBOQSummary = !docData.showBOQSummary;
-            }}
-            className={cn(
-              "px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1.5 border",
-              docData.showBOQSummary
-                ? "bg-primary text-white border-primary"
-                : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50",
+              </>
             )}
+          </div>
+        </div>
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          {/* Status Indicator */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40">
+            <SignalIcon size={10} className="text-success animate-pulse" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Auto Saved</span>
+          </div>
+          
+          <button
+             onClick={() => setIsCollaboratorsOpen(true)}
+             className="flex items-center gap-2 px-3 py-1.5 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 hover:text-foreground transition-all text-[10px] font-black uppercase tracking-widest shadow-sm relative group"
           >
-            {docData.showBOQSummary ? "Hide BOQ Summary" : "Show BOQ Summary"}
+             <Users size={12} />
+             {connectedClients.length > 1 && (
+               <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border-2 border-card" />
+             )}
+             Collabs
           </button>
-          {isPreview ? (
-            <>
-              <button
-                onClick={() => setIsPreview(false)}
-                className="px-3 py-1.5 text-xs font-bold border border-border rounded-md bg-white hover:bg-slate-50 transition-all flex items-center gap-1.5"
-              >
-                <ArrowLeft size={12} /> Edit Mode
-              </button>
-              <div className="text-[10px] font-bold px-3 py-1 rounded-full bg-slate-50 text-slate-400 uppercase flex items-center gap-2 border border-slate-200">
-                Real-time Sync Active
-              </div>
-              <button
-                onClick={() => window.print()}
-                className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-all flex items-center gap-1.5"
-              >
-                <Printer size={12} /> Print
-              </button>
-            </>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsCollaboratorsOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md hover:bg-slate-200 transition-all text-[11px] font-bold uppercase tracking-widest shadow-sm relative group"
-              >
-                <Users size={12} />
-                {connectedClients.length > 1 && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-white" />
-                )}
-                Collabs
-              </button>
-              <button
-                onClick={() => setIsPreview(!isPreview)}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-[11px] font-bold uppercase tracking-widest shadow-sm",
-                  isPreview ? "bg-slate-900 text-white" : "bg-white text-slate-700 border border-slate-200"
-                )}
-              >
-                {isPreview ? "Exit Preview" : "Preview"}
-              </button>
-            </div>
+
+          <div className="h-6 w-px bg-border/40 mx-1" />
+
+          <button
+            onClick={() => setIsPreview(!isPreview)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-sm",
+              isPreview 
+                ? "bg-foreground text-background" 
+                : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
+            )}
+          > 
+             {isPreview ? <ArrowLeft size={12} /> : <FileText size={12} />}
+             {isPreview ? "Exit Preview" : "Preview"}
+          </button>
+
+          {docMetadata?.status !== 'finalised' && docMetadata?.status !== 'voided' && (
+            <button
+              onClick={async () => {
+                const confirm = window.confirm("Finalizing this receipt will freeze it and add it to the payment chain. Proceed?");
+                if (!confirm) return;
+                try {
+                  await api.finaliseReceipt(id!);
+                  const invId = (docMetadata as any)?.metadata?.invoiceId;
+                  navigate(invId ? `/invoice/${invId}` : `/dashboard`);
+                } catch (e) {
+                  alert("Finalization failed");
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-1.5 bg-success text-success-foreground rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 active:scale-95"
+            >
+              <Check size={14} /> Finalize Receipt
+            </button>
           )}
         </div>
       </header>
 
-      <div className="preview-container flex-1 overflow-y-auto p-6 lg:p-16 flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto">
+      {isReadOnly && (
+        <div className="bg-warning/10 border-b border-warning/30 px-6 py-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-warning">
+          <Eye size={12} /> View-only — your role ({userRole}) cannot edit this document
+        </div>
+      )}
 
+      <div className="preview-container flex-1 overflow-y-auto p-6 lg:p-16 flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto">
+        <div ref={containerRef} className="relative w-fit flex flex-col items-center">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={(docData?.table.rows || []).map(r => r.id as string)} strategy={verticalListSortingStrategy}>
+          <SortableContext items={(docData?.table.rows || []).map((r: any) => r.id as string)} strategy={verticalListSortingStrategy}>
             {pages.map((page, idx) => (
               <ReceiptPage
                 key={idx}
@@ -517,6 +628,15 @@ const ReceiptEditor: React.FC = () => {
           ))}
           </SortableContext>
         </DndContext>
+        <AnnotationSystem
+            annotations={annotations}
+            onSave={handleSaveAnnotations}
+            containerRef={containerRef}
+            mediaType="document"
+            isReadOnly={isReadOnly}
+            userRole={userRole}
+        />
+        </div>
       </div>
       <style>{`
         @media print {
@@ -558,7 +678,7 @@ const ReceiptEditor: React.FC = () => {
         isOpen={isCollaboratorsOpen}
         onClose={() => setIsCollaboratorsOpen(false)}
         collaborators={connectedClients}
-        ownerId={authAction.governance.ownerId || null}
+        ownerId={(docMetadata as any)?.metadata?.userId || (docMetadata as any)?.userId || authAction.governance.ownerId || null}
         businessId={businessId}
         businessName={businessName}
         initialTab={activeCollaboratorTab}
@@ -568,9 +688,20 @@ const ReceiptEditor: React.FC = () => {
             authAction.bannedClients.push(email);
           }
         }}
-        onMakeOwner={(email) => {
-          authAction.governance.ownerId = email;
+        onUpdateRole={async (email, role) => {
+          try {
+            await api.updateMemberRole('document', id!, email, role);
+            queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+          } catch (e: any) {
+            alert(e.message || "Failed to update role");
+          }
         }}
+        onAddMember={async (email) => {
+          if (!projectId) return;
+          await api.addProjectMember(projectId, email, 'viewer');
+          queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+        }}
+        availableEmails={availableEmails}
       />
     </div>
   );

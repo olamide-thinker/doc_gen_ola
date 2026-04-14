@@ -6,15 +6,19 @@ import {
   User 
 } from "firebase/auth";
 import { auth, googleProvider } from "../lib/firebase";
+import { API_BASE } from "../lib/workspace-persist";
 
 interface AuthContextType {
   user: User | null;
   businessId: string | null;
+  businessName: string | null;
+  projectId: string | null;
   role: string | null;
   loading: boolean;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
-  refreshBusiness: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
+  setProject: (id: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,6 +26,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [businessId, setBusinessId] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(() => {
+    return localStorage.getItem("invsys_active_project") || null;
+  });
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -29,40 +37,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       
-      const { isMockFirebase } = await import("../lib/firebase");
-      
       if (!currentUser) {
         setBusinessId(null);
+        setProjectId(null);
         setRole(null);
         setLoading(false);
         return;
       }
 
       try {
-        const { doc, getDoc } = await import("firebase/firestore");
-        const { db } = await import("../lib/firebase");
-
-        // Try to get metadata from Firestore
-        const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+        const token = await currentUser.getIdToken();
+        const response = await fetch(`${API_BASE}/users/profile`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
         
-        if (userDoc.exists()) {
-          setBusinessId(userDoc.data().businessId);
-          setRole(userDoc.data().role);
-        } else if (isMockFirebase) {
-          // Fallback for new local users
-          console.warn("[Auth] Using Mock Workspace for Local Dev");
-          setBusinessId("dev-workspace-123");
-          setRole("super-admin");
-        } else {
+        if (response.ok) {
+          const { data } = await response.json();
+          setBusinessId(data?.businessId || null);
+          setBusinessName(data?.businessName || null);
+          setRole(data?.role || null);
+          
+          // Only set projectId if we don't already have one in localStorage
+          if (!localStorage.getItem("invsys_active_project")) {
+            const initialId = data?.projectId || 'playground';
+            setProjectId(initialId);
+            localStorage.setItem("invsys_active_project", initialId);
+          }
+        } else if (response.status === 404) {
+          // User exists in Firebase but not in our Postgres yet
+          // Handled by Onboarding
           setBusinessId(null);
-          setRole(null);
+          setProjectId(null);
         }
       } catch (e) {
-        console.error("Auth metadata fetch error:", e);
-        if (isMockFirebase || window.location.hostname === 'localhost') {
-            setBusinessId("dev-workspace-123");
-            setRole("super-admin");
-        }
+        console.error("Auth profile fetch error:", e);
+        setBusinessId(null);
+        setProjectId(null);
       } finally {
         setLoading(false);
       }
@@ -70,14 +80,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const refreshBusiness = async () => {
+  // Handle URL-based project switching
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlProject = params.get('project');
+    if (urlProject && urlProject !== projectId) {
+      console.log(`[Auth] 🔗 URL-based project detected: ${urlProject}. Syncing...`);
+      setProject(urlProject);
+    }
+  }, [projectId]);
+
+  const refreshProfile = async () => {
     if (!user) return;
-    const { getFirestore, doc, getDoc } = await import("firebase/firestore");
-    const { db } = await import("../lib/firebase");
-    const userDoc = await getDoc(doc(db, "users", user.uid));
-    if (userDoc.exists()) {
-      setBusinessId(userDoc.data().businessId);
-      setRole(userDoc.data().role);
+    const token = await user.getIdToken();
+    const response = await fetch(`${API_BASE}/users/profile`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (response.ok) {
+      const { data } = await response.json();
+      setBusinessId(data?.businessId || null);
+      setBusinessName(data?.businessName || null);
+      setProjectId(data?.projectId || null);
+      setRole(data?.role || null);
     }
   };
 
@@ -93,13 +117,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       await signOut(auth);
+      localStorage.removeItem("invsys_active_project");
     } catch (error) {
       console.error("Logout Error:", error);
     }
   };
 
+  const setProject = (id: string) => {
+    if (id === projectId) return;
+    setProjectId(id);
+    localStorage.setItem("invsys_active_project", id);
+    window.location.reload();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, businessId, role, loading, loginWithGoogle, logout, refreshBusiness }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      businessId, 
+      businessName,
+      projectId, 
+      role, 
+      loading, 
+      loginWithGoogle, 
+      logout, 
+      refreshProfile,
+      setProject
+    }}>
       {children}
     </AuthContext.Provider>
   );

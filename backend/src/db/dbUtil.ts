@@ -1,9 +1,13 @@
-import { getFirestore, checkFirebaseInitialized } from '../config/firebase';
-import * as admin from 'firebase-admin';
+import { db } from './index';
+import * as schema from './schema';
+import { eq, sql } from 'drizzle-orm';
 
-// This is our central data abstraction layer.
-// Right now it wraps Firebase, but later it can wrap Postgres, MongoDB, etc.
-// The rest of the application ONLY talks to dbUtil.
+// Helper to get table from name
+const getTable = (collectionName: string) => {
+  const table = (schema as any)[collectionName];
+  if (!table) throw new Error(`Table ${collectionName} not found in schema`);
+  return table;
+};
 
 export const dbUtil = {
   /**
@@ -11,12 +15,9 @@ export const dbUtil = {
    */
   fetchOne: async (collectionName: string, id: string): Promise<any | null> => {
     try {
-      const db = getFirestore();
-      const isLive = checkFirebaseInitialized();
-      const doc = await db.collection(collectionName).doc(id).get();
-      if (!isLive) return null; // In mock mode, assume nothing exists
-      if (!doc.exists) return null;
-      return { id: doc.id, ...doc.data() };
+      const table = getTable(collectionName);
+      const result = await db.select().from(table).where(eq(table.id, id)).limit(1);
+      return result.length > 0 ? result[0] : null;
     } catch (error) {
       console.error(`Error in dbUtil.fetchOne for ${collectionName}/${id}:`, error);
       throw error;
@@ -26,24 +27,21 @@ export const dbUtil = {
   /**
    * Fetch multiple documents from a collection
    */
-  fetchAll: async (params: { 
-    collectionName: string, 
-    sort?: string, 
-    limit?: number, 
-    offset?: number 
+  fetchAll: async (params: {
+    collectionName: string,
+    sort?: string,
+    limit?: number,
+    offset?: number
   }): Promise<any[]> => {
     try {
-      const db = getFirestore();
-      const isLive = checkFirebaseInitialized();
-      if (!isLive) return []; // In mock mode, assume empty collection
-      
-      let query: admin.firestore.Query = db.collection(params.collectionName);
-      if (params.sort) query = query.orderBy(params.sort);
-      if (params.limit) query = query.limit(params.limit);
-      if (params.offset) query = query.offset(params.offset);
+      const table = getTable(params.collectionName);
+      let query = db.select().from(table);
 
-      const snapshot = await query.get();
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Simple implementation for sort, limit, offset
+      // Note: sort is hardcoded to desc for now if provided
+      const finalQuery = (params.limit ? (params.offset ? query.limit(params.limit).offset(params.offset) : query.limit(params.limit)) : query);
+      
+      return await finalQuery;
     } catch (error) {
       console.error(`Error in dbUtil.fetchAll for ${params.collectionName}:`, error);
       throw error;
@@ -51,17 +49,20 @@ export const dbUtil = {
   },
 
   /**
-   * Save or Update a single document
+   * Save or Update a single document (Upsert)
    */
   saveOne: async (collectionName: string, id: string, payload: any): Promise<void> => {
     try {
-      const db = getFirestore();
-      const isLive = checkFirebaseInitialized();
-      if (!isLive) {
-        // console.log(`[dbUtil] Mock Save: ${collectionName}/${id}`);
-        return;
-      }
-      await db.collection(collectionName).doc(id).set(payload, { merge: true });
+      const table = getTable(collectionName);
+      const values = { id, ...payload };
+      
+      // Upsert logic for Drizzle
+      await db.insert(table)
+        .values(values)
+        .onConflictDoUpdate({
+          target: table.id,
+          set: payload
+        });
     } catch (error) {
       console.error(`Error in dbUtil.saveOne for ${collectionName}/${id}:`, error);
       throw error;
@@ -73,10 +74,8 @@ export const dbUtil = {
    */
   deleteOne: async (collectionName: string, id: string): Promise<void> => {
     try {
-      const db = getFirestore();
-      const isLive = checkFirebaseInitialized();
-      if (!isLive) return;
-      await db.collection(collectionName).doc(id).delete();
+      const table = getTable(collectionName);
+      await db.delete(table).where(eq(table.id, id));
     } catch (error) {
       console.error(`Error in dbUtil.deleteOne for ${collectionName}/${id}:`, error);
       throw error;

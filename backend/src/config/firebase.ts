@@ -1,68 +1,107 @@
 import * as admin from 'firebase-admin';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as dotenv from 'dotenv';
 
-// Initialize Firebase Admin SDK
+// 1. Precise .env loading based on where we are
+const currentDir = process.cwd();
+const possibleEnvPaths = [
+  path.join(currentDir, '.env'),
+  path.join(currentDir, 'backend', '.env'),
+  path.join(currentDir, '..', '.env')
+];
+
+for (const p of possibleEnvPaths) {
+  if (fs.existsSync(p)) {
+    dotenv.config({ path: p });
+  }
+}
+
 let isFirebaseInitialized = false;
 
-export const initializeFirebase = () => {
+export const initializeFirebase = async () => {
   if (isFirebaseInitialized) return;
 
-  try {
-    const projectId = process.env.FIREBASE_PROJECT_ID || "invoice-crdt-sys";
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  console.log('[Firebase] 🛡️ Starting Secure Initialization...');
 
-    if (clientEmail && privateKey) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId,
-          clientEmail,
-          privateKey,
-        }),
-        projectId,
-      });
-      console.log('[Firebase] ✅ Admin SDK successfully initialized via Env Vars!');
-      isFirebaseInitialized = true;
-    } else {
-      // Fallback to local JSON if present
-      const keyPath = path.join(__dirname, '..', '..', 'serviceAccountKey.json');
-      if (fs.existsSync(keyPath)) {
-        const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
-          projectId,
-        });
-        console.log('[Firebase] ✅ Admin SDK successfully initialized via JSON!');
-        isFirebaseInitialized = true;
-      } else {
-        console.warn('[Firebase] ⚠️ Missing credentials (Env or serviceAccountKey.json). Entering Mock Mode.');
+  try {
+    // 1. Try JSON File first (Smart Pathing)
+    let serviceAccount: any = null;
+    
+    // 0. Try process.env.FIRE_SECRET first
+    if (process.env.FIRE_SECRET) {
+      try {
+        console.log('[Firebase] 🤫 Found FIRE_SECRET in environment variables.');
+        serviceAccount = JSON.parse(process.env.FIRE_SECRET);
+      } catch (err) {
+        console.error('[Firebase] ❌ Failed to parse FIRE_SECRET:', err.message);
       }
     }
-  } catch (error) {
-    console.error('[Firebase] Failed to initialize admin SDK', error);
+
+    // 1. Try JSON File next if FIRE_SECRET wasn't found or failed
+    if (!serviceAccount) {
+      const possibleJsonPaths = [
+        path.join(currentDir, 'serviceAccountKey.json'),
+        path.join(currentDir, 'backend', 'serviceAccountKey.json'),
+        path.join(currentDir, '..', 'serviceAccountKey.json')
+      ];
+
+      for (const p of possibleJsonPaths) {
+        if (fs.existsSync(p)) {
+          console.log('[Firebase] ✨ Found JSON key file at:', p);
+          serviceAccount = JSON.parse(fs.readFileSync(p, 'utf8'));
+          break;
+        }
+      }
+    }
+
+    if (serviceAccount) {
+      // If an app already exists, delete it so we can re-init with fresh keys
+      if (admin.apps.length > 0) {
+        await Promise.all(admin.apps.map(app => app?.delete()));
+      }
+      
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      isFirebaseInitialized = true;
+      console.log('[Firebase] ✅ Admin SDK successfully initialized via JSON!');
+      return;
+    }
+
+    // 2. Fallback to Env Vars
+    const projectId = process.env.FIREBASE_PROJECT_ID || "invoice-crdt-sys";
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+    if (clientEmail && privateKey) {
+      // CLEANUP: Ensure the private key is formatted correctly for ASN.1 parsing
+      // 1. Remove literal quotes if they were accidentally included in the .env value
+      privateKey = privateKey.trim().replace(/^["']|["']$/g, '');
+      // 2. Unescape \n characters
+      privateKey = privateKey.replace(/\\n/g, '\n');
+
+      if (admin.apps.length === 0) {
+        admin.initializeApp({
+          credential: admin.credential.cert({
+            projectId,
+            clientEmail,
+            privateKey,
+          }),
+          projectId,
+        });
+      }
+      isFirebaseInitialized = true;
+      console.log('[Firebase] ✅ Admin SDK successfully initialized via Env Vars!');
+    } else {
+      console.error('[Firebase] ❌ CRITICAL: No credentials found.');
+    }
+  } catch (error: any) {
+    console.error('[Firebase] ❌ Initialization Error:', error.message);
   }
 };
 
-export const getFirestore = () => {
-  if (!isFirebaseInitialized) {
-    // Return a minimal mock that doesn't crash on common calls
-    return {
-      collection: (name: string) => ({
-        doc: (id: string) => ({
-          get: async () => ({ exists: false, data: () => null }),
-          set: async () => {},
-          update: async () => {},
-          delete: async () => {},
-        }),
-        where: () => ({ get: async () => ({ docs: [] }) }),
-        orderBy: () => ({ limit: () => ({ get: async () => ({ docs: [] }) }) }),
-        limit: () => ({ get: async () => ({ docs: [] }) }),
-        offset: () => ({ get: async () => ({ docs: [] }) }),
-      })
-    } as unknown as admin.firestore.Firestore;
-  }
-  return admin.firestore();
-};
+// AUTO-INIT
+initializeFirebase().catch(err => console.error('[Firebase] Auto-init failed:', err));
 
 export const checkFirebaseInitialized = () => isFirebaseInitialized;

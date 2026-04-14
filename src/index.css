@@ -64,8 +64,8 @@
     --popover: 240 2% 12%;
     --popover-foreground: 210 14% 92%;
 
-    /* Google Primary Blue - Material 3 */
-    --primary: 217 89% 76%; /* #8ab4f8 */
+    /* Google Primary Blue - Material 3 - Lighter variant */
+    --primary: 217 95% 85%; /* #c2d7ff */
     --primary-foreground: 217 10% 10%;
 
     --secondary: 240 3% 18%; /* #2d2e30 */

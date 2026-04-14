@@ -472,8 +472,10 @@ export const InvoicePage: React.FC<A4PageProps> = ({
           {!isPreview && isEndOfRows && (
             <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
               <button
-                onClick={() => onAddRowBelow(startIndex + rows.length - 1)}
-                className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group"
+                onClick={() => {
+                  const lastRow = rows[rows.length - 1];
+                  if (lastRow) onAddRowBelow(lastRow.id as string);
+                }}
               >
                 <Plus size={14} className="transition-transform duration-300 group-hover:rotate-90" />
                 Add New Line Item

@@ -53,4 +53,5 @@ export interface A4PageProps {
   onUpdateOutstandingBalance?: (val: number) => void;
   onUpdateAcknowledgement?: (val: string) => void;
   onHeaderImageUpload?: (val: string) => void;
+  isReadOnly?: boolean;
 }

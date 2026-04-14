@@ -2,10 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npx tsc:*)",
-      "Bash(node -e \"const fs = require\\(''fs''\\); const src = fs.readFileSync\\(''C:/Users/Olamide.thinker/Documents/Playground/shan-doc-printer/src/lib/templates.ts'', ''utf8''\\); const lines = src.split\\(''\\\\n''\\); let issues = []; lines.forEach\\(\\(line, i\\) => { const m = line.match\\(/notes:\\\\s*\"\"\\(.*\\)\"\"/\\); if \\(m && m[1].includes\\(''\"\"''\\)\\) issues.push\\(i+1 + '': '' + line.trim\\(\\)\\); }\\); console.log\\(issues.length ? issues.join\\(''\\\\n''\\) : ''NO ISSUES FOUND''\\);\")",
-      "Bash(node -e \"const fs=require\\(''fs''\\);const s=fs.readFileSync\\(''C:/Users/Olamide.thinker/Documents/Playground/shan-doc-printer/src/lib/templates.ts'',''utf8''\\);console.log\\(''byte 18500-18520:'',JSON.stringify\\(s.slice\\(18500,18520\\)\\)\\);console.log\\(''line 289:'',s.split\\(''\\\\n''\\)[288]\\);\")",
-      "Bash(node -e \":*)",
-      "Bash(npx oxc-parser:*)"
+      "Bash(ls \"C:\\\\Users\\\\Olamide.thinker\\\\Documents\\\\Playground\\\\shan-doc-printer\\\\tsconfig\"*.json)",
+      "Bash(npm i:*)",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }

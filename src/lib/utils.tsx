@@ -17,6 +17,7 @@ export type IconProps = {
   className?: string;
   size?: number;
   strokeWidth?: number;
+  fill?: string;
 };
 
 export type StyledIcon = React.FC<IconProps>;

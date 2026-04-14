@@ -1,6 +1,7 @@
 import { 
   Folder as LucideFolder, 
   FileText as LucideFileText, 
+  Loader as LucideLoader,
   Plus as LucidePlus, 
   Trash2 as LucideTrash2, 
   MoreHorizontal as LucideMoreHorizontal,
@@ -33,6 +34,7 @@ import {
   Undo2 as LucideUndo2,
   Redo2 as LucideRedo2,
   GripVertical as LucideGripVertical,
+  GripHorizontal as LucideGripHorizontal,
   AlertTriangle as LucideAlertTriangle,
   LayoutDashboard as LucideLayoutDashboard,
   FileEdit as LucideFileEdit,
@@ -56,11 +58,32 @@ import {
   Calculator as LucideCalculator,
   FolderOpen as LucideFolderOpen,
   X as LucideX,
-  ScrollText as LucideScrollText
+  ScrollText as LucideScrollText,
+  Maximize2 as LucideMaximize2,
+  Minimize2 as LucideMinimize2,
+  Image as LucideImage,
+  Video as LucideVideo,
+  ZoomIn as LucideZoomIn,
+  ZoomOut as LucideZoomOut,
+  RotateCw as LucideRotateCw,
+  MousePointer2 as LucideMousePointer2,
+  Hand as LucideHand,
+  Play as LucidePlay,
+  Pause as LucidePause,
+  Highlighter as LucideHighlighter,
+  MessageSquare as LucideMessageSquare,
+  Crown as LucideCrown,
+  Eye as LucideEye,
+  Lock as LucideLock,
+  CheckCircle2 as LucideCheckCircle2,
+  Ban as LucideBan,
+  History as LucideHistory,
+  Info as LucideInfo
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
 export const Folder = wrapIcon(LucideFolder);
+export const Loader = wrapIcon(LucideLoader);
 export const FileText = wrapIcon(LucideFileText);
 export const Plus = wrapIcon(LucidePlus);
 export const Trash = wrapIcon(LucideTrash2);
@@ -96,6 +119,7 @@ export const Upload = wrapIcon(LucideUpload);
 export const Undo2 = wrapIcon(LucideUndo2);
 export const Redo2 = wrapIcon(LucideRedo2);
 export const GripVertical = wrapIcon(LucideGripVertical);
+export const GripHorizontal = wrapIcon(LucideGripHorizontal);
 export const AlertTriangle = wrapIcon(LucideAlertTriangle);
 export const ShieldAlert = wrapIcon(LucideAlertTriangle);
 export const Users = wrapIcon(LucideUsers);
@@ -119,3 +143,26 @@ export const Calculator = wrapIcon(LucideCalculator);
 export const FolderOpen = wrapIcon(LucideFolderOpen);
 export const X = wrapIcon(LucideX);
 export const ScrollText = wrapIcon(LucideScrollText);
+export const Maximize2 = wrapIcon(LucideMaximize2);
+export const Minimize2 = wrapIcon(LucideMinimize2);
+export const GenericImage = wrapIcon(LucideImage);
+export const Video = wrapIcon(LucideVideo);
+export const Image = wrapIcon(LucideImage);
+export const ZoomIn = wrapIcon(LucideZoomIn);
+export const ZoomOut = wrapIcon(LucideZoomOut);
+export const RotateCw = wrapIcon(LucideRotateCw);
+export const MousePointer2 = wrapIcon(LucideMousePointer2);
+export const Hand = wrapIcon(LucideHand);
+export const Play = wrapIcon(LucidePlay);
+export const Pause = wrapIcon(LucidePause);
+export const Highlighter = wrapIcon(LucideHighlighter);
+export const MessageSquare = wrapIcon(LucideMessageSquare);
+export const LayoutDashboard = wrapIcon(LucideLayoutDashboard);
+export const Crown = wrapIcon(LucideCrown);
+export const Eye = wrapIcon(LucideEye);
+export const Edit2 = wrapIcon(LucideEdit2);
+export const Lock = wrapIcon(LucideLock);
+export const CheckCircle2 = wrapIcon(LucideCheckCircle2);
+export const Ban = wrapIcon(LucideBan);
+export const History = wrapIcon(LucideHistory);
+export const Info = wrapIcon(LucideInfo);

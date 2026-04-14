@@ -1,27 +1,75 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can only read/write their own profile
+
+    // -----------------------------------------------------------------------
+    // Users — own profile only
+    // -----------------------------------------------------------------------
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    
-    // Businesses metadata
+
+    // -----------------------------------------------------------------------
+    // Businesses (projects)
+    // Members or the owner can read/update. Anyone authenticated can create.
+    // The join-link flow needs a get() by authenticated users (no list).
+    // -----------------------------------------------------------------------
     match /businesses/{businessId} {
-      // Authenticated users can create a business
       allow create: if request.auth != null;
-      
-      // Members or owners can read/update the business metadata
-      allow read, update: if request.auth != null && 
-        (resource.data.ownerId == request.auth.uid || 
-         request.auth.token.email in resource.data.members);
-         
-      // Allow reading business name by anyone who has the join link (joinId)
-      // This is a special case for the 'Accept Invite' screen
+
+      allow read, update: if request.auth != null && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.token.email in resource.data.members
+      );
+
+      // Accept-invite screen — read the business name without being a member yet
       allow get: if request.auth != null;
+
+      // Join via invite link — allow an authenticated user to add themselves to members
+      allow update: if request.auth != null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']) &&
+        request.auth.token.email in request.resource.data.members &&
+        !(request.auth.token.email in resource.data.members);
     }
 
-    // Default deny for all other collections
+    // -----------------------------------------------------------------------
+    // Workspaces — the CRDT-backed store for folders, documents, projects.
+    //
+    // The backend (Admin SDK) handles all writes via the REST API and the
+    // Hocuspocus onStoreDocument hook. We allow authenticated reads here so
+    // the frontend can do an emergency fallback read if the WebSocket is down.
+    // Writes from the client are intentionally blocked — all writes must go
+    // through the backend REST endpoints which enforce ownership.
+    // -----------------------------------------------------------------------
+    match /workspaces/{workspaceId} {
+      allow read: if request.auth != null;
+      allow write: if false; // backend-only via Admin SDK
+    }
+
+    // -----------------------------------------------------------------------
+    // Invoices — individual invoice/receipt CRDT documents.
+    //
+    // A member of the document (stored in the members array) can read it.
+    // The owner (ownerId field) has full access. Writes go through the backend.
+    // -----------------------------------------------------------------------
+    match /invoices/{invoiceId} {
+      allow read: if request.auth != null && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.token.email in resource.data.members
+      );
+      // Allow member list updates from the client (addMember / removeMember)
+      allow update: if request.auth != null && (
+        resource.data.ownerId == request.auth.uid ||
+        request.auth.token.email in resource.data.members
+      );
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null &&
+        resource.data.ownerId == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------------
+    // Default deny — any collection not listed above is fully locked.
+    // -----------------------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;
     }

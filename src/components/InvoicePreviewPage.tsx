@@ -17,11 +17,12 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import { useSyncedStore } from "@syncedstore/react";
-import { authStore, workspaceStore, connectWorkspace, workspaceProvider, authProvider } from "../store";
+import { authStore, workspaceStore, connectProject, workspaceProvider, authProvider } from "../store";
 import { type DocData, type SummaryItem, type TableRow } from "../types";
 import { api } from "../lib/api";
 import { InvoicePage } from "./InvoicePage";
 import { ReceiptPage } from "./ReceiptPage";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import {
   computeTotalPrice as computeTotalPriceForData,
@@ -282,27 +283,56 @@ const InvoicePreviewPage: React.FC = () => {
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, businessId, businessName: ctxBusinessName, projectId, refreshProfile } = useAuth();
+
+  const { data: allDocuments = [], isLoading: isLoadingDocs } = useQuery({
+    queryKey: ['documents', projectId],
+    queryFn: () => api.getDocuments(projectId!),
+    enabled: !!currentUser && !!projectId,
+  });
+
+  // Fetch invoice management data — this is the source of truth for totals
+  // and receipts (which live in the invoices table, not the documents table).
+  const { data: invoiceMgmtData, isLoading: isLoadingMgmt } = useQuery({
+    queryKey: ['invoice-management', id],
+    queryFn: () => api.getInvoiceManagement(id!),
+    enabled: !!id && !!currentUser,
+  });
+
+  useEffect(() => {
+    if (invoiceMgmtData) {
+      console.log('[Preview] 📦 Invoice Management Data:', invoiceMgmtData);
+    }
+  }, [invoiceMgmtData]);
+
+  const { data: allProjects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.getProjects(),
+    enabled: !!currentUser,
+  });
+
+  const activeProject = useMemo(() => {
+    return allProjects.find((p: any) => p.id === projectId);
+  }, [allProjects, projectId]);
+
+  const invoiceDoc = useMemo(() => {
+    return allDocuments.find((d: any) => d.id === id);
+  }, [allDocuments, id]);
+
+  const availableEmails = useMemo(() => {
+    if (!activeProject || !invoiceDoc) return [];
+    const projectMembers = (activeProject.members || []).map(m => (typeof m === 'string' ? m : m.email));
+    const docMembers = (invoiceDoc.members || []).map((m: any) => (typeof m === 'string' ? m : m.email));
+    return projectMembers.filter(email => !docMembers.includes(email));
+  }, [activeProject, invoiceDoc]);
 
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
-  const [businessName, setBusinessName] = useState("Your Business");
-
-  const { businessId } = useAuth();
-
-  useEffect(() => {
-    const fetchBusinessName = async () => {
-        if (!businessId) return;
-        const { doc, getDoc } = await import("firebase/firestore");
-        const { db } = await import("../lib/firebase");
-        const bDoc = await getDoc(doc(db, "businesses", businessId));
-        if (bDoc.exists()) {
-            setBusinessName(bDoc.data().name);
-        }
-    };
-    fetchBusinessName();
-  }, [businessId]);
+  // Business name comes from AuthContext (reads /api/users/profile).
+  // Firestore has been fully deprecated in this codebase.
+  const businessName = ctxBusinessName || "Your Business";
+  const queryClient = useQueryClient();
   const [isWorkspaceReady, setIsWorkspaceReady] = useState(false);
 
   useEffect(() => {
@@ -312,7 +342,7 @@ const InvoicePreviewPage: React.FC = () => {
 
     const startSync = async () => {
       const token = await currentUser.getIdToken();
-      const providers = connectWorkspace(businessId, token);
+      const providers = connectProject(projectId!, token, businessId!);
       
       const updatePresence = () => {
         const states = providers.authProvider.awareness?.getStates();
@@ -320,7 +350,18 @@ const InvoicePreviewPage: React.FC = () => {
         const clients: any[] = [];
         states.forEach((state: any, clientId: number) => {
           if (state.user && state.user.email) {
-            clients.push({ id: clientId.toString(), user: state.user });
+            // Find their persistent role
+            const email = state.user.email;
+            const member = (invoiceDoc?.members || []).find((m: any) =>
+              (typeof m === 'string' ? m : m.email) === email,
+            );
+            const role = member ? (typeof member === 'object' ? member.role : 'editor') : (state.user.id === invoiceDoc?.userId ? 'owner' : 'editor');
+
+            clients.push({ 
+              id: clientId.toString(), 
+              user: state.user,
+              role: role
+            });
           }
         });
         setConnectedClients(clients);
@@ -345,27 +386,24 @@ const InvoicePreviewPage: React.FC = () => {
     return () => cleanup?.();
   }, [currentUser, businessId]);
 
-  const invoiceDoc = workspaceAction.documents?.find((d: any) => d.id === id);
-  const receipts = workspaceAction.documents?.filter((d: any) => d.folderId === null && (d as any).invoiceId === id) || [];
-  const isLoading = !invoiceDoc;
+  // Receipts and payment totals come from the invoice management API
+  // (invoices live in a separate table, not workspace documents).
+  const mgmtReceipts: any[] = invoiceMgmtData?.receipts || [];
+
+  const sortedReceipts = useMemo(() => {
+    return [...mgmtReceipts].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  }, [mgmtReceipts]);
+
+  const isLoading = isLoadingDocs || isLoadingMgmt || !invoiceDoc;
 
   const docContent = invoiceDoc?.content || null;
   const pages = usePagination(docContent);
 
-  const sortedReceipts = useMemo(() => {
-    return [...receipts].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }, [receipts]);
-
-  const invoiceGrandTotal = useMemo(() => {
-    if (!docContent) return 0;
-    return computeTotalPriceForData(docContent).grandTotal;
-  }, [docContent]);
-
-  const totalPaid = useMemo(() => {
-    return sortedReceipts.reduce((sum, r) => sum + (r.content.amountPaid || 0), 0);
-  }, [sortedReceipts]);
-
-  const totalOutstanding = Math.max(0, invoiceGrandTotal - totalPaid);
+  // Use management API values — they are authoritative and account for all
+  // finalized receipt versions via the payment chain.
+  const invoiceGrandTotal: number = invoiceMgmtData?.grandTotal ?? (docContent ? computeTotalPriceForData(docContent).grandTotal : 0);
+  const totalPaid: number = invoiceMgmtData?.totalPaid ?? 0;
+  const totalOutstanding: number = invoiceMgmtData?.outstanding ?? Math.max(0, invoiceGrandTotal - totalPaid);
   const [isCreatingReceipt, setIsCreatingReceipt] = useState(false);
 
   const handleAddReceipt = async () => {
@@ -409,8 +447,14 @@ const InvoicePreviewPage: React.FC = () => {
         currentUser?.email || ""
       );
       (newDoc as any).invoiceId = id;
+      queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
       navigate(`/receipt-editor/${newDoc.id}`);
-    } finally { setIsCreatingReceipt(false); }
+    } catch (err: any) {
+      console.error('[InvoicePreview] Error adding receipt:', err);
+      alert(err.message || 'Failed to create receipt. Please try again.');
+    } finally { 
+      setIsCreatingReceipt(false); 
+    }
   };
 
   if (isLoading || !invoiceDoc) {
@@ -427,10 +471,10 @@ const InvoicePreviewPage: React.FC = () => {
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-lexend transition-colors duration-300">
       <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-10">
         <button
-          onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
+          onClick={() => navigate(`/invoice/${id}`)}
           className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground transition-all uppercase tracking-widest shrink-0"
         >
-          <ArrowLeft size={13} /> {fromFolder ? "Back to Folder" : "All Files"}
+          <ArrowLeft size={13} /> Back to Invoice
         </button>
         <span className="text-muted-foreground/30 font-thin text-base">/</span>
         {docContentSafe.invoiceCode?.text && (
@@ -530,8 +574,16 @@ const InvoicePreviewPage: React.FC = () => {
               <h3 className="text-sm font-bold text-foreground">Payments</h3>
               <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest">{sortedReceipts.length} receipts</p>
             </div>
-            <button onClick={handleAddReceipt} disabled={isCreatingReceipt} className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all disabled:opacity-50">
-              <Plus size={18} />
+            <button 
+              onClick={handleAddReceipt} 
+              disabled={isCreatingReceipt} 
+              className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all disabled:opacity-50"
+            >
+              {isCreatingReceipt ? (
+                <RefreshCw size={18} className="animate-spin" />
+              ) : (
+                <Plus size={18} />
+              )}
             </button>
           </div>
 
@@ -542,22 +594,29 @@ const InvoicePreviewPage: React.FC = () => {
                 <p className="text-xs font-bold text-foreground uppercase tracking-widest">No receipts yet</p>
               </div>
             ) : (
-              sortedReceipts.map((receipt) => (
-                <button
-                  key={receipt.id}
-                  onClick={() => navigate(`/receipt-editor/${receipt.id}`)}
-                  className="w-full flex items-center gap-4 p-4 bg-card rounded-xl hover:bg-muted/50 shadow-sm hover:shadow-md transition-all group text-left"
-                >
-                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors"><FileText size={18} /></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-bold text-foreground/90 truncate">{receipt.name}</span>
-                      <span className="text-xs font-black text-primary">₦{(receipt.content.amountPaid || 0).toLocaleString()}</span>
+              sortedReceipts.map((receipt: any) => {
+                // Receipts from mgmt API can be draft docs or chain versions.
+                // Draft receipts have an `id`; chain items use `versionId`.
+                const receiptId = receipt.id;
+                const amountPaid = receipt.content?.amountPaid ?? receipt.amountPaid ?? 0;
+                const receiptDate = receipt.content?.date ?? receipt.publishedAt ?? "";
+                return (
+                  <button
+                    key={receiptId || receipt.versionId}
+                    onClick={() => receiptId && navigate(`/receipt-editor/${receiptId}`)}
+                    className="w-full flex items-center gap-4 p-4 bg-card rounded-xl hover:bg-muted/50 shadow-sm hover:shadow-md transition-all group text-left"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary transition-colors"><FileText size={18} /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-xs font-bold text-foreground/90 truncate">{receipt.name || `Receipt #${receipt.sequence ?? ""}`}</span>
+                        <span className="text-xs font-black text-primary">₦{Number(amountPaid).toLocaleString()}</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{receiptDate}</p>
                     </div>
-                    <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{receipt.content.date}</p>
-                  </div>
-                </button>
-              ))
+                  </button>
+                );
+              })
             )}
           </div>
         </aside>
@@ -569,13 +628,27 @@ const InvoicePreviewPage: React.FC = () => {
 
       <CollaboratorsSheet
         isOpen={isCollaboratorsOpen} onClose={() => setIsCollaboratorsOpen(false)}
-        collaborators={connectedClients} ownerId={authAction.governance.ownerId || null}
+        collaborators={connectedClients} 
+        ownerId={invoiceDoc?.userId || authAction.governance.ownerId || null}
         businessId={businessId}
         businessName={businessName}
         initialTab={activeCollaboratorTab}
         bannedClients={authAction.bannedClients}
         onBanClient={(email) => { if (!authAction.bannedClients.includes(email)) authAction.bannedClients.push(email); }}
-        onMakeOwner={(email) => { authAction.governance.ownerId = email; }}
+        onUpdateRole={async (email, role) => {
+          try {
+            await api.updateMemberRole('document', id!, email, role);
+            queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+          } catch (e: any) {
+            alert(e.message || "Failed to update role");
+          }
+        }}
+        onAddMember={async (email) => {
+          if (!projectId) return;
+          await api.addProjectMember(projectId, email, 'viewer');
+          queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+        }}
+        availableEmails={availableEmails}
       />
     </div>
   );

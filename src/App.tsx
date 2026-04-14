@@ -4,12 +4,15 @@ import Dashboard from "./components/Dashboard";
 import Editor from "./components/Editor";
 import ReceiptEditor from "./components/ReceiptEditor";
 import InvoicePreviewPage from "./components/InvoicePreviewPage";
+import InvoiceManagementPage from "./components/InvoiceManagementPage";
 import CrdtTest from "./components/CrdtTest";
 import AccessDenied from "./components/AccessDenied";
 import LoginPage from "./components/LoginPage";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import OnboardingPage from "./components/OnboardingPage";
+import ProjectsPage from "./components/ProjectsPage";
+import TeamPage from "./components/TeamPage";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, businessId, loading } = useAuth();
@@ -44,25 +47,44 @@ const BoardingRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   return <>{children}</>;
 };
 
+import MainLayout from "./components/MainLayout";
+
+const AppContent: React.FC = () => {
+  const { projectId: activeProjectId } = useAuth();
+  
+  return (
+    <Routes>
+      <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+      <Route path="/denied" element={<AccessDenied />} />
+      <Route path="/onboarding" element={<BoardingRoute><OnboardingPage /></BoardingRoute>} />
+      
+      <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route 
+          path="dashboard" 
+          element={<Dashboard key={activeProjectId || 'initial'} />} 
+        />
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="team" element={<TeamPage />} />
+        <Route path="crdt-test" element={<CrdtTest />} />
+      </Route>
+
+      <Route path="/invoice/:id" element={<ProtectedRoute><InvoiceManagementPage /></ProtectedRoute>} />
+      <Route path="/invoice-preview/:id" element={<ProtectedRoute><InvoicePreviewPage /></ProtectedRoute>} />
+      <Route path="/editor/:id" element={<ProtectedRoute><Editor /></ProtectedRoute>} />
+      <Route path="/receipt-editor/:id" element={<ProtectedRoute><ReceiptEditor /></ProtectedRoute>} />
+
+      {/* 404 Fallback */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+};
+
 const App: React.FC = () => {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-          <Route path="/denied" element={<AccessDenied />} />
-          <Route path="/onboarding" element={<BoardingRoute><OnboardingPage /></BoardingRoute>} />
-          
-          <Route path="/" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/crdt-test" element={<ProtectedRoute><CrdtTest /></ProtectedRoute>} />
-          <Route path="/invoice-preview/:id" element={<ProtectedRoute><InvoicePreviewPage /></ProtectedRoute>} />
-          <Route path="/editor/:id" element={<ProtectedRoute><Editor /></ProtectedRoute>} />
-          <Route path="/receipt-editor/:id" element={<ProtectedRoute><ReceiptEditor /></ProtectedRoute>} />
-
-          {/* 404 Fallback */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+        <AppContent />
       </AuthProvider>
     </ThemeProvider>
   );

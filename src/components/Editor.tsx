@@ -25,7 +25,9 @@ import {
   Table,
   Type,
   Sun,
-  Moon
+  Moon,
+  Check,
+  Eye
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -56,7 +58,8 @@ import { api } from "../lib/api";
 import { cn } from "../lib/utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore, authStore, connectWorkspace, connectEditor, authProvider } from "../store";
+import { workspaceStore, authStore, editorStore, connectProject, connectEditor, authProvider } from "../store";
+import { getYjsDoc } from "@syncedstore/core";
 import { EditTemplateModal } from "./EditTemplateModal";
 import {
   resolveFormula,
@@ -68,7 +71,10 @@ import {
   resolveSectionTotal
 } from "../lib/documentUtils";
 
+import { AnnotationSystem } from "./AnnotationSystem";
 import { A4PageProps } from "./A4PageProps";
+import { Annotation, DocumentMember, MemberRole, canWrite } from "../types";
+import { Radio, SignalIcon } from "lucide-react";
 
 const SortableSummaryItem = ({
   item,
@@ -151,7 +157,11 @@ const SortableSummaryItem = ({
   );
 };
 
-const Editor: React.FC = () => {
+export const Editor = () => {
+  console.log("[Editor] HMR Reloaded at", new Date().toLocaleTimeString());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const coordContainerRef = useRef<HTMLDivElement>(null);
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -160,8 +170,10 @@ const Editor: React.FC = () => {
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
-  const { user: currentUser } = useAuth();
-  const { businessId } = useAuth();
+  // Real-time collaborative document content — shared across every client
+  // connected to the `doc-{id}` Hocuspocus room.
+  const editorAction = useSyncedStore(editorStore);
+  const { user: currentUser, businessId, businessName: ctxBusinessName, projectId } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
@@ -169,79 +181,16 @@ const Editor: React.FC = () => {
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
   const [myClientId, setMyClientId] = useState<string>("unknown");
-  const [businessName, setBusinessName] = useState("Your Business");
-
-  useEffect(() => {
-    const fetchBusinessName = async () => {
-        if (!businessId) return;
-        const { doc, getDoc } = await import("firebase/firestore");
-        const { db } = await import("../lib/firebase");
-        const bDoc = await getDoc(doc(db, "businesses", businessId));
-        if (bDoc.exists()) {
-            setBusinessName(bDoc.data().name);
-        }
-    };
-    fetchBusinessName();
-  }, [businessId]);
-
-  useEffect(() => {
-    if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
-      navigate("/denied");
-    }
-  }, [authAction.bannedClients, currentUser, navigate]);
-
-  useEffect(() => {
-    if (!currentUser || !businessId || !id) return;
-
-    let cleanup: (() => void) | undefined;
-
-    const startSync = async () => {
-      const token = await currentUser.getIdToken();
-      // 1. Connect to workspace (for metadata/folders)
-      const workspaceProviders = connectWorkspace(businessId, token);
-      // 2. Connect to specific document
-      const editorProvider = connectEditor(id, token);
-      
-      const updatePresence = () => {
-        const states = workspaceProviders.authProvider.awareness?.getStates();
-        if (!states) return;
-        const clients: any[] = [];
-        states.forEach((state: any, clientId: number) => {
-          if (state.user && state.user.email) {
-            clients.push({ id: clientId.toString(), user: state.user });
-          }
-        });
-        setConnectedClients(clients);
-      };
-
-      workspaceProviders.authProvider.awareness?.on('change', updatePresence);
-      setMyClientId(workspaceProviders.authProvider.awareness?.clientID.toString() || "unknown");
-      workspaceProviders.authProvider.awareness?.setLocalStateField('user', { 
-        name: currentUser.displayName || "Anonymous",
-        email: currentUser.email || "guest@system.com",
-        photo: currentUser.photoURL,
-        id: currentUser.uid,
-        color: '#' + Math.floor(Math.random()*16777215).toString(16)
-      });
-
-      setIsSyncReady(true);
-      cleanup = () => {
-        workspaceProviders.authProvider.awareness?.off('change', updatePresence);
-      };
-    };
-
-    startSync();
-    return () => cleanup?.();
-  }, [currentUser, businessId, id]);
-
-  const docMetadata = workspaceAction.documents?.find((d: any) => d.id === id);
-  const docData = docMetadata?.content as DocData | undefined;
+  // localMeta: Fallback for invoices not in the global project documents list (e.g. projectID is null)
+  const [localMeta, setLocalMeta] = useState<any>(null);
+  // Business name comes directly from AuthContext (which reads /api/users/profile).
+  // Firestore has been fully removed — the backend is the single source of truth.
+  const businessName = ctxBusinessName || "Your Business";
 
   const [jsonInput, setJsonInput] = useState<string>("");
   const [headerImage, setHeaderImage] = useState<string>(
     () => localStorage.getItem("headerImage") || "/Shan-Invoice.png",
   );
-
   const [headerHeight, setHeaderHeight] = useState<number>(
     () => Number(localStorage.getItem("headerHeight")) || 128,
   );
@@ -250,6 +199,255 @@ const Editor: React.FC = () => {
   const [history, setHistory] = useState<DocData[]>([]);
   const [future, setFuture] = useState<DocData[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const { data: allDocuments = [], isLoading: isLoadingDocs } = useQuery({
+    queryKey: ['documents', projectId],
+    queryFn: () => api.getDocuments(projectId!),
+    enabled: !!currentUser && !!projectId,
+  });
+
+  const { data: allProjects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => api.getProjects(),
+    enabled: !!currentUser,
+  });
+
+  const activeProject = useMemo(() => {
+    return allProjects.find((p: any) => p.id === projectId);
+  }, [allProjects, projectId]);
+
+  const docMetadata = useMemo(() => {
+    return allDocuments.find((d: any) => d.id === id) || localMeta;
+  }, [allDocuments, id, localMeta]);
+
+  const availableEmails = useMemo(() => {
+    if (!activeProject || !docMetadata) return [];
+    const projectMembers = (activeProject.members || []).map(m => (typeof m === 'string' ? m : m.email));
+    const docMembers = (docMetadata.members || []).map((m: any) => (typeof m === 'string' ? m : m.email));
+    return projectMembers.filter(email => !docMembers.includes(email));
+  }, [activeProject, docMetadata]);
+
+  // Resolve the current user's role for this document. Precedence:
+  //   1. Document/project owner → owner
+  //   2. Project-level role (myRole on the active project, set by backend)
+  //   3. Doc-level members[] entry
+  //   4. Fall back to 'viewer' (safe default)
+  const userRole = useMemo<MemberRole>(() => {
+    if (!currentUser?.email) return 'viewer';
+    if (docMetadata?.isOwner) return 'owner';
+
+    const activeProject = workspaceAction.projects?.find((p: any) => p.id === projectId);
+    if (activeProject?.myRole) return activeProject.myRole as MemberRole;
+
+    const member = (docMetadata?.members || []).find((m: any) =>
+      (typeof m === 'string' ? m : m.email) === currentUser.email,
+    );
+    if (member) {
+      return (typeof member === 'object' ? member.role : 'editor') as MemberRole;
+    }
+    return 'viewer';
+  }, [docMetadata, currentUser?.email, workspaceAction.projects, projectId]);
+
+  const isReadOnly = useMemo(() => {
+    if (isPreview) return true;
+    if (docMetadata?.status === 'locked') return true;
+    return !canWrite(userRole);
+  }, [isPreview, userRole, docMetadata?.status]);
+
+  // Editor Annotations state (stored in docMetadata.metadata)
+  const annotations = useMemo(() => {
+    return docMetadata?.metadata?.annotations || [];
+  }, [docMetadata?.metadata?.annotations]);
+
+  const handleSaveAnnotations = async (next: Annotation[]) => {
+    if (isReadOnly) return;
+    if (!docMetadata || !docData) return;
+    const updatedMetadata = {
+      ...(docMetadata.metadata || {}),
+      annotations: next
+    };
+    // Optimistic update
+    docMetadata.metadata = updatedMetadata;
+    // Persist via API
+    await api.updateDocument(docMetadata.id, docData, updatedMetadata);
+    queryClient.invalidateQueries({ queryKey: [ 'documents', projectId ] });
+  };
+
+  useEffect(() => {
+    if (currentUser?.email && authAction.bannedClients?.includes(currentUser.email)) {
+      navigate("/denied");
+    }
+  }, [ authAction.bannedClients, currentUser, navigate ]);
+
+  useEffect(() => {
+    if (docMetadata) {
+      console.log('[Editor] 📄 Document Metadata:', docMetadata);
+    }
+  }, [docMetadata]);
+
+  // `docData` is the real-time collaborative proxy. When another peer changes
+  // a field, `useSyncedStore(editorStore)` re-renders and we see it.
+  const docData = (
+    editorAction.content && Object.keys(editorAction.content).length > 0
+      ? (editorAction.content as unknown as DocData)
+      : undefined
+  );
+
+  useEffect(() => {
+    if (docData) {
+      console.log('[Editor] 📝 Live Document Data (docData):', docData);
+    }
+  }, [docData]);
+
+  // FORCE GLOBAL PIVOT: If the project is switched while editing, kick out to dashboard.
+  // IMPORTANT: skip the check when the doc has no project link (projectId = null),
+  // which is the case for invoices created before a project was available.
+  useEffect(() => {
+    if (docMetadata && docMetadata.projectId && docMetadata.projectId !== projectId) {
+      console.warn("[Pivot] 🚨 Project mismatch detected. Redirecting to dashboard.");
+      navigate("/dashboard");
+    }
+  }, [docMetadata?.projectId, projectId, navigate]);
+
+  useEffect(() => {
+    if (!currentUser || !businessId || !id) return;
+
+    let cleanup: (() => void) | undefined;
+
+    const startSync = async () => {
+      const token = await currentUser.getIdToken();
+      // 1. Connect to project room (for workspace data + team presence)
+      connectProject(projectId!, token, businessId!);
+      // 2. Connect to the per-document room (real-time content + doc presence)
+      const editorProvider = connectEditor(id, token);
+
+      // Per-document presence — only users viewing THIS invoice show up here.
+      const updatePresence = () => {
+        const states = editorProvider.awareness?.getStates();
+        if (!states) return;
+        const clients: any[] = [];
+        states.forEach((state: any, clientId: number) => {
+          if (state.user && state.user.email) {
+            // Find their persistent role
+            const email = state.user.email;
+            const member = (docMetadata?.members || []).find((m: any) =>
+              (typeof m === 'string' ? m : m.email) === email,
+            );
+            const role = member ? (typeof member === 'object' ? member.role : 'editor') : (state.user.id === docMetadata?.userId ? 'owner' : 'editor');
+
+            clients.push({ 
+              id: clientId.toString(), 
+              user: state.user,
+              role: role
+            });
+          }
+        });
+        setConnectedClients(clients);
+      };
+
+      editorProvider.awareness?.on('change', updatePresence);
+      setMyClientId(editorProvider.awareness?.clientID.toString() || "unknown");
+      editorProvider.awareness?.setLocalStateField('user', {
+        name: currentUser.displayName || "Anonymous",
+        email: currentUser.email || "guest@system.com",
+        photo: currentUser.photoURL,
+        id: currentUser.uid,
+        color: '#' + Math.floor(Math.random() * 16777215).toString(16),
+        docId: id,
+      });
+
+      // Seed the shared content from REST the first time someone opens the
+      // doc. If another peer is already in the room, Hocuspocus will have
+      // pushed their state to us before this fires, so we'll skip the seed.
+      const seedIfEmpty = async () => {
+        try {
+          if (Object.keys(editorStore.content || {}).length > 0) return;
+
+          // 1. Try the regular documents list
+          const all = await api.getDocuments(projectId!);
+          const found = all.find((d: any) => d.id === id);
+          if (found?.content && Object.keys(editorStore.content || {}).length === 0) {
+            Object.assign(editorStore.content, found.content);
+            console.log('[Editor] 📥 Seeded content from REST (documents list)');
+          }
+          if (found) setLocalMeta(found);
+
+          // 2. Fallback: fetch the document directly (handles invoices table)
+          try {
+            const single = await api.getDocument(id!);
+            if (single) {
+              setLocalMeta(single);
+              if (single.content && Object.keys(editorStore.content || {}).length === 0) {
+                Object.assign(editorStore.content, single.content);
+                console.log('[Editor] 📥 Seeded content from REST (direct document fetch)');
+              }
+            }
+          } catch (e) {
+            console.warn('[Editor] direct document fetch failed for seed:', e);
+          }
+        } catch (e) {
+          console.error('[Editor] seed from REST failed', e);
+        }
+      };
+
+      editorProvider.on('synced', seedIfEmpty);
+      // Safety net in case the `synced` event has already fired before we
+      // registered the handler (fast reconnects).
+      setTimeout(seedIfEmpty, 600);
+
+      setIsSyncReady(true);
+      cleanup = () => {
+        editorProvider.awareness?.off('change', updatePresence);
+        editorProvider.off('synced', seedIfEmpty);
+      };
+    };
+
+    startSync();
+    return () => cleanup?.();
+  }, [currentUser, businessId, id, projectId]);
+
+  // --- Collaborative auto-save ---------------------------------------------
+  // Listen to Yjs updates on the editor doc and debounce a REST save so the
+  // backend always has the latest snapshot (durable across refresh / cold
+  // starts). Only a short debounce — Hocuspocus is the real-time transport,
+  // REST is just the persistence layer.
+  useEffect(() => {
+    if (!id || !isSyncReady) return;
+    const yDoc = getYjsDoc(editorStore);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleSave = () => {
+      if (isReadOnly) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          if (!editorStore.content || Object.keys(editorStore.content).length === 0) return;
+          
+          // Calculate authoritative totals to "burn into" the snapshot
+          const { subTotal, grandTotal } = computeTotalPrice(editorStore.content as unknown as DocData);
+          
+          const snapshot = JSON.parse(JSON.stringify(editorStore.content));
+          // Attach totals so backend doesn't have to recompute them (uses provided values)
+          snapshot.subTotal = subTotal;
+          snapshot.grandTotal = grandTotal;
+
+          api.updateDocument(id, snapshot).catch(err =>
+            console.warn('[Editor] auto-save failed:', err)
+          );
+        } catch (e) {
+          console.error('[Editor] failed to snapshot content for auto-save', e);
+        }
+      }, 2000);
+    };
+
+    yDoc.on('update', scheduleSave);
+    return () => {
+      yDoc.off('update', scheduleSave);
+      if (timer) clearTimeout(timer);
+    };
+  }, [id, isSyncReady]);
+
+
   const useSections = docData?.useSections ?? false;
   const showBOQSummary = docData?.showBOQSummary ?? false;
 
@@ -260,17 +458,30 @@ const Editor: React.FC = () => {
     }),
   );
 
-  const isLoadingDoc = !docMetadata;
+  // isLoadingDoc: wait until docMetadata is resolved OR we've confirmed it's
+  // in the invoices table (it may not appear in allDocuments if projectId is null
+  // and the query is disabled). We allow it to proceed once isSyncReady.
+  const isLoadingDoc = !docMetadata && !isSyncReady;
 
   const updateDocData = (
     newData: DocData | ((prev: DocData | null) => DocData | null),
   ) => {
-    if (!docMetadata || !docMetadata.content) return;
+    // The source of truth for document content is the collaborative proxy
+    // `editorStore.content`. Mutating it here broadcasts via Yjs to every
+    // connected peer in the same `doc-{id}` room.
+    if (!editorStore.content) return;
     const next = typeof newData === "function" ? newData(docData as any) : newData;
-    if (next) {
-       // Direct Mutation on the proxy is the native and fastest way for SyncedStore
-       Object.assign(docMetadata.content, next);
+    if (!next) return;
+    // Wipe removed keys, then assign the fresh ones. We can't just
+    // `editorStore.content = next` because SyncedStore doesn't allow root
+    // reassignment — only in-place property mutation.
+    const currentKeys = Object.keys(editorStore.content);
+    const nextKeys = new Set(Object.keys(next));
+    for (const k of currentKeys) {
+      if (!nextKeys.has(k)) delete (editorStore.content as any)[k];
     }
+    if (isReadOnly) return;
+    Object.assign(editorStore.content, next);
   };
 
   const undo = () => {
@@ -602,8 +813,15 @@ const Editor: React.FC = () => {
     [docData, headerHeight, useSections],
   );
 
-  const isMockMode = window.location.hostname === 'localhost' || !import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === "YOUR_API_KEY";
-  const isMember = isMockMode || (docMetadata && (docMetadata.members || []).includes(currentUser?.email || ""));
+  // Project members have full access; per-document membership is a fallback
+  const email = currentUser?.email || "";
+  const isProjectMember = workspaceAction.projects?.some(
+    (p: any) => p.id === (docMetadata?.projectId || projectId) && 
+      (p.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === email)
+  );
+  const isMember = isProjectMember || (docMetadata && 
+    (docMetadata.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === email)
+  );
 
   if (isLoadingDoc || !docData)
     return (
@@ -680,33 +898,99 @@ const Editor: React.FC = () => {
   const pagesToDisplay = pages;
 
   return (
-    <div className="app-root flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
+    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
+      <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300">
+        <button
+          onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
+          className="p-2 hover:bg-muted rounded-xl transition-colors text-muted-foreground"
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <div className="w-px h-6 bg-border/40 mx-2" />
+        <div className="flex flex-col">
+          <h2 className="text-xs font-bold text-foreground">Editor</h2>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black opacity-60">
+            {docMetadata?.name || "Untitled"}
+          </p>
+        </div>
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          {/* Status Indicator */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40">
+            <SignalIcon size={10} className="text-success animate-pulse" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Auto Saved</span>
+          </div>
+
+
+          <button
+            onClick={() => setIsCollaboratorsOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 hover:text-foreground transition-all text-[10px] font-black uppercase tracking-widest shadow-sm relative group"
+          >
+            <Users size={12} />
+            {connectedClients.length > 1 && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border-2 border-card" />
+            )}
+            Collabs
+          </button>
+
+          <div className="h-6 w-px bg-border/40 mx-1" />
+
+          <button
+            onClick={() => setIsPreview(!isPreview)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-sm",
+              isPreview 
+                ? "bg-foreground text-background" 
+                : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
+            )}
+          >
+             {isPreview ? <ArrowLeft size={12} /> : <FileText size={12} />}
+             {isPreview ? "Exit Preview" : "Preview"}
+          </button>
+
+          <button
+            onClick={() => {
+              navigate(`/invoice/${id}`);
+            }}
+            className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 active:scale-95"
+          >
+            <Check size={14} /> Finish Editing
+          </button>
+        </div>
+      </header>
+
+      {isReadOnly && !isPreview && (
+        <div className="bg-warning/10 border-b border-warning/30 px-6 py-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-warning">
+          <Eye size={12} /> View-only — your role ({userRole}) cannot edit this document
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden app-main">
         {!isPreview && (
           <div className="w-[380px] border-r border-border bg-card overflow-y-auto scrollbar-thin z-10 flex flex-col no-print">
-            {/* Header / Brand */}
+            {/* Header / Brand (Mini) */}
             <div className="p-6 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-muted rounded-lg text-muted-foreground shadow-sm">
-                        <FileText size={18} strokeWidth={2.5} />
+                        <Edit size={18} strokeWidth={2.5} />
                     </div>
                     <div>
-                        <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Editor</h2>
-                        <p className="text-[9px] text-muted-foreground/40 font-bold tracking-widest uppercase">Doc-Printer Pro</p>
+                        <h2 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Draft Editor</h2>
+                        <p className="text-[8px] text-muted-foreground/30 font-bold tracking-[0.2em] uppercase">Document Config</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <button 
                         onClick={undo}
                         disabled={history.length === 0}
-                        className="p-2 bg-muted/40 text-muted-foreground rounded-lg hover:text-foreground disabled:opacity-30 transition-all"
+                        className="p-2 bg-muted/40 text-muted-foreground rounded-lg hover:text-foreground disabled:opacity-30 transition-all font-black text-[10px]"
                     >
                         <Undo2 size={14} />
                     </button>
                     <button 
                         onClick={redo}
                         disabled={future.length === 0}
-                        className="p-2 bg-muted/40 text-muted-foreground rounded-lg hover:text-foreground disabled:opacity-30 transition-all"
+                        className="p-2 bg-muted/40 text-muted-foreground rounded-lg hover:text-foreground disabled:opacity-30 transition-all font-black text-[10px]"
                     >
                         <Redo2 size={14} />
                     </button>
@@ -714,6 +998,7 @@ const Editor: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-10">
+              {/* Existing sidebar content... */}
               <section className="space-y-4">
                 <div className="flex items-center justify-between px-1">
                   <label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-50">
@@ -1038,117 +1323,100 @@ const Editor: React.FC = () => {
                   : "Show Advanced Settings"}
               </button>
 
-              <button
-                onClick={() => navigate(`/invoice-preview/${id}`, { state: { fromFolder } })}
-                className="flex items-center gap-2 transition-colors text-muted-foreground/60 hover:text-foreground group"
-              >
-                <ArrowLeft
-                  size={14}
-                  className="group-hover:-translate-x-0.5 transition-transform"
-                />
-                <span className="text-[10px] font-black uppercase tracking-widest font-lexend">
-                  Back to Dashboard
-                </span>
-              </button>
             </div>
           </div>
         )}
 
-        <div
-          className={`preview-container ${isPreview ? "w-full" : "flex-1"} overflow-y-auto bg-muted/50 p-6 lg:p-16 flex flex-col items-center scrollbar-thin print:bg-white print:p-0 print:overflow-visible transition-colors duration-300`}
+        <div 
+          ref={containerRef}
+          className="flex-1 relative overflow-y-auto p-8 bg-slate-50/50 custom-scrollbar flex flex-col items-center"
         >
-          {isPreview && (
-            <div className="fixed z-50 flex gap-2 top-6 right-6 no-print">
-              <button
-                onClick={toggleTheme}
-                className="px-4 py-2 bg-card border border-border text-foreground rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase hover:bg-accent"
+          {/* Relative wrapper for content-anchored annotations */}
+          <div ref={contentRef} className="relative w-full flex flex-col items-center min-h-full">
+
+            {/* Coordinate-stable container for document and annotations */}
+            <div ref={coordContainerRef} className="relative w-fit flex flex-col items-center">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
               >
-                {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-                {theme === "light" ? "Dark Mode" : "Light Mode"}
-              </button>
-              <button
-                onClick={() => setIsPreview(false)}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase hover:opacity-90"
-              >
-                <ArrowLeft size={16} /> Edit Mode
-              </button>
-              <button
-                onClick={() => window.print()}
-                className="px-4 py-2 bg-card border border-border text-foreground rounded-full transition-all shadow-2xl active:scale-95 flex items-center gap-2 text-[10px] font-black tracking-widest uppercase hover:bg-accent"
-              >
-                <Printer size={16} /> Print
-              </button>
+                <SortableContext 
+                  items={(docData?.table.rows || []).map(r => r.id as string)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {pages.map((page, pageIndex) => (
+                    <A4Page
+                      key={pageIndex}
+                      data={docData}
+                      rows={page.rows}
+                      pageIndex={pageIndex}
+                      totalPrice={{ subTotal, summaries: summaryForRender, grandTotal }}
+                      headerImage={headerImage}
+                      headerHeight={headerHeight}
+                      onHeaderResize={handleHeaderResize}
+                      isFirstPage={pageIndex === 0}
+                      isLastPage={pageIndex === pages.length - 1}
+                      startIndex={page.startIndex}
+                      isEndOfRows={page.isEndOfRows}
+                      showRows={page.showRows}
+                      showTotals={page.showTotals}
+                      showFooter={page.showFooter}
+                      rowNumbering={rowNumbering}
+                      onUpdateContact={onUpdateContact}
+                      onUpdateTitle={onUpdateTitle}
+                      onUpdateCell={onUpdateCell}
+                      onRemoveRow={onRemoveRow}
+                      onAddRowBelow={onAddRowBelow}
+                      onAddRowAbove={onAddRowAbove}
+                      onAddSectionBelow={onAddSectionBelow}
+                      onAddSectionAbove={onAddSectionAbove}
+                      onAddSubSectionBelow={onAddSubSectionBelow}
+                      onAddSubSectionAbove={onAddSubSectionAbove}
+                      onMoveRow={onMoveRow}
+                      onUpdatePaymentMethod={onUpdatePaymentMethod}
+                      onUpdateSignature={onUpdateSignature}
+                      useSections={useSections}
+                      resolveFormula={resolveFormula}
+                      resolveSectionTotalBackward={resolveSectionTotalBackwardWrapper}
+                      resolveSectionTotal={resolveSectionTotalWrapper}
+                      onUpdateInvoiceCode={(updates) => {
+                        if (docData) {
+                          if (!docData.invoiceCode) {
+                            docData.invoiceCode = {
+                              text: "",
+                              x: 0,
+                              y: 0,
+                              color: "",
+                              ...updates
+                            } as any;
+                            Object.assign(docData.invoiceCode!, updates);
+                          } else {
+                            Object.assign(docData.invoiceCode!, updates);
+                          }
+                        }
+                      }}
+                      onUpdateSummaryItem={onUpdateSummaryItem}
+                      onUpdateDate={onUpdateDate}
+                      onUpdateReceiptMessage={onUpdateReceiptMessage}
+                      onUpdateTransactionId={onUpdateTransactionId}
+                      onUpdateReference={onUpdateReference}
+                      isPreview={isPreview}
+                      isReadOnly={isReadOnly}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+              <AnnotationSystem 
+                annotations={annotations}
+                onSave={handleSaveAnnotations}
+                containerRef={coordContainerRef as any}
+                isReadOnly={isReadOnly}
+                mediaType="document"
+                userRole={userRole}
+              />
             </div>
-          )}
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext 
-              items={(docData?.table.rows || []).map(r => r.id as string)}
-              strategy={verticalListSortingStrategy}
-            >
-              {pages.map((page, pageIndex) => (
-                <A4Page
-                  key={pageIndex}
-                  data={docData}
-                  rows={page.rows}
-                  pageIndex={pageIndex}
-                  totalPrice={{ subTotal, summaries: summaryForRender, grandTotal }}
-                  headerImage={headerImage}
-                  headerHeight={headerHeight}
-                  onHeaderResize={handleHeaderResize}
-                  isFirstPage={pageIndex === 0}
-                  isLastPage={pageIndex === pages.length - 1}
-                  startIndex={page.startIndex}
-                  isEndOfRows={page.isEndOfRows}
-                  showRows={page.showRows}
-                  showTotals={page.showTotals}
-                  showFooter={page.showFooter}
-                  rowNumbering={rowNumbering}
-                  onUpdateContact={onUpdateContact}
-                  onUpdateTitle={onUpdateTitle}
-                  onUpdateCell={onUpdateCell}
-                  onRemoveRow={onRemoveRow}
-                  onAddRowBelow={onAddRowBelow}
-                  onAddRowAbove={onAddRowAbove}
-                  onAddSectionBelow={onAddSectionBelow}
-                  onAddSectionAbove={onAddSectionAbove}
-                  onAddSubSectionBelow={onAddSubSectionBelow}
-                  onAddSubSectionAbove={onAddSubSectionAbove}
-                  onMoveRow={onMoveRow}
-                  onUpdatePaymentMethod={onUpdatePaymentMethod}
-                  onUpdateSignature={onUpdateSignature}
-                  useSections={useSections}
-                  resolveFormula={resolveFormula}
-                  resolveSectionTotalBackward={resolveSectionTotalBackwardWrapper}
-                  resolveSectionTotal={resolveSectionTotalWrapper}
-                  onUpdateInvoiceCode={(updates) => {
-                    if (docData) {
-                      if (!docData.invoiceCode) {
-                        docData.invoiceCode = {
-                          text: "",
-                          x: 0,
-                          y: 0,
-                          color: "",
-                          ...updates
-                        } as any;
-                      } else {
-                        Object.assign(docData.invoiceCode, updates);
-                      }
-                    }
-                  }}
-                  onUpdateSummaryItem={onUpdateSummaryItem}
-                  onUpdateDate={onUpdateDate}
-                  onUpdateReceiptMessage={onUpdateReceiptMessage}
-                  onUpdateTransactionId={onUpdateTransactionId}
-                  onUpdateReference={onUpdateReference}
-                  isPreview={isPreview}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
+          </div>
         </div>
       </div>
 
@@ -1218,7 +1486,7 @@ const Editor: React.FC = () => {
         isOpen={isCollaboratorsOpen}
         onClose={() => setIsCollaboratorsOpen(false)}
         collaborators={connectedClients}
-        ownerId={authAction.governance.ownerId || null}
+        ownerId={docMetadata?.userId || authAction.governance.ownerId || null}
         businessId={businessId}
         businessName={businessName}
         initialTab={activeCollaboratorTab}
@@ -1228,9 +1496,20 @@ const Editor: React.FC = () => {
             authAction.bannedClients.push(email);
           }
         }}
-        onMakeOwner={(email) => {
-          authAction.governance.ownerId = email;
+        onUpdateRole={async (email, role) => {
+          try {
+            await api.updateMemberRole('document', id!, email, role);
+            queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+          } catch (e: any) {
+            alert(e.message || "Failed to update role");
+          }
         }}
+        onAddMember={async (email) => {
+          if (!projectId) return;
+          await api.addProjectMember(projectId, email, 'viewer');
+          queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+        }}
+        availableEmails={availableEmails}
       />
     </div>
   );
@@ -1274,6 +1553,7 @@ interface SortableRowProps {
   ) => void;
   useSections: boolean;
   rowNumbering: Record<string, string>;
+  isReadOnly: boolean;
   resolveFormula: (
     data: TableRow | Record<string, number>,
     formula: string | undefined,
@@ -1401,6 +1681,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
   onAddSubSectionAbove,
   useSections,
   rowNumbering,
+  isReadOnly,
   resolveFormula,
   resolveSectionTotalBackward,
   resolveSectionTotal,
@@ -1482,7 +1763,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
               onUpdateCell(id, "sectionTitle", val as string)
             }
             className="text-[14px] font-bold text-slate-900"
-            readOnly={isPreview}
+            readOnly={isReadOnly}
           />
         </td>
       </tr>
@@ -1544,7 +1825,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
               onUpdateCell(id, "sectionTitle", val as string)
             }
             className="text-[13px] font-bold text-slate-800 pl-4"
-            readOnly={isPreview}
+            readOnly={isReadOnly}
           />
         </td>
       </tr>
@@ -1705,7 +1986,7 @@ const SortableRow: React.FC<SortableRowProps> = ({
                   numeric={isNumeric}
                   onChange={(val) => onUpdateCell(row.id as string, col.id, val)}
                   onSave={(val) => onUpdateCell(row.id as string, col.id, val)}
-                  readOnly={isPreview}
+                  readOnly={isReadOnly}
                 />
               )}
             </td>
@@ -1755,6 +2036,7 @@ const A4Page: React.FC<A4PageProps> = ({
   onUpdateReference,
   onUpdateSignature,
   onUpdateReceiptMessage,
+  isReadOnly,
 }) => {
   const HEADER_DARK_BROWN = "#503D36";
   const PRIMARY_BROWN = "#8D6E63";
@@ -1868,7 +2150,7 @@ const A4Page: React.FC<A4PageProps> = ({
                 value={data.date}
                 onSave={(val) => onUpdateDate(val as string)}
                 isDate={true}
-                readOnly={isPreview}
+                readOnly={isReadOnly}
               />
             </div>
             {data.invoiceCode && (
@@ -1876,7 +2158,7 @@ const A4Page: React.FC<A4PageProps> = ({
                 <Editable 
                   value={data.invoiceCode.text} 
                   onSave={(val) => onUpdateInvoiceCode({ text: val as string })} 
-                  readOnly={isPreview}
+                  readOnly={isReadOnly}
                 />
               </div>
             )}
@@ -1895,7 +2177,7 @@ const A4Page: React.FC<A4PageProps> = ({
                   className="font-normal text-[#212121] text-[15px] uppercase"
                   value={data.contact.name}
                   onSave={(val) => onUpdateContact("name", val as string)}
-                  readOnly={isPreview}
+                  readOnly={isReadOnly}
                 />
               </div>
               <div className="w-full relative h-[1.5em] overflow-hidden">
@@ -1903,7 +2185,7 @@ const A4Page: React.FC<A4PageProps> = ({
                   className="font-normal text-[14px] opacity-90"
                   value={data.contact.address1}
                   onSave={(val) => onUpdateContact("address1", val as string)}
-                  readOnly={isPreview}
+                  readOnly={isReadOnly}
                 />
               </div>
               <div className="w-full relative h-[1.5em] overflow-hidden">
@@ -1911,7 +2193,7 @@ const A4Page: React.FC<A4PageProps> = ({
                   className="font-normal text-[14px] opacity-90"
                   value={data.contact.address2}
                   onSave={(val) => onUpdateContact("address2", val as string)}
-                  readOnly={isPreview}
+                  readOnly={isReadOnly}
                 />
               </div>
             </div>
@@ -1927,7 +2209,7 @@ const A4Page: React.FC<A4PageProps> = ({
                     onSave={(val) => onUpdateReference(val as string)}
                     multiline={true}
                     className="w-full text-left font-normal text-[#212121] text-[12px]"
-                    readOnly={isPreview}
+                    readOnly={isReadOnly}
                   />
                 </div>
               ) : (
@@ -1950,7 +2232,7 @@ const A4Page: React.FC<A4PageProps> = ({
                 multiline={true}
                 value={data.title}
                 onSave={(val) => onUpdateTitle(val as string)}
-                readOnly={isPreview}
+                readOnly={isReadOnly}
               />
             </div>
           </div>
@@ -2003,11 +2285,12 @@ const A4Page: React.FC<A4PageProps> = ({
                     resolveFormula={resolveFormula}
                     resolveSectionTotalBackward={resolveSectionTotalBackward}
                     resolveSectionTotal={resolveSectionTotal}
+                    isReadOnly={!!isReadOnly}
                   />
                 ))}
             </tbody>
           </table>
-          {isEndOfRows && (
+          {!isReadOnly && isEndOfRows && (
             <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
               <button
                 onClick={() => {
@@ -2021,7 +2304,7 @@ const A4Page: React.FC<A4PageProps> = ({
                     }
                   }
                 }}
-                className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group"
+                className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 group disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus
                   size={14}
@@ -2048,7 +2331,7 @@ const A4Page: React.FC<A4PageProps> = ({
               label={item.label}
               value={item.calculatedValue || 0}
               onSaveLabel={(val) => onUpdateSummaryItem(item.id, val)}
-              readOnly={isPreview}
+              readOnly={isReadOnly}
             />
           ))}
           <div
@@ -2077,7 +2360,7 @@ const A4Page: React.FC<A4PageProps> = ({
                       onSave={(val) => onUpdateReceiptMessage(val as string)}
                       multiline={true}
                       className="w-full text-left"
-                      readOnly={isPreview}
+                      readOnly={isReadOnly}
                     />
                   </div>
                  <div className="flex flex-row gap-4">
@@ -2088,7 +2371,7 @@ const A4Page: React.FC<A4PageProps> = ({
                       <Editable
                         value={data.paymentMethod || "Transfer"}
                         onSave={(val) => onUpdatePaymentMethod(val as string)}
-                        readOnly={isPreview}
+                        readOnly={isReadOnly}
                       />
                     </div>
                   </div>
@@ -2098,7 +2381,7 @@ const A4Page: React.FC<A4PageProps> = ({
                       <Editable
                         value={data.transactionId || "TRX-000000000"}
                         onSave={(val) => onUpdateTransactionId(val as string)}
-                        readOnly={isPreview}
+                        readOnly={isReadOnly}
                       />
                     </div>
                     </div>
