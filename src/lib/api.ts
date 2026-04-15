@@ -167,12 +167,21 @@ export const api = {
 
   renameFolder: async (id: string, name: string): Promise<WorkspaceFolder> => {
     const folders = workspaceStore.folders;
-    const index = folders.findIndex(f => f.id === id);
-    if (index === -1) throw new Error("Folder not found");
-    folders[index].name = name;
-    folders[index].updatedAt = new Date().toISOString();
-    if (currentProjectId) workspacePersist.upsertFolder(currentProjectId, folders[index] as WorkspaceFolder);
-    return folders[index] as WorkspaceFolder;
+    let folder = folders.find(f => f.id === id);
+    if (!folder && currentProjectId) {
+      const all = await api.getFolders(currentProjectId);
+      const found = all.find(f => f.id === id);
+      if (found) {
+        folders.push(found);
+        folder = folders[folders.length - 1];
+      }
+    }
+
+    if (!folder) throw new Error("Folder not found");
+    folder.name = name;
+    folder.updatedAt = new Date().toISOString();
+    if (currentProjectId) workspacePersist.upsertFolder(currentProjectId, folder as WorkspaceFolder);
+    return folder as WorkspaceFolder;
   },
 
   deleteFolder: async (projectId: string, id: string): Promise<void> => {
@@ -186,17 +195,34 @@ export const api = {
 
   moveFolder: async (id: string, newParentId: string | null): Promise<WorkspaceFolder> => {
     const folders = workspaceStore.folders;
-    const index = folders.findIndex(f => f.id === id);
-    if (index === -1) throw new Error("Folder not found");
-    folders[index].parentId = newParentId;
-    folders[index].updatedAt = new Date().toISOString();
-    if (currentProjectId) workspacePersist.upsertFolder(currentProjectId, folders[index] as WorkspaceFolder);
-    return folders[index] as WorkspaceFolder;
+    let folder = folders.find(f => f.id === id);
+    if (!folder && currentProjectId) {
+      const all = await api.getFolders(currentProjectId);
+      const found = all.find(f => f.id === id);
+      if (found) {
+        folders.push(found);
+        folder = folders[folders.length - 1];
+      }
+    }
+
+    if (!folder) throw new Error("Folder not found");
+    folder.parentId = newParentId;
+    folder.updatedAt = new Date().toISOString();
+    if (currentProjectId) workspacePersist.upsertFolder(currentProjectId, folder as WorkspaceFolder);
+    return folder as WorkspaceFolder;
   },
 
   duplicateFolderToFolder: async (id: string, targetParentId: string | null, userEmail: string): Promise<WorkspaceFolder> => {
     const folders = workspaceStore.folders;
-    const original = folders.find(f => f.id === id);
+    let original = folders.find(f => f.id === id);
+    if (!original && currentProjectId) {
+      const all = await api.getFolders(currentProjectId);
+      original = all.find(f => f.id === id);
+      if (original) {
+        folders.push(original);
+        original = folders[folders.length - 1];
+      }
+    }
     if (!original) throw new Error("Folder not found");
 
     const newFolderId = crypto.randomUUID();
@@ -334,12 +360,21 @@ export const api = {
 
   renameDocument: async (id: string, name: string): Promise<WorkspaceDocument> => {
     const docs = workspaceStore.documents;
-    const index = docs.findIndex(d => d.id === id);
-    if (index === -1) throw new Error("Document not found");
-    docs[index].name = name;
-    docs[index].updatedAt = new Date().toISOString();
-    if (currentProjectId) workspacePersist.upsertDocument(currentProjectId, docs[index] as unknown as WorkspaceDocument);
-    return docs[index] as unknown as WorkspaceDocument;
+    let doc = docs.find(d => d.id === id);
+    if (!doc && currentProjectId) {
+      const all = await api.getDocuments(currentProjectId);
+      const found = all.find(d => d.id === id);
+      if (found) {
+        docs.push(found);
+        doc = docs[docs.length - 1];
+      }
+    }
+
+    if (!doc) throw new Error("Document not found");
+    doc.name = name;
+    doc.updatedAt = new Date().toISOString();
+    if (currentProjectId) workspacePersist.upsertDocument(currentProjectId, doc as unknown as WorkspaceDocument);
+    return doc as unknown as WorkspaceDocument;
   },
 
   deleteDocument: async (projectId: string, id: string): Promise<void> => {
@@ -353,16 +388,34 @@ export const api = {
 
   moveDocument: async (id: string, newFolderId: string | null): Promise<WorkspaceDocument> => {
     const docs = workspaceStore.documents;
-    const index = docs.findIndex(d => d.id === id);
-    if (index === -1) throw new Error("Document not found");
-    docs[index].folderId = newFolderId;
-    docs[index].updatedAt = new Date().toISOString();
-    if (currentProjectId) workspacePersist.upsertDocument(currentProjectId, docs[index] as unknown as WorkspaceDocument);
-    return docs[index] as unknown as WorkspaceDocument;
+    let doc = docs.find(d => d.id === id);
+    if (!doc && currentProjectId) {
+      const all = await api.getDocuments(currentProjectId);
+      const found = all.find(d => d.id === id);
+      if (found) {
+        docs.push(found);
+        doc = docs[docs.length - 1];
+      }
+    }
+
+    if (!doc) throw new Error("Document not found");
+    doc.folderId = newFolderId;
+    doc.updatedAt = new Date().toISOString();
+    if (currentProjectId) workspacePersist.upsertDocument(currentProjectId, doc as unknown as WorkspaceDocument);
+    return doc as unknown as WorkspaceDocument;
   },
 
   duplicateDocumentToFolder: async (id: string, targetFolderId: string | null, userEmail: string): Promise<WorkspaceDocument> => {
-    const original = workspaceStore.documents.find(d => d.id === id);
+    const docs = workspaceStore.documents;
+    let original = docs.find(d => d.id === id);
+    if (!original && currentProjectId) {
+      const all = await api.getDocuments(currentProjectId);
+      original = all.find(d => d.id === id);
+      if (original) {
+        docs.push(original);
+        original = docs[docs.length - 1];
+      }
+    }
     if (!original) throw new Error("Document not found");
     return api.createDocument(`${original.name} (Copy)`, original.content, original.projectId || "playground", userEmail, targetFolderId);
   },
