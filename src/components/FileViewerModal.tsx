@@ -102,6 +102,12 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleSeek = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+    }
+  };
+
   const renderContent = () => {
     switch (file.type) {
       case "pdf":
@@ -153,6 +159,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
                   mediaType={file.type}
                   userRole={role}
                   onModeChange={setAnnotationMode}
+                  onSeek={handleSeek}
                 />
              </div>
           </motion.div>
@@ -172,14 +179,20 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
                     {isPlaying ? <Pause size={14}/> : <Play size={14}/>}
                   </button>
                   
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max={duration} 
-                    value={currentTime} 
-                    onChange={(e) => videoRef.current && (videoRef.current.currentTime = Number(e.target.value))} 
-                    className="flex-1 h-1 bg-muted/40 rounded-full accent-primary cursor-pointer hover:h-1.5 transition-all appearance-none overflow-hidden"
-                  />
+                  <div className="flex-1 flex flex-col gap-0.5">
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max={duration} 
+                      value={currentTime} 
+                      onChange={(e) => videoRef.current && (videoRef.current.currentTime = Number(e.target.value))} 
+                      className="w-full h-1 bg-muted/40 rounded-full accent-primary cursor-pointer hover:h-1.5 transition-all appearance-none overflow-hidden"
+                    />
+                    <div className="flex justify-between items-center px-0.5">
+                       <span className="text-[7px] font-black text-primary/80 tracking-tighter tabular-nums">{formatTime(currentTime)}</span>
+                       <span className="text-[7px] font-black text-muted-foreground/40 tracking-tighter tabular-nums">{formatTime(duration)}</span>
+                    </div>
+                  </div>
                   
                   <button 
                     onClick={toggleMute} 

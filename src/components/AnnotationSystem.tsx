@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
   X, Pin, Highlighter, UserIcon, Edit2, Maximize2, Minimize2, 
-  GripHorizontal, Hand, ChevronRight, MessageSquare
+  GripHorizontal, Hand, ChevronRight, MessageSquare, Check
 } from '../lib/icons/lucide';
 import { type Annotation, type MemberRole } from '../types';
 import { cn } from '../lib/utils';
@@ -53,6 +53,7 @@ interface AnnotationSystemProps {
   isReadOnly?: boolean;
   userRole?: MemberRole;
   onModeChange?: (mode: 'inspect' | 'pin' | 'highlight' | 'draw') => void;
+  onSeek?: (time: number) => void;
 }
 
 export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
@@ -63,7 +64,8 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
   mediaType = 'document',
   isReadOnly = false,
   userRole,
-  onModeChange
+  onModeChange,
+  onSeek
 }) => {
   console.log("[AnnotationSystem] Rendered", { annotationsCount: annotations.length });
   const { user } = useAuth();
@@ -140,6 +142,12 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
     setActiveAnnotationId(newId);
   };
 
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
   const confirmRelocation = () => {
     if (!relocatingAnnotation) return;
     const next = annotations.map(a =>
@@ -167,6 +175,12 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
   const selectAnnotation = (id: string) => {
     setActiveAnnotationId(id);
     setIsMinimized(false);
+    
+    const anno = annotations.find(a => a.id === id);
+    if (anno?.timestamp !== undefined && onSeek) {
+      onSeek(anno.timestamp);
+    }
+
     const card = document.getElementById(`comment-card-${id}`);
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -174,6 +188,11 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
   const startEditing = (id: string, text: string) => {
     setEditingId(id);
     setEditingText(text || "");
+  };
+
+  const handleSave = (id: string) => {
+    updateAnnotationText(id, editingText);
+    setEditingId(null);
   };
 
   return (
@@ -485,7 +504,7 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                   <div 
                     key={anno.id} 
                     id={`comment-card-${anno.id}`}
-                    onClick={() => setActiveAnnotationId(anno.id)}
+                    onClick={() => selectAnnotation(anno.id)}
                     className={cn(
                       "group flex flex-col gap-3 p-4 border rounded-2xl transition-all cursor-pointer relative",
                       activeAnnotationId === anno.id ? "bg-card border-primary/50 shadow-lg ring-1 ring-primary/20" : "bg-muted/10 border-transparent hover:border-border"
@@ -502,6 +521,11 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                             <div className="flex items-center gap-2">
                               <span className="text-[8px] font-bold tracking-widest text-muted-foreground uppercase">{anno.type}</span>
                               <span className="text-[8px] font-mono text-muted-foreground/40">{new Date(anno.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              {anno.timestamp !== undefined && (
+                                <span className="text-[8px] font-black text-primary px-1.5 py-0.5 bg-primary/10 rounded">
+                                  {formatTime(anno.timestamp)}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -514,16 +538,33 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                       {/* Main Text */}
                       <div className="pl-11">
                         {editingId === anno.id ? (
-                          <textarea 
-                            autoFocus 
-                            className="w-full bg-background border border-border rounded-lg p-2 text-xs focus:ring-1 focus:ring-primary outline-none min-h-[60px] resize-none" 
-                            value={editingText} 
-                            onChange={e => setEditingText(e.target.value)} 
-                            onBlur={() => {
-                              updateAnnotationText(anno.id, editingText);
-                              setEditingId(null);
-                            }}
-                          />
+                          <div className="relative">
+                            <textarea 
+                              autoFocus 
+                              className="w-full bg-background border border-border rounded-xl p-3 pr-10 text-[11px] font-medium focus:ring-1 focus:ring-primary/40 outline-none min-h-[80px] resize-none shadow-inner" 
+                              value={editingText} 
+                              onChange={e => setEditingText(e.target.value)} 
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleSave(anno.id);
+                                }
+                              }}
+                              onBlur={() => {
+                                // Small delay to allow Check button or Color picks (which use onMouseDown preventDefault) to work
+                                setTimeout(() => {
+                                  if (editingId === anno.id) handleSave(anno.id);
+                                }, 200);
+                              }}
+                            />
+                            <button
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => handleSave(anno.id)}
+                              className="absolute top-2 right-2 p-1.5 bg-primary text-primary-foreground rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all outline-none"
+                            >
+                              <Check size={14} />
+                            </button>
+                          </div>
                         ) : (
                           <p className="text-[11px] font-medium text-foreground/80 leading-relaxed whitespace-pre-wrap" onDoubleClick={() => !isReadOnly && startEditing(anno.id, anno.text)}>
                             {anno.text || <span className="text-muted-foreground/40 italic">Double-click to edit note...</span>}
@@ -531,11 +572,12 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                         )}
                         
                         {/* Dynamic Color Picker for existing annotation */}
-                        {activeAnnotationId === anno.id && !isReadOnly && (
+                        {editingId === anno.id && !isReadOnly && (
                           <div className="mt-3 flex items-center gap-2 p-1.5 bg-muted/40 rounded-lg w-fit border border-border/50">
                              {PRESET_COLORS.map(c => (
                                <button
                                  key={c}
+                                 onMouseDown={(e) => e.preventDefault()}
                                  onClick={(e) => {
                                    e.stopPropagation();
                                    const next = annotations.map(a => a.id === anno.id ? {...a, color: c} : a);
