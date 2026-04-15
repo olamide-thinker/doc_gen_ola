@@ -8,7 +8,8 @@ import {
   UseGuards, 
   Inject,
   Req,
-  NotFoundException
+  NotFoundException,
+  Delete
 } from '@nestjs/common';
 import { DRIZZLE_PROVIDER } from '../database/database.provider';
 import * as schema from '../db/schema';
@@ -65,22 +66,31 @@ export class InvoicesController {
     });
     if (!invoice) throw new NotFoundException('Parent invoice not found');
 
+    // 1. Calculate current financial state of the invoice
+    const totals = await this.invoicesService.computeInvoiceTotals(invoiceId);
+    const parentDraft: any = (invoice.draft as any) || {};
+    
     const id = `rec_${Date.now()}`;
+    
+    // Robust prefill logic: Check multiple fields in case schema varies across migrations
+    const project = parentDraft.title || invoice.name || 'Untitled Project';
+    const locationStr = [parentDraft.contact?.address1, parentDraft.contact?.address2].filter(Boolean).join(', ') || parentDraft.location || '';
+
     const name = body.name || `Receipt ${new Date().toISOString().slice(0, 10)}`;
 
-    // Seed a blank but fully-shaped DocData template so ReceiptEditor's
-    // `seedIfEmpty` path doesn't render a forever-spinner. We copy the contact
-    // block from the parent invoice draft when available.
-    const parentDraft: any = (invoice.draft as any) || {};
+    // Seed a fully-shaped DocData template. We now map invoice data to receipt fields:
+    // - Invoice Title -> Receipt Project (address1)
+    // - Invoice Address -> Receipt Location (address2)
+    // - Outstanding Balance -> Receipt Total Invoice Amount
     const defaultTemplate = {
-      contact: parentDraft.contact || {
-        name: 'Client Name',
-        address1: '',
-        address2: '',
-        phone: '',
-        email: '',
+      contact: {
+        name: parentDraft.contact?.name || 'Client Name',
+        address1: project,
+        address2: locationStr,
+        phone: parentDraft.contact?.phone || '',
+        email: parentDraft.contact?.email || '',
       },
-      title: parentDraft.title || name,
+      title: `Payment for ${project}`,
       date: new Date().toLocaleDateString('en-GB', {
         day: 'numeric',
         month: 'long',
@@ -111,6 +121,8 @@ export class InvoicesController {
       isReceipt: true,
       useSections: false,
       showBOQSummary: false,
+      totalInvoiceAmount: totals.outstanding,
+      amountPaid: 0,
       invoiceCode: {
         text: `REC/IP/${String(Date.now()).slice(-4)}/${new Date().getFullYear()}`,
         prefix: 'REC',
@@ -258,6 +270,29 @@ export class InvoicesController {
         })
         .where(eq(schema.invoices.id, receipt.invoiceId));
     }
+
+    return { success: true };
+  }
+
+  @Delete('receipts/:rid')
+  @UseGuards(FirebaseGuard)
+  async deleteReceipt(@Param('rid') rid: string, @Req() req: any) {
+    const receipt = await this.db.query.receipts.findFirst({
+      where: eq(schema.receipts.id, rid),
+    });
+
+    if (!receipt) throw new NotFoundException('Receipt not found');
+    
+    // Only allow deleting drafts
+    if (receipt.status !== 'draft') {
+      throw new Error('Only draft receipts can be deleted');
+    }
+
+    // 1. Delete from receipts table
+    await this.db.delete(schema.receipts).where(eq(schema.receipts.id, rid));
+    
+    // 2. Delete from documents table (sibling row)
+    await this.db.delete(schema.documents).where(eq(schema.documents.id, rid));
 
     return { success: true };
   }

@@ -295,6 +295,7 @@ const Dashboard: React.FC = () => {
     return allDocuments.filter(d =>
       d.projectId === activeProjectId &&
       (d.folderId === currentFolderId) &&
+      !((d as any).metadata?.isReceipt && (d as any).metadata?.invoiceId) &&
       (isProjectMember || normalizeMembers(d.members).some(m => m.email === userEmail))
     );
   }, [allDocuments, activeProjectId, currentFolderId, isProjectMember, userEmail]);

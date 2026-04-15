@@ -40,7 +40,7 @@ export class FirebaseGuard implements CanActivate {
         email_verified: decoded.email_verified || false,
       };
       return true;
-    } catch (e) {
+    } catch (e: any) {
       throw new ForbiddenException('Invalid token');
     }
   }

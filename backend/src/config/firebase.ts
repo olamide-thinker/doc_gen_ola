@@ -17,6 +17,36 @@ for (const p of possibleEnvPaths) {
   }
 }
 
+const formatPrivateKey = (key: string) => {
+  if (!key) return key;
+  
+  // 1. Basic cleanup of surrounding quotes and escaped newlines
+  let cleaned = key.trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\\n/g, '\n');
+
+  // 2. Aggressive PEM re-formatting
+  // PEM/ASN.1 parsers are extremely sensitive to line lengths and illegal characters.
+  // We extract the raw base64 body, strip all existing whitespace, and re-wrap correctly.
+  const header = '-----BEGIN PRIVATE KEY-----';
+  const footer = '-----END PRIVATE KEY-----';
+
+  if (cleaned.includes(header) && cleaned.includes(footer)) {
+    const startIndex = cleaned.indexOf(header) + header.length;
+    const endIndex = cleaned.indexOf(footer);
+    
+    // Get the base64 portion and remove ALL whitespace (newlines, spaces, etc.)
+    const base64Body = cleaned.substring(startIndex, endIndex).replace(/\s+/g, '');
+    
+    // Re-wrap to standard 64 characters per line
+    const wrappedBody = base64Body.match(/.{1,64}/g)?.join('\n') || base64Body;
+    
+    return `${header}\n${wrappedBody}\n${footer}\n`;
+  }
+
+  return cleaned;
+};
+
 let isFirebaseInitialized = false;
 
 export const initializeFirebase = async () => {
@@ -25,33 +55,20 @@ export const initializeFirebase = async () => {
   console.log('[Firebase] 🛡️ Starting Secure Initialization...');
 
   try {
-    // 1. Try JSON File first (Smart Pathing)
     let serviceAccount: any = null;
     
-    // 0. Try process.env.FIRE_SECRET first
-    if (process.env.FIRE_SECRET) {
-      try {
-        console.log('[Firebase] 🤫 Found FIRE_SECRET in environment variables.');
-        serviceAccount = JSON.parse(process.env.FIRE_SECRET);
-      } catch (err) {
-        console.error('[Firebase] ❌ Failed to parse FIRE_SECRET:', err.message);
-      }
-    }
+    // 1. Try JSON File (Smart Pathing) - This is the most reliable method
+    const possibleJsonPaths = [
+      path.join(currentDir, 'serviceAccountKey.json'),
+      path.join(currentDir, 'backend', 'serviceAccountKey.json'),
+      path.join(currentDir, '..', 'serviceAccountKey.json')
+    ];
 
-    // 1. Try JSON File next if FIRE_SECRET wasn't found or failed
-    if (!serviceAccount) {
-      const possibleJsonPaths = [
-        path.join(currentDir, 'serviceAccountKey.json'),
-        path.join(currentDir, 'backend', 'serviceAccountKey.json'),
-        path.join(currentDir, '..', 'serviceAccountKey.json')
-      ];
-
-      for (const p of possibleJsonPaths) {
-        if (fs.existsSync(p)) {
-          console.log('[Firebase] ✨ Found JSON key file at:', p);
-          serviceAccount = JSON.parse(fs.readFileSync(p, 'utf8'));
-          break;
-        }
+    for (const p of possibleJsonPaths) {
+      if (fs.existsSync(p)) {
+        console.log('[Firebase] ✨ Found JSON key file at:', p);
+        serviceAccount = JSON.parse(fs.readFileSync(p, 'utf8'));
+        break;
       }
     }
 
@@ -69,17 +86,13 @@ export const initializeFirebase = async () => {
       return;
     }
 
-    // 2. Fallback to Env Vars
+    // 2. Fallback to Individual Env Vars
     const projectId = process.env.FIREBASE_PROJECT_ID || "invoice-crdt-sys";
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     let privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
     if (clientEmail && privateKey) {
-      // CLEANUP: Ensure the private key is formatted correctly for ASN.1 parsing
-      // 1. Remove literal quotes if they were accidentally included in the .env value
-      privateKey = privateKey.trim().replace(/^["']|["']$/g, '');
-      // 2. Unescape \n characters
-      privateKey = privateKey.replace(/\\n/g, '\n');
+      privateKey = formatPrivateKey(privateKey);
 
       if (admin.apps.length === 0) {
         admin.initializeApp({
@@ -94,7 +107,7 @@ export const initializeFirebase = async () => {
       isFirebaseInitialized = true;
       console.log('[Firebase] ✅ Admin SDK successfully initialized via Env Vars!');
     } else {
-      console.error('[Firebase] ❌ CRITICAL: No credentials found.');
+      console.error('[Firebase] ❌ CRITICAL: No serviceAccountKey.json found and environment variables are incomplete.');
     }
   } catch (error: any) {
     console.error('[Firebase] ❌ Initialization Error:', error.message);

@@ -394,7 +394,7 @@ export class WorkspacesController {
         where: and(
           eq(schema.documents.projectId, projectId),
           // Hide receipts from the main dashboard/folder views
-          sql`NOT ((metadata->>'isReceipt')::boolean IS TRUE)`
+          sql`NOT ((metadata->>'isReceipt')::boolean IS TRUE) AND (metadata->>'invoiceId') IS NULL`
         ),
       });
 

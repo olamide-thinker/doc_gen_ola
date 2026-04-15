@@ -28,28 +28,32 @@ export class InvoicesService {
 
        if (!totalCol) return 0;
 
-       // 1. Calculate Subtotal
-       let subTotal = 0;
-       for (const row of rows) {
-         if (row.rowType && row.rowType !== 'row') continue;
-         
-         let rowVal = 0;
-         if (totalCol.type === 'formula' && totalCol.formula) {
+        // 1. Calculate Subtotal
+        let subTotal = 0;
+        for (const row of rows) {
+          if (row.rowType && row.rowType !== 'row') continue;
+          
+          let rowVal = 0;
+          if (totalCol.type === 'formula' && totalCol.formula) {
             let expr = totalCol.formula;
-            const matches = expr.match(/[A-Z]+/g) || [];
+            // Match both uppercase (C, D) and camelCase/lowercase (qty, price) IDs
+            const matches = expr.match(/[a-zA-Z]+/g) || [];
             matches.forEach(cid => {
-              expr = expr.replace(new RegExp(`\\b${cid}\\b`, 'g'), String(Number(row[cid]) || 0));
+              // Sanitize value: remove commas and parse as number
+              const rawVal = String(row[cid] || '0').replace(/,/g, '');
+              expr = expr.replace(new RegExp(`\\b${cid}\\b`, 'g'), String(Number(rawVal) || 0));
             });
             try {
               if (/^[0-9.()+\-*/\s]+$/.test(expr)) {
                 rowVal = eval(expr);
               }
             } catch(e) {}
-         } else {
-            rowVal = Number(row[totalCol.id]) || 0;
-         }
-         subTotal += rowVal;
-       }
+          } else {
+            const rawVal = String(row[totalCol.id] || '0').replace(/,/g, '');
+            rowVal = Number(rawVal) || 0;
+          }
+          subTotal += rowVal;
+        }
 
        // 2. Apply Summary Items
        let currentRunningTotal = subTotal;
@@ -147,8 +151,14 @@ export class InvoicesService {
 
     // 3. Aggregate
     let grandTotal = this.calculateInvoiceTotals(invoice.draft);
-    if (grandTotal === 0 && (invoice.draft as any)?.grandTotal) {
-      grandTotal = (invoice.draft as any).grandTotal;
+    
+    // FALLBACK: If calculated total is 0, check for pre-calculated values in common frontend locations
+    if (grandTotal === 0 && invoice.draft) {
+      const d: any = invoice.draft;
+      grandTotal = d.grandTotal || 
+                  d.totalPrice?.grandTotal || 
+                  d.totalInvoiceAmount || 
+                  d.table?.totalPrice?.grandTotal || 0;
     }
 
     let totalPaid = 0;

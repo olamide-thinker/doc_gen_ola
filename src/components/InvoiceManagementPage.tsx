@@ -52,6 +52,16 @@ const InvoiceManagementPage: React.FC = () => {
     }
   });
 
+  const deleteReceiptMutation = useMutation({
+    mutationFn: (rid: string) => api.deleteReceipt(rid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoice-management', id] });
+    },
+    onError: (err: any) => {
+      alert(`Failed to delete receipt: ${err.message || err}`);
+    }
+  });
+
   if (isLoading || !invoiceResult) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
@@ -193,20 +203,34 @@ const InvoiceManagementPage: React.FC = () => {
                   .map((r: any) => (
                     <div 
                       key={r.id} 
-                      onClick={() => navigate(`/receipt-editor/${r.id}`)}
-                      className="bg-primary/5 border border-primary/20 p-5 rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer group flex items-start gap-4"
+                      className="bg-primary/5 border border-primary/20 p-5 rounded-xl shadow-sm hover:shadow-md transition-all group flex items-start gap-4"
                     >
-                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                      <div 
+                        onClick={() => navigate(`/receipt-editor/${r.id}`)}
+                        className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors cursor-pointer"
+                      >
                         <Plus size={20} />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
+                      <div className="flex-1 min-w-0" onClick={() => navigate(`/receipt-editor/${r.id}`)}>
+                        <div className="flex items-center justify-between mb-1 cursor-pointer">
                           <span className="text-xs font-black">Draft Receipt</span>
                           <span className="text-[8px] font-black bg-primary/20 text-primary px-1.5 py-0.5 rounded uppercase tracking-tighter">In Progress</span>
                         </div>
-                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Last updated {formatDate(r.updatedAt)}</p>
-                        <div className="mt-2 text-[10px] font-black text-primary uppercase tracking-widest group-hover:underline underline-offset-4">Continue Editing →</div>
+                        <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest cursor-pointer">Last updated {formatDate(r.updatedAt)}</p>
+                        <div className="mt-2 text-[10px] font-black text-primary uppercase tracking-widest group-hover:underline underline-offset-4 cursor-pointer">Continue Editing →</div>
                       </div>
+                      <button 
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           if (confirm("Are you sure you want to delete this draft receipt?")) {
+                             deleteReceiptMutation.mutate(r.id);
+                           }
+                         }}
+                         className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all"
+                         title="Delete Draft"
+                      >
+                         <Trash2 size={16} />
+                      </button>
                     </div>
                   ))}
               </div>

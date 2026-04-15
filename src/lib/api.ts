@@ -642,6 +642,16 @@ export const api = {
     if (!json.success) throw new Error(json.message || 'Failed to fetch invoice management data');
     return json.data;
   },
+  deleteReceipt: async (id: string): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/invoices/receipts/${id}`, {
+      method: 'DELETE',
+      headers
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to delete receipt');
+    return json;
+  },
   voidReceipt: async (id: string): Promise<any> => {
     const headers = await authHeaders();
     const res = await fetch(`${API_BASE}/invoices/receipts/${id}/void`, {
