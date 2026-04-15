@@ -66,6 +66,7 @@ import {
   useSensor,
   useSensors,
   DragOverlay,
+  useDroppable,
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
@@ -89,8 +90,12 @@ const Dashboard: React.FC = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<TemplateDefinition | null>(null);
   const [createModal, setCreateModal] = useState<{ open: boolean; template?: TemplateDefinition }>({ open: false });
-  const [clipboard, setClipboard] = useState<{ id: string, name: string, type: 'document' | 'folder' } | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [clipboard, setClipboard] = useState<{ 
+    items: { id: string, name: string, type: 'document' | 'folder' }[], 
+    mode: 'copy' | 'move' 
+  } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const [isCollaboratorsOpen, setIsCollaboratorsOpen] = useState(false);
   const [activeCollaboratorTab, setActiveCollaboratorTab] = useState<'live' | 'team'>('live');
   const [memberModal, setMemberModal] = useState<{ open: boolean; type: 'project' | 'folder' | 'document'; id: string; name: string; members: (string | DocumentMember)[]; isOwner?: boolean } | null>(null);
@@ -447,6 +452,12 @@ const Dashboard: React.FC = () => {
     setIsRenaming(true);
   };
 
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const clearSelection = () => setSelectedIds([]);
+
   const confirmRename = () => {
     if (!renamingItem || !newName.trim() || newName === renamingItem.name) {
       setIsRenaming(false);
@@ -455,6 +466,28 @@ const Dashboard: React.FC = () => {
     if (renamingItem._type === 'folder') api.renameFolder(renamingItem._realId, newName);
     else api.renameDocument(renamingItem._realId, newName);
     setIsRenaming(false);
+    queryClient.invalidateQueries({ queryKey: [renamingItem._type === 'folder' ? 'folders' : 'documents', activeProjectId] });
+  };
+
+  const handlePaste = async () => {
+    if (!clipboard || !currentUser?.email || !activeProjectId) return;
+    try {
+      const tasks = clipboard.items.map(async (item) => {
+        if (clipboard.mode === 'move') {
+          if (item.type === 'folder') return api.moveFolder(item.id, currentFolderId);
+          return api.moveDocument(item.id, currentFolderId);
+        } else {
+          if (item.type === 'folder') return api.duplicateFolderToFolder(item.id, currentFolderId, currentUser.email!);
+          return api.duplicateDocumentToFolder(item.id, currentFolderId, currentUser.email!);
+        }
+      });
+      await Promise.all(tasks);
+      setClipboard(null);
+      queryClient.invalidateQueries({ queryKey: ['folders', activeProjectId] });
+      queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+    } catch (e: any) {
+      alert(e.message || "Bulk operation failed");
+    }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -463,12 +496,30 @@ const Dashboard: React.FC = () => {
       setActiveId(null);
       return;
     }
+
     const activeItem = items.find(i => i.id === active.id);
+    const overId = over.id as string;
+
+    // Check if dropped on a breadcrumb
+    if (overId.startsWith('breadcrumb-') && activeItem) {
+      const targetFolderId = overId === 'breadcrumb-root' ? null : overId.replace('breadcrumb-', '');
+      if (activeItem._type === 'folder') {
+        api.moveFolder(activeItem._realId, targetFolderId);
+        queryClient.invalidateQueries({ queryKey: ['folders', activeProjectId] });
+      } else {
+        api.moveDocument(activeItem._realId, targetFolderId);
+        queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+      }
+      setActiveId(null);
+      return;
+    }
+
     const overItem = items.find(i => i.id === over.id);
     if (!activeItem || !overItem) { setActiveId(null); return; }
 
     if (overItem._type === 'folder' && activeItem._type === 'document') {
        api.moveDocument(activeItem._realId, overItem._realId);
+       queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
     } else {
        api.reorderItems(currentFolderId, active.id as string, over.id as string);
     }
@@ -504,30 +555,55 @@ const Dashboard: React.FC = () => {
         <div className="bg-background/20 backdrop-blur-md border-b border-border/50 sticky top-0 z-10">
           <div className="max-w-[1600px] mx-auto px-8 h-16 flex items-center justify-between">
             <div className="flex flex-col gap-1">
-               {/* <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
-                 <Folder size={16} className="text-primary/70 shrink-0" />
-                 {currentFolder ? currentFolder.name : "Library"}
-               </h2> */}
                <div className="flex items-center gap-1 text-[14px] font-bold tracking-widest uppercase text-muted-foreground/60">
-                 <button onClick={() => navigate('/dashboard')} className="hover:text-primary bg-primary/10 px-2 py-1 rounded-lg flex items-center gap-1 transition-colors">
-                  <Folder size={13} className="text-primary/70 shrink-0" />
-                  Home</button>
-                 {folderPath.map((folder, idx) => (
-                   <React.Fragment key={folder.id}>
-                     <span className="opacity-30">/</span>
-                     <button 
-                       onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
-                       className={cn("hover:text-primary transition-colors bg-primary/10 px-2 py-1 rounded-lg flex items-center gap-1", idx === folderPath.length - 1 && "text-primary/80 pointer-events-none bg-primary/10 px-2 py-1 rounded-lg flex items-center gap-1")}
-                     >
-                       <Folder size={13} className="text-primary/70 shrink-0" />
-                       {folder.name}
-                     </button>
-                   </React.Fragment>
-                 ))}
-               </div>
+                  <DroppableBreadcrumb 
+                    id="breadcrumb-root"
+                    onClick={() => navigate('/dashboard')} 
+                    className="hover:text-primary bg-primary/10 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all border border-transparent shadow-sm"
+                  >
+                    <Folder size={13} className="text-primary/70 shrink-0" />
+                    Home
+                  </DroppableBreadcrumb>
+                  {folderPath.map((folder, idx) => (
+                    <React.Fragment key={folder.id}>
+                      <span className="opacity-30 mx-0.5">/</span>
+                      <DroppableBreadcrumb 
+                        id={`breadcrumb-${folder.id}`}
+                        onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
+                        className={cn(
+                          "hover:text-primary transition-all bg-primary/10 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 border border-transparent shadow-sm", 
+                          idx === folderPath.length - 1 && "text-primary/80 pointer-events-none"
+                        )}
+                      >
+                        <Folder size={13} className="text-primary/70 shrink-0" />
+                        {folder.name}
+                      </DroppableBreadcrumb>
+                    </React.Fragment>
+                  ))}
+                </div>
             </div>
 
             <div className="flex items-center gap-4">
+              {clipboard && (
+                <div className="flex items-center gap-2 p-1 bg-primary/5 border border-primary/20 rounded-xl px-2">
+                  <span className="text-[9px] font-black tracking-widest text-primary/60 uppercase px-2 animate-pulse">
+                    {clipboard.items.length} item{clipboard.items.length > 1 ? 's' : ''} in {clipboard.mode} mode
+                  </span>
+                  <button 
+                    onClick={handlePaste} 
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:opacity-90 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"
+                  >
+                    <Check size={14} /> {clipboard.mode === 'move' ? 'Move' : 'Copy'} Here
+                  </button>
+                  <button 
+                    onClick={() => setClipboard(null)} 
+                    className="p-2 text-muted-foreground hover:bg-muted rounded-lg transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               {canEditProject ? (
                 <div className="flex items-center gap-2">
                   <button onClick={handleCreateFolder} className="px-4 py-2 border border-border bg-card text-[10px] font-bold tracking-widest text-foreground rounded-xl hover:bg-muted/50 flex items-center gap-2 transition-all"><Plus size={14} /> FOLDER</button>
@@ -545,8 +621,8 @@ const Dashboard: React.FC = () => {
 
       {/* Browser Area */}
       <section 
-        className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin"
-        onClick={() => setSelectedId(null)}
+        className="flex-1 overflow-y-auto p-8 lg:p-12 scrollbar-thin relative"
+        onClick={() => { setSelectedIds([]); setFocusedId(null); }}
       >
         {activeView === "templates" && (
           <div className="mb-12">
@@ -613,10 +689,11 @@ const Dashboard: React.FC = () => {
                       mode={viewMode} 
                       onRename={() => handleRename(item)}
                       onDuplicate={() => handleDuplicate(item)}
-                      onDelete={() => handleDelete(item)}
-                      onCopy={() => setClipboard({ id: item._realId, name: item.name, type: item._type })}
-                      isSelected={selectedId === item.id}
-                      onClick={() => setSelectedId(item.id)}
+                      isSelected={selectedIds.includes(item._realId)}
+                      isFocused={focusedId === item._realId}
+                      onToggleSelect={() => toggleSelection(item._realId)}
+                      isPendingMove={clipboard?.items.some(i => i.id === item._realId) && clipboard.mode === 'move'}
+                      onClick={() => setFocusedId(item._realId)}
                       onDoubleClick={() => {
                         if (item._type === 'folder') {
                           navigate(`/dashboard?folder=${item._realId}`, { state: { fromFolder: currentFolderId } });
@@ -635,6 +712,8 @@ const Dashboard: React.FC = () => {
                         } else {
                           navigate(item.content?.isReceipt ? `/receipt-editor/${item._realId}` : `/invoice/${item._realId}`, { state: { fromFolder: currentFolderId } });
                         }
+                        setSelectedIds([]);
+                        setFocusedId(null);
                       }}
                       onManageMembers={() => {
                         setMemberModal({
@@ -645,6 +724,33 @@ const Dashboard: React.FC = () => {
                           members: item.members || [],
                           isOwner: (item as any).isOwner || canEditProject
                         });
+                      }}
+                      onCopy={(mode: 'copy' | 'move') => {
+                         const isTargetInBatch = selectedIds.includes(item._realId);
+                         const itemsToCopy = isTargetInBatch 
+                           ? items.filter(i => selectedIds.includes(i._realId)).map(i => ({ id: i._realId, name: i.name, type: i._type }))
+                           : [{ id: item._realId, name: item.name, type: item._type }];
+                         setClipboard({ items: itemsToCopy, mode });
+                         if (!isTargetInBatch) setSelectedIds([]);
+                      }}
+                      onDelete={() => {
+                         const isTargetInBatch = selectedIds.includes(item._realId);
+                         if (isTargetInBatch) {
+                            // Trigger bulk delete
+                            const selectedItems = items.filter(i => selectedIds.includes(i._realId));
+                            if (confirm(`Delete ${selectedItems.length} selected items?`)) {
+                              Promise.all(selectedItems.map(i => {
+                                if (i._type === 'folder') return api.deleteFolder(activeProjectId!, i._realId);
+                                return api.deleteDocument(activeProjectId!, i._realId);
+                              })).then(() => {
+                                setSelectedIds([]);
+                                queryClient.invalidateQueries({ queryKey: ['folders', activeProjectId] });
+                                queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+                              });
+                            }
+                         } else {
+                            handleDelete(item);
+                         }
                       }}
                       currentUserEmail={currentUser?.email || ""}
                       canEdit={canEditProject || (item as any).isOwner}
@@ -660,10 +766,82 @@ const Dashboard: React.FC = () => {
               </div>
             </SortableContext>
             <DragOverlay dropAnimation={null}>
-              {activeId ? <ItemCard item={items.find(i => i.id === activeId)} mode={viewMode} /> : null}
+              {activeId ? (
+                <ItemCard 
+                  item={items.find(i => i.id === activeId)} 
+                  mode={viewMode} 
+                  isSelected={false}
+                  isFocused={false}
+                  onToggleSelect={() => {}}
+                  onRename={() => {}}
+                  onDuplicate={() => {}}
+                  onDelete={() => {}}
+                  onCopy={() => {}}
+                  onManageMembers={() => {}}
+                  onClick={() => {}}
+                />
+              ) : null}
             </DragOverlay>
           </DndContext>
         )}
+
+        <AnimatePresence>
+          {selectedIds.length > 0 && (
+            <motion.div 
+              initial={{ y: 100, opacity: 0 }} 
+              animate={{ y: 0, opacity: 1 }} 
+              exit={{ y: 100, opacity: 0 }}
+              className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-6 px-8 py-4 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-xl"
+            >
+              <div className="flex flex-col">
+                <span className="text-white text-xs font-black uppercase tracking-widest">{selectedIds.length} items selected</span>
+                <button onClick={clearSelection} className="text-[10px] text-primary/70 hover:text-primary font-bold uppercase tracking-widest text-left mt-0.5">Deselect All</button>
+              </div>
+              
+              <div className="h-8 w-px bg-white/10 mx-2" />
+
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    const selectedItems = items.filter(i => selectedIds.includes(i._realId)).map(i => ({ id: i._realId, name: i.name, type: i._type }));
+                    setClipboard({ items: selectedItems, mode: 'move' });
+                    setSelectedIds([]);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-all text-[10px] font-bold uppercase tracking-widest border border-white/5"
+                >
+                  <Plus size={12} className="rotate-45" /> Move
+                </button>
+                <button 
+                   onClick={() => {
+                     const selectedItems = items.filter(i => selectedIds.includes(i._realId)).map(i => ({ id: i._realId, name: i.name, type: i._type }));
+                     setClipboard({ items: selectedItems, mode: 'copy' });
+                     setSelectedIds([]);
+                   }}
+                  className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-all text-[10px] font-bold uppercase tracking-widest border border-white/5"
+                >
+                  <Copy size={12} /> Copy
+                </button>
+                <button 
+                  onClick={async () => {
+                     const count = selectedIds.length;
+                     if (!confirm(`Are you sure you want to delete ${count} items?`)) return;
+                     const selectedItems = items.filter(i => selectedIds.includes(i._realId));
+                     await Promise.all(selectedItems.map(item => {
+                       if (item._type === 'folder') return api.deleteFolder(activeProjectId!, item._realId);
+                       return api.deleteDocument(activeProjectId!, item._realId);
+                     }));
+                     setSelectedIds([]);
+                     queryClient.invalidateQueries({ queryKey: ['folders', activeProjectId] });
+                     queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl transition-all text-[10px] font-bold uppercase tracking-widest border border-red-500/10"
+                >
+                  <Trash size={12} /> Delete
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
 
       {/* Modals & Overlays */}
@@ -814,6 +992,19 @@ const Dashboard: React.FC = () => {
 );
 };
 
+const DroppableBreadcrumb = ({ id, children, onClick, className }: { id: string, children: React.ReactNode, onClick: () => void, className?: string }) => {
+  const { isOver, setNodeRef } = useDroppable({ id });
+  return (
+    <button 
+      ref={setNodeRef} 
+      onClick={onClick} 
+      className={cn(className, isOver && "bg-primary/30 text-primary border-primary/50 shadow-md scale-105 ring-2 ring-primary/20 transition-all")}
+    >
+      {children}
+    </button>
+  );
+};
+
 const SortableItem = (props: any) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.item.id });
   return (
@@ -837,7 +1028,23 @@ const templateBadgeClass = (color?: string) => {
   }
 };
 
-const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, onRename, onCopy, onManageMembers, isSelected, currentUserEmail, canEdit }: any) => {
+const ItemCard = ({ 
+  item, 
+  mode, 
+  onClick, 
+  onDoubleClick, 
+  onDelete, 
+  onDuplicate, 
+  onRename, 
+  onCopy, 
+  onManageMembers, 
+  onToggleSelect = () => {}, 
+  isSelected = false, 
+  isFocused = false,
+  isPendingMove = false, 
+  currentUserEmail, 
+  canEdit 
+}: any) => {
   const [showMenu, setShowMenu] = useState(false);
   const isFolder = item._type === 'folder';
   const folderStats = isFolder && item.stats ? `${item.stats.folders} ${item.stats.folders === 1 ? 'Folder' : 'Folders'} • ${item.stats.files} ${item.stats.files === 1 ? 'File' : 'Files'}` : null;
@@ -856,18 +1063,33 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const SelectionCheckboxJSX = (
+    <div 
+      className={cn(
+        "absolute top-3 left-3 z-20 w-5 h-5 rounded-md border-2 transition-all flex items-center justify-center",
+        isSelected ? "bg-primary border-primary scale-110 shadow-lg" : "bg-white/40 border-white/40 hover:border-primary/60 opacity-0 group-hover:opacity-100"
+      )}
+      onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
+    >
+      {isSelected && <Check size={14} className="text-white" />}
+    </div>
+  );
+
   if (mode === "list") {
     return (
-      <div onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick} className={cn("flex items-center justify-between p-3 rounded-lg cursor-pointer group transition-all", isSelected ? "bg-primary/5 ring-1 ring-primary shadow-sm" : "bg-card hover:bg-muted/50 shadow-sm hover:shadow-md")}>
+      <div onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick} className={cn("flex items-center justify-between p-3 rounded-lg cursor-pointer group transition-all relative", isSelected ? "bg-primary/5 ring-1 ring-primary shadow-sm" : isFocused ? "bg-muted/50 ring-1 ring-border/50" : "bg-card hover:bg-muted/30 shadow-sm", isPendingMove && "opacity-50 grayscale")}>
         <div className="flex items-center gap-4">
-          <div className={cn("p-2 rounded-md flex items-center justify-center relative", isFolder ? "bg-amber-500/10 text-amber-600" : isResource ? "bg-slate-100 text-slate-600" : "bg-primary/10 text-primary")}>
-            {isFolder ? <Folder size={18} /> : 
-              isResource ? (
-                resourceType === 'image' ? <ImageIcon size={18} /> :
-                resourceType === 'video' ? <Video size={18} /> :
-                <FileText size={18} />
-              ) : <FileText size={18} />
-            }
+          <div className="relative">
+             {SelectionCheckboxJSX}
+             <div className={cn("p-2 rounded-md flex items-center justify-center relative", isFolder ? "bg-amber-500/10 text-amber-600" : isResource ? "bg-slate-100 text-slate-600" : "bg-primary/10 text-primary")}>
+              {isFolder ? <Folder size={18} /> : 
+                isResource ? (
+                  resourceType === 'image' ? <ImageIcon size={18} /> :
+                  resourceType === 'video' ? <Video size={18} /> :
+                  <FileText size={18} />
+                ) : <FileText size={18} />
+              }
+            </div>
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
@@ -901,15 +1123,16 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
           >
             <MoreHorizontal size={16} />
           </button>
-          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} canEdit={canEdit} />}
+          {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} onToggleSelect={onToggleSelect} isSelected={isSelected} isFolder={isFolder} canEdit={canEdit} />}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3 group relative cursor-pointer" onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick}>
-           <div className={cn("aspect-[3/4] rounded-lg bg-card shadow-sm transition-all relative border border-border/70 overflow-hidden flex flex-col items-center justify-center", isSelected ? "ring-2 ring-primary/40 shadow-xl scale-[1.03]" : "hover:shadow-lg", isFolder ? "bg-muted/60 border border-border/70 hover:bg-muted/70 shadow-none hover:shadow-md" : "")}>
+    <div className={cn("flex flex-col gap-3 group relative cursor-pointer", isPendingMove && "opacity-50 grayscale")} onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick}>
+           {SelectionCheckboxJSX}
+           <div className={cn("aspect-[3/4] rounded-lg bg-card shadow-sm transition-all relative border border-border/70 overflow-hidden flex flex-col items-center justify-center", isSelected ? "ring-2 ring-primary ring-offset-4 shadow-xl scale-[1.03]" : isFocused ? "ring-2 ring-border ring-offset-2 scale-[1.01]" : "hover:shadow-lg", isFolder ? "bg-muted/60 border border-border/70 hover:bg-muted/70 shadow-none hover:shadow-md" : "")}>
         {isFolder ? (
           <div className="flex flex-col items-center gap-2">
              <div className="p-4 bg-amber-500/10 rounded-md transition-transform duration-500 hover:scale-110"><Folder size={40} strokeWidth={1.5} className="text-amber-500/80" /></div>
@@ -983,7 +1206,7 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
            >
              <MoreHorizontal size={16} />
            </button>
-           {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} isFolder={isFolder} canEdit={canEdit} />}
+           {showMenu && <MenuContent onRename={onRename} onDuplicate={onDuplicate} onDelete={onDelete} onCopy={onCopy} onManageMembers={onManageMembers} onToggleSelect={onToggleSelect} isSelected={isSelected} isFolder={isFolder} canEdit={canEdit} />}
          </div>
 
          {/* Owner Avatar (Grid View) */}
@@ -1006,14 +1229,16 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
   );
 };
 
-const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, onManageMembers, isFolder, canEdit }: any) => (
+const MenuContent = ({ onRename, onDuplicate, onDelete, onCopy, onManageMembers, onToggleSelect = () => {}, isSelected = false, isFolder, canEdit }: any) => (
   <div className="absolute right-0 top-full mt-2 w-48 bg-popover border border-border shadow-lg rounded-md p-1 z-50 animate-in fade-in zoom-in duration-150 origin-top-right">
     <button onClick={(e) => { e.stopPropagation(); onManageMembers(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-primary rounded transition-all"><Users size={14} /> Manage Members</button>
     {canEdit && (
       <>
         <button onClick={(e) => { e.stopPropagation(); onRename(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Edit size={14} /> Rename</button>
-        {!isFolder && <button onClick={(e) => { e.stopPropagation(); onCopy(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Copy to Clipboard</button>}
-        <button onClick={(e) => { e.stopPropagation(); onDuplicate(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Duplicate</button>
+        <button onClick={(e) => { e.stopPropagation(); onCopy('move'); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Plus size={14} className="rotate-45" /> Move (Cut)</button>
+        <button onClick={(e) => { e.stopPropagation(); onCopy('copy'); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} /> Copy to Clipboard</button>
+        <button onClick={(e) => { e.stopPropagation(); onDuplicate(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Copy size={14} className="opacity-50" /> Duplicate Here</button>
+        <button onClick={(e) => { e.stopPropagation(); onToggleSelect(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold hover:bg-muted text-slate-600 rounded transition-all"><Check size={14} /> {isSelected ? 'Deselect' : 'Select'}</button>
         <div className="my-1 border-t border-border mx-1" />
         <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-full h-9 flex items-center gap-2 px-3 text-[11px] font-semibold text-destructive hover:bg-destructive/5 rounded transition-all"><Trash size={14} /> Delete</button>
       </>
