@@ -26,8 +26,8 @@ export const formatDate = (dateString: string | undefined): string => {
 
 export const MM_TO_PX = 3.78;
 export const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
-export const PADDING_V_PX = (14 + 20) * MM_TO_PX; // 14mm top, 20mm bottom
-export const USABLE_HEIGHT = PAGE_HEIGHT_PX - PADDING_V_PX;
+export const PADDING_V_PX = (14 + 24) * MM_TO_PX; // 14mm top, 24mm bottom (increased for safety)
+export const USABLE_HEIGHT = PAGE_HEIGHT_PX - PADDING_V_PX - 20; // Extra 20px buffer
 
 export function resolveFormula(
   rowData: TableRow | Record<string, number>,
@@ -247,10 +247,11 @@ export const calculateChunks = (
   headerHeight: number,
   useSections: boolean
 ) => {
-  const THEAD_HEIGHT = 42;
-  const TOTAL_ROW_HEIGHT = 48;
-  const GRAND_TOTAL_HEIGHT = 70;
+  const THEAD_HEIGHT = 44; // Fixed header height
+  const TOTAL_ROW_HEIGHT = 50; // Refined height for summary rows
+  const GRAND_TOTAL_HEIGHT = 80; // Higher estimate for the grand total bar
   const FOOTER_HEADER_HEIGHT = 40;
+  const ADD_ROW_BUTTON_HEIGHT = 85; 
   const EMPHASIS_SECTION_HEIGHT =
     (docData.footer.emphasis?.length || 0) * 32 + 40;
   
@@ -289,8 +290,8 @@ export const calculateChunks = (
     if (!docData.showBOQSummary) return 0;
     const sections = (docData.table.rows || []).filter(r => r.rowType === "section-header" || r.rowType === "sub-section-header");
     if (sections.length === 0) return 0;
-    // Title (40px) + Header (40px) + Rows (40px each) + Totals (approx 150px) + Spacing (20px)
-    return 40 + 40 + (sections.length * 40) + 150 + 20;
+    // Title (60px) + Header (50px) + Rows (50px each) + Totals (approx 200px) + Spacing (40px)
+    return 60 + 50 + (sections.length * 50) + 200 + 40;
   };
 
   const BOQ_SUMMARY_HEIGHT = estimateBOQSummaryHeight(docData);
@@ -340,20 +341,18 @@ export const calculateChunks = (
     let showFooter = false;
 
     if (currentRowsProcessed === allRows.length) {
-      const totalsHeight =
-        (docData.table.summary.length + 1) * TOTAL_ROW_HEIGHT +
-        GRAND_TOTAL_HEIGHT +
-        FOOTER_PADDING_TOP;
+      const totalsHeight = (docData.table.summary.length + 1) * TOTAL_ROW_HEIGHT + GRAND_TOTAL_HEIGHT + FOOTER_PADDING_TOP + 20;
       
-      const RECEIPT_FOOTER_HEIGHT = 180;
+      const RECEIPT_FOOTER_HEIGHT = 200;
       const footerHeight = docData.isReceipt 
         ? RECEIPT_FOOTER_HEIGHT 
         : (docData.footer.notes ? NOTES_ESTIMATE : 0) +
           (docData.footer.emphasis?.length ? EMPHASIS_SECTION_HEIGHT : 0);
 
-      if (h + totalsHeight <= USABLE_HEIGHT) {
+      // Account for 'Add New Row' button that appears if we end the rows here
+      if (h + ADD_ROW_BUTTON_HEIGHT + totalsHeight <= USABLE_HEIGHT) {
         showTotals = true;
-        h += totalsHeight;
+        h += ADD_ROW_BUTTON_HEIGHT + totalsHeight;
 
         if (h + footerHeight <= USABLE_HEIGHT) {
           showFooter = true;
