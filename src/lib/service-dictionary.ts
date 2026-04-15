@@ -179,6 +179,18 @@ export function findPriceColumnId(columns: any[]): string | null {
 }
 
 /**
+ * Heuristic to find the column that represents the "Unit" (e.g. sqm, pcs, lot).
+ */
+export function findUnitColumnId(columns: any[]): string | null {
+  if (!Array.isArray(columns)) return null;
+  const unitRegex = /unit|type|measure/i;
+  for (const c of columns) {
+    if (c?.type === "text" && unitRegex.test(c.label || "")) return c.id;
+  }
+  return null;
+}
+
+/**
  * True when a column should trigger description-suggestion autocomplete.
  * Checks label keywords first (works across all shipped templates:
  * "Description", "Stage Description", "Item / Vendor", "Project Summary",

@@ -222,7 +222,7 @@ const SuggestionPanel: React.FC<{
   if (suggestions.length === 0) return null;
   return (
     <div
-      className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto"
+      className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-64 overflow-y-auto"
       onMouseDown={(e) => {
         // Prevent the input's onBlur from firing before the click handler
         e.preventDefault();

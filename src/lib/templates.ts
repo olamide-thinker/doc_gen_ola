@@ -68,7 +68,8 @@ export const TEMPLATES: TemplateDefinition[] = [
           { id: "C", label: "Unit",        type: "text",   width: "70px"  },
           { id: "D", label: "Qty",         type: "number", width: "70px"  },
           { id: "E", label: "Rate (₦)",    type: "number", width: "130px" },
-          { id: "F", label: "Total (₦)",   type: "formula", formula: "D * E", width: "140px" },
+          { id: "markup", label: "Markup (%)", type: "number", width: "100px" },
+          { id: "F", label: "Total (₦)",   type: "formula", formula: "(D * E) * (1 + markup/100)", width: "140px" },
         ],
         rows: [
           { id: "r1",  rowType: "section-header", sectionTitle: "Tiling Works"                                           },

@@ -27,7 +27,9 @@ import {
   Sun,
   Moon,
   Check,
-  Eye
+  Eye,
+  Sparkles,
+  BookOpen
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -71,6 +73,12 @@ import {
   resolveSectionTotalBackward,
   resolveSectionTotal
 } from "../lib/documentUtils";
+import { 
+  serviceDictionary, 
+  isDescriptionColumn, 
+  findPriceColumnId, 
+  findUnitColumnId 
+} from "../lib/service-dictionary";
 
 import { AnnotationSystem } from "./AnnotationSystem";
 import { A4PageProps } from "./A4PageProps";
@@ -547,12 +555,47 @@ export const Editor = () => {
 
   useEffect(() => {
     if (docData && docData.table.rows.some((r) => !r.id)) {
-      const updatedRows = docData.table.rows.map((r) =>
+      const updatedRows = (docData.table.rows || []).map((r) =>
         r.id ? r : { ...r, id: crypto.randomUUID() },
       );
       updateDocData({
         ...docData,
         table: { ...docData.table, rows: updatedRows },
+      });
+    }
+  }, [docData]);
+
+  // Migration: Automatically add Markup column to BOQ tables if missing
+  useEffect(() => {
+    if (!docData) return;
+    const cols = docData.table.columns || [];
+    const hasMarkup = cols.some(c => c.id === 'markup');
+    
+    // Check if it looks like a standard BOQ (has Qty in D and Rate in E)
+    const hasQty = cols.some(c => c.id === 'D' && c.label.toLowerCase().includes('qty'));
+    const hasRate = cols.some(c => c.id === 'E' && c.label.toLowerCase().includes('rate'));
+    const totalCol = cols.find(c => c.id === 'F' && c.type === 'formula');
+
+    if (!hasMarkup && hasQty && hasRate && totalCol) {
+      // 1. Inject column
+      const fIdx = cols.findIndex(c => c.id === 'F');
+      if (fIdx !== -1) {
+        docData.table.columns.splice(fIdx, 0, { 
+          id: 'markup', 
+          label: 'Markup (%)', 
+          type: 'number', 
+          width: '100px' 
+        });
+      }
+      
+      // 2. Update Total formula
+      totalCol.formula = "(D * E) * (1 + markup/100)";
+
+      // 3. Initialize row values
+      docData.table.rows.forEach(row => {
+        if (row.rowType === 'row' || !row.rowType) {
+          if (row.markup === undefined) row.markup = 0;
+        }
       });
     }
   }, [docData]);
@@ -1644,6 +1687,7 @@ const RowActionsMenu: React.FC<{
   onAddSubSectionBelow: () => void;
   onAddTotalBelow: () => void;
   useSections: boolean;
+  onAddToDictionary?: () => void;
   onOpenChange?: (isOpen: boolean) => void;
 }> = ({
   onRemove,
@@ -1652,10 +1696,26 @@ const RowActionsMenu: React.FC<{
   onAddSubSectionBelow,
   onAddTotalBelow,
   useSections,
+  onAddToDictionary,
   onOpenChange,
 }) => {
   const [isOpen, setIsOpen] = React.useState(false);
+  const [isSaved, setIsSaved] = React.useState(false);
+  const [openUp, setOpenUp] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useLayoutEffect(() => {
+    if (isOpen && menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      const page = menuRef.current.closest(".a4-page");
+      if (page) {
+        const pageRect = page.getBoundingClientRect();
+        const spaceBelow = pageRect.bottom - rect.bottom;
+        // The menu is about 230-250px tall
+        setOpenUp(spaceBelow < 280);
+      }
+    }
+  }, [isOpen]);
 
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1681,7 +1741,12 @@ const RowActionsMenu: React.FC<{
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-1 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-[9999] py-1 font-lexend">
+        <div 
+          className={cn(
+            "absolute left-0 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-[9999] py-1 font-lexend",
+            openUp ? "bottom-full mb-1" : "top-full mt-1"
+          )}
+        >
           <button
             onClick={() => {
               onAddRowBelow();
@@ -1722,6 +1787,25 @@ const RowActionsMenu: React.FC<{
               </button>
             </>
           )}
+          <div className="border-t border-slate-100 my-1" />
+          
+          {onAddToDictionary && (
+            <button
+              onClick={() => {
+                onAddToDictionary();
+                setIsSaved(true);
+                setTimeout(() => {
+                  setIsSaved(false); // Reset feedback
+                  setIsOpen(false); // Close menu
+                }, 1000);
+              }}
+              className="flex items-center text-left w-full px-4 py-2 text-xs text-slate-700 hover:bg-primary/5 transition-colors gap-2"
+            >
+              <BookOpen size={12} className={cn("transition-transform text-primary", isSaved && "scale-125")} />
+              {isSaved ? "Saved to Dictionary!" : "Add to Dictionary"}
+            </button>
+          )}
+
           <div className="border-t border-slate-100 my-1" />
           <button
             onClick={() => {
@@ -1773,6 +1857,31 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
 
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
+  const handleAddToDictionary = () => {
+    if (!row) return;
+    
+    // 1. Find description
+    const allCols = data.table.columns || [];
+    const descCol = allCols.find(c => isDescriptionColumn(c, allCols));
+    const title = descCol ? String(row[descCol.id] || "") : "";
+    
+    if (!title.trim()) return;
+    
+    // 2. Find price
+    const priceColId = findPriceColumnId(allCols);
+    const price = priceColId ? Number(row[priceColId]) || 0 : 0;
+    
+    // 3. Find unit
+    const unitColId = findUnitColumnId(allCols);
+    const unit = unitColId ? String(row[unitColId] || "") : "";
+    
+    serviceDictionary.add({
+      title,
+      price,
+      unit: unit || undefined,
+    });
+  };
+
   const isThisRowBeingDragged = id === activeId;
   const showDropIndicator = isOver && activeId && !isThisRowBeingDragged;
   
@@ -1783,7 +1892,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
     transition,
     opacity: isThisRowBeingDragged ? 0.3 : 1,
     backgroundColor: (startIndex + idx) % 2 === 1 ? "#FBFBFB" : "#fff",
-    zIndex: isThisRowBeingDragged ? 100 : (isMenuOpen ? 50 : 1),
+    zIndex: isThisRowBeingDragged ? 100 : (isMenuOpen ? 150 : 10),
     position: "relative" as const,
   };
   const rowNum = rowNumbering[id] || "";
@@ -1813,7 +1922,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-100 relative",
+          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-100 relative focus-within:!z-[200] focus-within:relative",
           isThisRowBeingDragged && "shadow-xl border-primary/20 z-10",
         )}
       >
@@ -1870,7 +1979,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-50 relative",
+          "text-[14px] font-lexend group transition-colors bg-white border-b border-slate-50 relative focus-within:!z-[200] focus-within:relative",
           isThisRowBeingDragged && "shadow-xl border-primary/20 z-10",
         )}
       >
@@ -1937,7 +2046,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
         ref={setNodeRef}
         style={style}
         className={cn(
-          "text-[14px] font-lexend group transition-colors bg-amber-100/40 border-b border-amber-200/50 relative",
+          "text-[14px] font-lexend group transition-colors bg-amber-100/40 border-b border-amber-200/50 relative focus-within:!z-[200] focus-within:relative",
           isThisRowBeingDragged && "shadow-xl border-primary/20 z-10",
         )}
       >
@@ -1988,7 +2097,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
       ref={setNodeRef}
       style={style}
       className={cn(
-        "text-[14px] text-[#212121] border-b border-slate-50 font-lexend group transition-colors relative",
+        "text-[14px] text-[#212121] border-b border-slate-50 font-lexend group transition-colors relative focus-within:!z-[200] focus-within:relative",
         isThisRowBeingDragged && "shadow-xl border-primary/20 z-10",
       )}
     >
@@ -2012,6 +2121,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
                         onAddSubSectionBelow={() => onAddSubSectionBelow(id)}
                         onAddTotalBelow={() => onAddSubSectionBelow(id, false, "section-total")}
                         useSections={useSections}
+                        onAddToDictionary={handleAddToDictionary}
                         onOpenChange={setIsMenuOpen}
                       />
                     </div>
@@ -2038,11 +2148,13 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
             value = resolveFormula(row, col.formula);
           }
 
+          const isDescription = isDescriptionColumn(col, data.table.columns || []);
+
           return (
             <td
               key={col.id}
               className={cn(
-                "p-3 border-r border-slate-50 last:border-r-0 relative h-10 overflow-hidden",
+                "p-3 border-r border-slate-50 last:border-r-0 relative h-10",
                 (isNumeric || isFormula) && "text-left font-lexend text-medium",
               )}
             >
@@ -2063,6 +2175,19 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
                   onChange={(val) => onUpdateCell(row.id as string, col.id, val)}
                   onSave={(val) => onUpdateCell(row.id as string, col.id, val)}
                   readOnly={isReadOnly}
+                  getSuggestions={isDescription ? (q) => serviceDictionary.search(q) : undefined}
+                  onPickSuggestion={isDescription ? (entry) => {
+                    // 1. Find price column and update it
+                    const priceColId = findPriceColumnId(data.table.columns || []);
+                    if (priceColId) {
+                      onUpdateCell(row.id as string, priceColId, entry.price);
+                    }
+                    // 2. Find unit column and update it
+                    const unitColId = findUnitColumnId(data.table.columns || []);
+                    if (unitColId && entry.unit) {
+                      onUpdateCell(row.id as string, unitColId, entry.unit);
+                    }
+                  } : undefined}
                 />
               )}
             </td>
@@ -2190,7 +2315,7 @@ const A4Page: React.FC<A4PageProps> = ({
 
   return (
     <div
-      className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative overflow-hidden shrink-0"
+      className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative shrink-0 focus-within:z-[50] focus-within:relative"
       style={{
         width: "210mm",
         height: "297mm",
