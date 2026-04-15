@@ -80,7 +80,9 @@ import {
   History as LucideHistory,
   Info as LucideInfo,
   BookOpen as LucideBookOpen,
-  Sparkles as LucideSparkles
+  Sparkles as LucideSparkles,
+  Volume2 as LucideVolume2,
+  VolumeX as LucideVolumeX
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -170,3 +172,5 @@ export const History = wrapIcon(LucideHistory);
 export const Info = wrapIcon(LucideInfo);
 export const BookOpen = wrapIcon(LucideBookOpen);
 export const Sparkles = wrapIcon(LucideSparkles);
+export const Volume2 = wrapIcon(LucideVolume2);
+export const VolumeX = wrapIcon(LucideVolumeX);

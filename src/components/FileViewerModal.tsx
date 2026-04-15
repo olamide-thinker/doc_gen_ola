@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { X, Download, ZoomIn, ZoomOut, RotateCw, Hand, Play, Pause, Minimize2, Maximize2 } from "../lib/icons/lucide";
+import { X, Download, ZoomIn, ZoomOut, RotateCw, Hand, Play, Pause, Minimize2, Maximize2, Volume2, VolumeX } from "../lib/icons/lucide";
 import { type FileAttachment, type Annotation, type MemberRole } from "../types";
 import { cn } from "../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,6 +27,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -87,6 +88,12 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
     if (!videoRef.current) return;
     if (isPlaying) videoRef.current.pause();
     else videoRef.current.play();
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !isMuted;
+    setIsMuted(!isMuted);
   };
 
   const formatTime = (time: number) => {
@@ -151,32 +158,48 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
           </motion.div>
         </div>
 
-        {/* Toolbar Bridge */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 p-1 bg-card/95 backdrop-blur-xl rounded-full shadow-2xl border border-white/10">
-            <button onClick={handleReset} className="px-4 py-2 text-[8px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground">Reset View</button>
-            <div className="flex items-center gap-1 border-l border-border/50 pl-1">
-              <button onClick={handleZoomOut} className="p-2 rounded-full hover:bg-muted"><ZoomOut size={14}/></button>
-              <span className="text-[9px] font-black w-8 text-center text-muted-foreground">{Math.round(zoom * 100)}%</span>
-              <button onClick={handleZoomIn} className="p-2 rounded-full hover:bg-muted"><ZoomIn size={14}/></button>
-            </div>
-            <button onClick={handleRotate} className="p-2 rounded-full hover:bg-muted border-l border-border/50"><RotateCw size={14}/></button>
-        </div>
-
-        {/* Video specific control bar if video */}
-        {file.type === 'video' && (
-           <div className="absolute bottom-24 left-1/2 -translate-x-1/2 w-full max-w-xl px-12 pointer-events-none">
-              <div className="bg-card/90 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-border/50 pointer-events-auto space-y-2">
-                 <div className="flex items-center gap-4">
-                    <button onClick={togglePlay} className="p-2 bg-primary text-primary-foreground rounded-full">{isPlaying ? <Pause size={14}/> : <Play size={14}/>}</button>
-                    <input type="range" min="0" max={duration} value={currentTime} onChange={(e) => videoRef.current && (videoRef.current.currentTime = Number(e.target.value))} className="flex-1 h-1 bg-muted accent-primary cursor-pointer"/>
-                 </div>
-                 <div className="flex justify-between text-[8px] font-black text-muted-foreground uppercase tracking-widest">
-                    <span>{formatTime(currentTime)}</span>
-                    <span>{formatTime(duration)}</span>
-                 </div>
+        {/* Integrated Toolbar Bridge */}
+        <div className={cn(
+          "absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-1 p-1 bg-card/95 backdrop-blur-3xl shadow-2xl border border-white/20 transition-all duration-500",
+          file.type === 'video' ? "w-full max-w-lg px-4 py-3 rounded-2xl" : "flex-row items-center rounded-full"
+        )}>
+            {file.type === 'video' && (
+              <div className="flex items-center gap-3 w-full pb-2 mb-1 border-b border-border/40">
+                  <button 
+                    onClick={togglePlay} 
+                    className="p-2 transition-all text-muted-foreground hover:text-primary active:scale-90"
+                  >
+                    {isPlaying ? <Pause size={14}/> : <Play size={14}/>}
+                  </button>
+                  
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max={duration} 
+                    value={currentTime} 
+                    onChange={(e) => videoRef.current && (videoRef.current.currentTime = Number(e.target.value))} 
+                    className="flex-1 h-1 bg-muted/40 rounded-full accent-primary cursor-pointer hover:h-1.5 transition-all appearance-none overflow-hidden"
+                  />
+                  
+                  <button 
+                    onClick={toggleMute} 
+                    className="p-2 transition-all text-muted-foreground hover:text-primary active:scale-90"
+                  >
+                    {isMuted ? <VolumeX size={14}/> : <Volume2 size={14}/>}
+                  </button>
               </div>
-           </div>
-        )}
+            )}
+
+            <div className="flex items-center gap-0.5 justify-center">
+                <button onClick={handleReset} className="px-3 py-2 text-[8px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">Reset View</button>
+                <div className="flex items-center gap-0.5 border-l border-border/50 pl-0.5">
+                  <button onClick={handleZoomOut} className="p-2 rounded-full hover:bg-muted text-muted-foreground transition-colors"><ZoomOut size={12}/></button>
+                  <span className="text-[8px] font-black w-8 text-center text-muted-foreground/80 select-none">{Math.round(zoom * 100)}%</span>
+                  <button onClick={handleZoomIn} className="p-2 rounded-full hover:bg-muted text-muted-foreground transition-colors"><ZoomIn size={12}/></button>
+                </div>
+                <button onClick={handleRotate} className="p-2 rounded-full hover:bg-muted text-muted-foreground transition-colors border-l border-border/50"><RotateCw size={12}/></button>
+            </div>
+        </div>
       </div>
     </div>
   );

@@ -2129,7 +2129,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
                 )}
                 <td
                   className="relative h-10 p-3 border-r border-slate-100"
-                  style={{ width: col.width }}
+                  style={{ width: col.width || "auto" }}
                 >
                   <div className="flex items-center justify-center">
                     <span className="font-bold">{rowNum}</span>
@@ -2157,6 +2157,7 @@ const SortableRow: React.FC<SortableRowProps & { activeId?: string | null }> = (
                 "p-3 border-r border-slate-50 last:border-r-0 relative h-10",
                 (isNumeric || isFormula) && "text-left font-lexend text-medium",
               )}
+              style={{ width: col.width || "auto" }}
             >
               {isFormula ? (
                 <span className="opacity-80">
@@ -2245,6 +2246,58 @@ const A4Page: React.FC<A4PageProps> = ({
   const HEADER_DARK_BROWN = "#503D36";
   const PRIMARY_BROWN = "#8D6E63";
   const ADDRESS_BG = "#F8F8F8";
+
+  const ColumnHeader: React.FC<{
+    col: any;
+    onResize: (width: string) => void;
+    isReadOnly: boolean;
+  }> = ({ col, onResize, isReadOnly }) => {
+    const [isResizing, setIsResizing] = React.useState(false);
+    const headRef = React.useRef<HTMLTableHeaderCellElement>(null);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+      if (isReadOnly) return;
+      e.preventDefault();
+      setIsResizing(true);
+      const startX = e.clientX;
+      const startWidth = headRef.current?.offsetWidth || 0;
+
+      const handleMouseMove = (em: MouseEvent) => {
+        const deltaX = em.clientX - startX;
+        const newWidth = Math.max(40, startWidth + deltaX);
+        onResize(`${newWidth}px`);
+      };
+
+      const handleMouseUp = () => {
+        setIsResizing(false);
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+      };
+
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    };
+
+    return (
+      <th
+        ref={headRef}
+        className="p-4 font-normal text-left border-r border-white/10 last:border-r-0 relative group"
+        style={{ width: col.width || "auto" }}
+      >
+        <span className="relative z-10">{col.label}</span>
+        {!isReadOnly && (
+          <div
+            onMouseDown={handleMouseDown}
+            className={cn(
+              "absolute top-0 right-[-2px] w-[5px] h-full cursor-col-resize z-20 transition-all",
+              "hover:bg-primary/40",
+              isResizing && "bg-primary w-[3px] shadow-[0_0_8px_rgba(var(--primary),0.6)]"
+            )}
+          />
+        )}
+      </th>
+    );
+  };
 
   const BOQSummary = () => {
     if (!data.showBOQSummary) return null;
@@ -2457,13 +2510,15 @@ const A4Page: React.FC<A4PageProps> = ({
                   {(data.table.columns || [])
                     .filter((c) => !c.hidden)
                     .map((col: any) => (
-                      <th
+                      <ColumnHeader
                         key={col.id}
-                        className="p-4 font-normal text-left border-r border-white/10 last:border-r-0"
-                        style={{ width: col.width || "auto" }}
-                      >
-                        {col.label}
-                      </th>
+                        col={col}
+                        isReadOnly={isReadOnly}
+                        onResize={(width) => {
+                          const target = data.table.columns.find(c => c.id === col.id);
+                          if (target) target.width = width;
+                        }}
+                      />
                     ))}
                 </tr>
             </thead>
