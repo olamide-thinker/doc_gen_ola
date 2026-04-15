@@ -45,7 +45,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
 import { CardDocumentPreview } from "./CardDocumentPreview";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore, authStore, connectProject, workspaceProvider, authProvider } from "../store";
+import { workspaceStore, authStore, uiStore, connectProject, workspaceProvider, authProvider } from "../store";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { EditTemplateModal } from "./EditTemplateModal";
 import CreateInvoiceModal, { type CreateInvoiceFormData } from "./CreateInvoiceModal";
@@ -82,8 +82,9 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [searchQuery, setSearchQuery] = useState("");
+  const uiAction = useSyncedStore(uiStore);
+  const viewMode = uiAction.settings.viewMode || 'grid';
+  const searchQuery = uiAction.settings.searchQuery || '';
   const isSearching = searchQuery.length > 0;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<TemplateDefinition | null>(null);
@@ -296,6 +297,7 @@ const Dashboard: React.FC = () => {
     return allDocuments.filter(d =>
       d.projectId === activeProjectId &&
       (d.folderId === currentFolderId) &&
+      // HIDE RECEIPTS LINKED TO INVOICES: Keep dashboard clean as per user requirement
       !((d as any).metadata?.isReceipt && (d as any).metadata?.invoiceId) &&
       (isProjectMember || normalizeMembers(d.members).some(m => m.email === userEmail))
     );
@@ -498,83 +500,48 @@ const Dashboard: React.FC = () => {
       </AnimatePresence>
 
       <div className="flex flex-col h-full overflow-hidden">
-        {/* Sub-Header / Toolbar */}
-      <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background/30 sticky top-0 z-10 shrink-0">
-        <div className="flex items-center gap-2 flex-1">
-          <div className="relative w-full max-w-sm group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-foreground transition-colors" size={14} />
-            <input 
-              type="text" 
-              placeholder="Search documents..." 
-              className="w-full pl-9 pr-4 py-1.5 bg-muted/30 border border-transparent focus:border-border focus:bg-card rounded-xl outline-none text-xs transition-all" 
-              value={searchQuery} 
-              onChange={(e) => setSearchQuery(e.target.value)} 
-            />
-          </div>
-          {currentFolderId && (
-            <button 
-              onClick={() => navigate(-1)} 
-              className="p-2 h-8 px-3 flex items-center gap-2 hover:bg-muted rounded-lg transition-all text-xs font-bold text-muted-foreground"
-            >
-              <ArrowLeft size={14} /> Back
-            </button>
-          )}
-        </div>
+        {/* Secondary Navigation (Document Context) */}
+        <div className="bg-background/20 backdrop-blur-md border-b border-border/50 sticky top-0 z-10">
+          <div className="max-w-[1600px] mx-auto px-8 h-16 flex items-center justify-between">
+            <div className="flex flex-col gap-1">
+               {/* <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
+                 <Folder size={16} className="text-primary/70 shrink-0" />
+                 {currentFolder ? currentFolder.name : "Library"}
+               </h2> */}
+               <div className="flex items-center gap-1 text-[14px] font-bold tracking-widest uppercase text-muted-foreground/60">
+                 <button onClick={() => navigate('/dashboard')} className="hover:text-primary bg-primary/10 px-2 py-1 rounded-lg flex items-center gap-1 transition-colors">
+                  <Folder size={13} className="text-primary/70 shrink-0" />
+                  Home</button>
+                 {folderPath.map((folder, idx) => (
+                   <React.Fragment key={folder.id}>
+                     <span className="opacity-30">/</span>
+                     <button 
+                       onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
+                       className={cn("hover:text-primary transition-colors bg-primary/10 px-2 py-1 rounded-lg flex items-center gap-1", idx === folderPath.length - 1 && "text-primary/80 pointer-events-none bg-primary/10 px-2 py-1 rounded-lg flex items-center gap-1")}
+                     >
+                       <Folder size={13} className="text-primary/70 shrink-0" />
+                       {folder.name}
+                     </button>
+                   </React.Fragment>
+                 ))}
+               </div>
+            </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex bg-muted/30 p-1 rounded-xl border border-border/50">
-             <button 
-              onClick={() => setViewMode("grid")}
-              className={cn("p-1.5 rounded-lg transition-all", viewMode === "grid" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground")}
-             >
-               <LayoutGrid size={14} />
-             </button>
-             <button 
-              onClick={() => setViewMode("list")}
-              className={cn("p-1.5 rounded-lg transition-all", viewMode === "list" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground")}
-             >
-               <List size={14} />
-             </button>
-          </div>
-
-          <div className="h-4 w-px bg-border/50 mx-1" />
-
-          {/* Active Users Avatars */}
-          <div className="flex -space-x-1.5 overflow-hidden">
-            {connectedClients.map((client: any) => {
-              if (client.id === myClientId) return null;
-              return (
-                <div 
-                  key={client.id}
-                  title={client.user?.name}
-                  className="w-7 h-7 rounded-sm border-2 border-background flex items-center justify-center text-[10px] font-bold text-white relative group shrink-0"
-                  style={{ backgroundColor: client.user?.color || '#cbd5e1' }}
-                >
-                  {client.user?.name?.charAt(0) || '?'}
+            <div className="flex items-center gap-4">
+              {canEditProject ? (
+                <div className="flex items-center gap-2">
+                  <button onClick={handleCreateFolder} className="px-4 py-2 border border-border bg-card text-[10px] font-bold tracking-widest text-foreground rounded-xl hover:bg-muted/50 flex items-center gap-2 transition-all"><Plus size={14} /> FOLDER</button>
+                  <button onClick={() => setIsTemplatePickerOpen(true)} className="flex items-center gap-2 px-6 py-2 bg-primary/80 text-primary-foreground rounded-xl hover:opacity-90 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"><Plus size={14} className="mr-1 text-primary-foreground"/> NEW DOC</button>
                 </div>
-              );
-            })}
+              ) : (
+                <div className="flex items-center gap-2 px-4 py-2 bg-muted/40 rounded-xl border border-border/50 text-muted-foreground">
+                  <Eye size={14} className="opacity-60" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">Read Only View</span>
+                </div>
+              )}
+            </div>
           </div>
-
-          <div className="h-4 w-px bg-border/50 mx-1" />
-
-          <button
-             onClick={() => {
-               setActiveCollaboratorTab('live');
-               setIsCollaboratorsOpen(true);
-             }}
-             className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-xl border border-primary/20 hover:bg-primary/20 transition-all font-black text-[10px] uppercase tracking-widest relative"
-          >
-             <Users size={14} />
-             <span className="hidden sm:inline">Stream</span>
-             {connectedClients.length > 0 && (
-               <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-[8px] font-black border-2 border-background animate-in zoom-in duration-300">
-                  {connectedClients.length}
-               </span>
-             )}
-          </button>
         </div>
-      </header>
 
       {/* Browser Area */}
       <section 
@@ -614,7 +581,7 @@ const Dashboard: React.FC = () => {
                 {searchInvoices.map(doc => (
                   <button
                     key={doc.id}
-                    onClick={() => { setSearchQuery(""); navigate(`/invoice/${doc.id}`); }}
+                    onClick={() => { uiAction.settings.searchQuery = ""; navigate(`/invoice/${doc.id}`); }}
                     className="w-full text-left flex items-center gap-4 p-4 bg-card border border-border rounded-lg hover:border-primary/40 transition-all group"
                   >
                     <div className="p-2 bg-primary/5 rounded-md border border-primary/10 transition-colors group-hover:bg-primary/10">
@@ -632,44 +599,7 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {!isSearching && (
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex flex-col gap-1.5">
-               <h2 className="text-sm font-black text-foreground uppercase tracking-[0.15em] flex items-center gap-2">
-                 <Folder size={18} className="text-primary/70 shrink-0" />
-                 {currentFolder ? currentFolder.name : "Library"}
-               </h2>
-               <div className="flex items-center gap-1.5 text-[9px] font-bold tracking-widest uppercase text-muted-foreground/60">
-                 <button onClick={() => navigate('/dashboard')} className="hover:text-primary transition-colors">Home</button>
-                 {folderPath.map((folder, idx) => (
-                   <React.Fragment key={folder.id}>
-                     <span className="opacity-30">/</span>
-                     <button 
-                       onClick={() => navigate(`/dashboard?folder=${folder.id}`)}
-                       className={cn("hover:text-primary transition-colors", idx === folderPath.length - 1 && "text-primary/80 pointer-events-none")}
-                     >
-                       {folder.name}
-                     </button>
-                   </React.Fragment>
-                 ))}
-               </div>
-            </div>
 
-            <div className="flex items-center gap-4">
-              {canEditProject ? (
-                <div className="flex items-center gap-2">
-                  <button onClick={handleCreateFolder} className="px-4 py-2 border border-border bg-card text-[10px] font-bold tracking-widest text-foreground rounded-xl hover:bg-muted/50 flex items-center gap-2 transition-all"><Plus size={14} /> FOLDER</button>
-                  <button onClick={() => setIsTemplatePickerOpen(true)} className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20"><Plus size={14} /> NEW DOC</button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 px-4 py-2 bg-muted/40 rounded-xl border border-border/50 text-muted-foreground">
-                  <Eye size={14} className="opacity-60" />
-                  <span className="text-[9px] font-black uppercase tracking-widest">Read Only View</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         {!isSearching && (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(e) => setActiveId(e.active.id as string)} onDragEnd={handleDragEnd}>
@@ -770,23 +700,36 @@ const Dashboard: React.FC = () => {
         }}
       />
 
-      <CollaboratorsSheet 
-        isOpen={isCollaboratorsOpen} 
-        onClose={() => setIsCollaboratorsOpen(false)} 
-        collaborators={connectedClients} 
-        ownerId={businessOwnerId || authAction.governance.ownerId || null} 
-        bannedClients={authAction.bannedClients} 
-        businessId={businessId} 
-        businessName={businessName} 
-        initialTab={activeCollaboratorTab} 
-        onBanClient={(email) => { if (!authAction.bannedClients.includes(email)) authAction.bannedClients.push(email); }} 
+      <CollaboratorsSheet
+        isOpen={isCollaboratorsOpen || !!uiAction.settings.isStreamOpen}
+        onClose={() => {
+          setIsCollaboratorsOpen(false);
+          uiAction.settings.isStreamOpen = false;
+        }}
+        collaborators={connectedClients}
+        ownerId={businessOwnerId || authAction.governance.ownerId || null}
+        businessId={businessId}
+        businessName={businessName}
+        initialTab={activeCollaboratorTab}
+        bannedClients={authAction.bannedClients}
+        onBanClient={(email) => {
+          if (!authAction.bannedClients.includes(email)) {
+            authAction.bannedClients.push(email);
+          }
+        }}
         onUpdateRole={async (email, role) => {
+          if (!activeProjectId) return;
           try {
-            await api.updateMemberRole('project', activeProjectId!, email, role);
+            await api.updateMemberRole('project', activeProjectId, email, role);
             queryClient.invalidateQueries({ queryKey: ['projects'] });
           } catch (e: any) {
             alert(e.message || "Failed to update role");
           }
+        }}
+        onAddMember={async (email) => {
+          if (!activeProjectId) return;
+          await api.addProjectMember(activeProjectId, email, 'viewer');
+          queryClient.invalidateQueries({ queryKey: ['projects'] });
         }}
       />
 
@@ -966,7 +909,7 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
 
   return (
     <div className="flex flex-col gap-3 group relative cursor-pointer" onClick={(e) => { e.stopPropagation(); onClick(); }} onDoubleClick={onDoubleClick}>
-      <div className={cn("aspect-[3/4] rounded-lg bg-card shadow-sm transition-all relative overflow-hidden flex flex-col items-center justify-center", isSelected ? "ring-2 ring-primary/40 shadow-xl scale-[1.03]" : "hover:shadow-lg", isFolder ? "bg-amber-500/5 shadow-none hover:shadow-md" : "")}>
+           <div className={cn("aspect-[3/4] rounded-lg bg-card shadow-sm transition-all relative border border-border/70 overflow-hidden flex flex-col items-center justify-center", isSelected ? "ring-2 ring-primary/40 shadow-xl scale-[1.03]" : "hover:shadow-lg", isFolder ? "bg-muted/60 border border-border/70 hover:bg-muted/70 shadow-none hover:shadow-md" : "")}>
         {isFolder ? (
           <div className="flex flex-col items-center gap-2">
              <div className="p-4 bg-amber-500/10 rounded-md transition-transform duration-500 hover:scale-110"><Folder size={40} strokeWidth={1.5} className="text-amber-500/80" /></div>

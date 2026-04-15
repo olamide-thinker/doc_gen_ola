@@ -38,8 +38,9 @@ import {
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 import { useSyncedStore } from "@syncedstore/react";
-import { workspaceStore } from "../store";
+import { workspaceStore, uiStore } from "../store";
 import { useTheme } from "../context/ThemeContext";
+import { Building2 } from "lucide-react";
 
 const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) => (
   <button onClick={onClick} className={cn("w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group relative overflow-hidden", active ? "bg-primary/5 text-primary shadow-sm" : "text-slate-400 hover:text-slate-200")}>
@@ -56,10 +57,24 @@ const MainLayout: React.FC = () => {
   const workspaceAction = useSyncedStore(workspaceStore);
   
   const { theme, toggleTheme } = useTheme();
+  const uiAction = useSyncedStore(uiStore);
   
   const [activeModule, setActiveModule] = useState<"documents" | "inventory" | "accounting">("documents");
   const [activeView, setActiveView] = useState<"home" | "templates">("home");
   const [isProjectSwitcherOpen, setIsProjectSwitcherOpen] = useState(false);
+  const [localSearch, setLocalSearch] = useState(uiAction.settings.searchQuery);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      uiAction.settings.searchQuery = localSearch;
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localSearch, uiAction]);
+
+  // Sync back if external change
+  useEffect(() => {
+    setLocalSearch(uiAction.settings.searchQuery);
+  }, [uiAction.settings.searchQuery]);
 
   const projects = (workspaceAction.projects || []) as any[];
   const currentPath = location.pathname;
@@ -192,25 +207,24 @@ const MainLayout: React.FC = () => {
 
                return (
                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-xl border border-border/50 select-none">
+                    {/* <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-xl border border-border/50 select-none">
                        <Boxes size={14} className="text-primary" />
                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Organization</span>
-                    </div>
+                    </div> */}
 
-                    <div className="h-4 w-px bg-border/50" />
 
                     <div className="relative">
                       <button 
                         onClick={() => setIsProjectSwitcherOpen(!isProjectSwitcherOpen)}
                         className={cn(
-                          "flex items-center gap-3 px-3 py-1.5 bg-muted/50 rounded-xl border transition-all hover:bg-muted/80 hover:border-primary/30",
+                          "flex items-center gap-3 px-2 py-1.5 bg-muted/50 rounded-xl border transition-all hover:bg-muted/80 hover:border-primary/30",
                           isProjectSwitcherOpen ? "border-primary/50 bg-primary/5" : "border-border/50"
                         )}
                       >
                          <div className="flex items-center gap-2">
-                            <Folder size={14} className="text-primary" />
-                            <span className="text-sm font-black text-foreground tracking-tight line-clamp-1 max-w-[200px]">
-                              {activeProject?.name || "Select Project"}
+                            <Building2  size={18} className="text-primary bg-primary/10 p-1 rounded-lg" />
+                            <span className="text-sm font-semibold ml-1 text-primary tracking-tight line-clamp-1 max-w-[200px]">
+                             {activeProject?.name.charAt(0).toUpperCase() + activeProject?.name.slice(1) || "Select Project"}
                             </span>
                          </div>
                          <ChevronDown size={14} className={cn("text-muted-foreground/50 transition-transform duration-300", isProjectSwitcherOpen && "rotate-180 text-primary")} />
@@ -292,16 +306,50 @@ const MainLayout: React.FC = () => {
              })()}
           </div>
 
-          <div className="flex items-center gap-4">
-             {/* Search Shortcut Placeholder / Global Search would go here */}
-             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-muted/30 rounded-xl border border-transparent hover:border-border transition-all cursor-pointer">
+          <div className="h-4 w-px bg-border/50" />
+
+          <div className="flex items-center gap-6">
+             {/* Global Search */}
+             <div className="hidden lg:flex items-center gap-2 px-4 py-2 bg-muted/30 rounded-2xl border border-transparent focus-within:border-border focus-within:bg-card transition-all w-[320px]">
                 <Search size={14} className="text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Search anything...</span>
-                <span className="ml-4 px-1.5 py-0.5 bg-background border border-border rounded text-[8px] font-black opacity-40">⌘K</span>
+                <input 
+                  type="text"
+                  placeholder="Search repository..."
+                  value={localSearch}
+                  onChange={(e) => setLocalSearch(e.target.value)}
+                  className="bg-transparent border-none outline-none text-[11px] font-bold text-foreground placeholder:text-muted-foreground/50 w-full"
+                />
+                <span className="ml-2 px-1.5 py-0.5 bg-background/50 border border-border/50 rounded text-[8px] font-black opacity-30 select-none">⌘K</span>
              </div>
 
-             <div className="h-4 w-px bg-border/50 mx-1" />
+             <div className="h-6 w-px bg-border/40 mx-1" />
 
+             {/* View Toggles */}
+             <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-xl border border-border/40">
+                <button 
+                  onClick={() => uiAction.settings.viewMode = 'grid'}
+                  className={cn(
+                    "p-1.5 rounded-lg transition-all",
+                    uiAction.settings.viewMode === 'grid' ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                  title="Grid View"
+                >
+                  <LayoutGrid size={14} />
+                </button>
+                <button 
+                  onClick={() => uiAction.settings.viewMode = 'list'}
+                  className={cn(
+                    "p-1.5 rounded-lg transition-all",
+                    uiAction.settings.viewMode === 'list' ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                  title="List View"
+                >
+                  <List size={14} />
+                </button>
+             </div>
+
+               <div className="h-4 w-px bg-border/50 mx-1" />
+          <div className="flex items-center gap-2">
              <button 
                onClick={toggleTheme}
                className="p-2 text-muted-foreground hover:text-foreground transition-colors"
@@ -310,12 +358,28 @@ const MainLayout: React.FC = () => {
                 {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
              </button>
 
-             <button className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                <Users size={18} />
+
+             {/* Stream / Social */}
+             <button 
+               onClick={() => uiAction.settings.isStreamOpen = !uiAction.settings.isStreamOpen}
+               className={cn(
+                 "flex items-center gap-2 px-4 py-2 rounded-2xl transition-all font-black text-[10px] uppercase tracking-widest relative border",
+                 uiAction.settings.isStreamOpen 
+                   ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/20" 
+                   : "bg-muted/30 text-muted-foreground border-transparent hover:border-border"
+               )}
+             >
+                <Users size={14} />
+                <span className="hidden xl:inline">Stream</span>
+                <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary border-2 border-background rounded-full animate-pulse" />
              </button>
           </div>
-        </header>
+        </div>
 
+             {/* <button className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+                <Users size={18} />
+             </button> */}
+        </header>
         <div className="flex-1 overflow-hidden relative">
           <Outlet />
         </div>

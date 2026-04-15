@@ -9,7 +9,8 @@ import {
   Users,
   Shield,
   FileText,
-  Eye
+  Eye,
+  Trash2
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
@@ -525,6 +526,24 @@ const ReceiptEditor: React.FC = () => {
              {isPreview ? <ArrowLeft size={12} /> : <FileText size={12} />}
              {isPreview ? "Exit Preview" : "Preview"}
           </button>
+
+          {docMetadata?.status === 'draft' && (
+            <button
+              onClick={async () => {
+                if (!confirm("Are you sure you want to delete this draft receipt?")) return;
+                try {
+                  await api.deleteReceipt(id!);
+                  const invId = (docMetadata as any)?.metadata?.invoiceId;
+                  navigate(invId ? `/invoice/${invId}` : `/dashboard`);
+                } catch (e) {
+                  alert("Deletion failed");
+                }
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 text-destructive rounded-lg hover:bg-destructive/20 transition-all text-[10px] font-black uppercase tracking-widest shadow-sm"
+            >
+              <Trash2 size={12} /> Delete Draft
+            </button>
+          )}
 
           {docMetadata?.status !== 'finalised' && docMetadata?.status !== 'voided' && (
             <button

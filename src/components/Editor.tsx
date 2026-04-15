@@ -908,7 +908,15 @@ export const Editor = () => {
         </button>
         <div className="w-px h-6 bg-border/40 mx-2" />
         <div className="flex flex-col">
-          <h2 className="text-xs font-bold text-foreground">Editor</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xs font-bold text-foreground">Editor</h2>
+            {docMetadata?.status === 'locked' && (
+              <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-lg border border-amber-200">
+                <Shield size={10} strokeWidth={3} />
+                <span className="text-[8px] font-black uppercase tracking-widest">Locked</span>
+              </div>
+            )}
+          </div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black opacity-60">
             {docMetadata?.name || "Untitled"}
           </p>

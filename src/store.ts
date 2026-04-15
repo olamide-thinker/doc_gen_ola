@@ -78,6 +78,19 @@ export const authStore = syncedStore({
   bannedClients: [] as string[]
 });
 
+export const uiStore = syncedStore({
+  settings: {} as {
+    searchQuery: string;
+    viewMode: "grid" | "list";
+    isStreamOpen: boolean;
+  }
+});
+
+// Initialize defaults
+uiStore.settings.searchQuery = "";
+uiStore.settings.viewMode = "grid";
+uiStore.settings.isStreamOpen = false;
+
 // ---------------------------------------------------------------------------
 // Editor-level collaborative store
 // ---------------------------------------------------------------------------
