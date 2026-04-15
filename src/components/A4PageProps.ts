@@ -54,4 +54,7 @@ export interface A4PageProps {
   onUpdateAcknowledgement?: (val: string) => void;
   onHeaderImageUpload?: (val: string) => void;
   isReadOnly?: boolean;
+  lastUpdated?: number;
+  rowsLength?: number;
+  activeId?: string | null;
 }

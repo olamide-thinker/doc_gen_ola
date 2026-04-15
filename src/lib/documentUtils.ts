@@ -59,9 +59,12 @@ export function resolveFormula(
         String(Number((rowData as any)[mid]) || 0),
       );
     });
-    if (/[^0-9\s+\-*/().]/.test(expression)) return 0;
-    return new Function(`return ${expression}`)();
-  } catch {
+    if (/[^0-9\s+\-*/().,e]/.test(expression)) return 0;
+    // Allow commas in numbers by removing them before evaluation
+    const cleaned = expression.replace(/(\d),(\d)/g, "$1$2");
+    return new Function(`return ${cleaned}`)() || 0;
+  } catch (e) {
+    console.warn("[resolveFormula] Error:", e, "Expression:", formula);
     return 0;
   }
 }
@@ -127,27 +130,29 @@ export function computeTotalPrice(data: DocData): TotalPrice {
         let insideSection = false;
         const rows = data.table.rows || [];
         rows.forEach((row, idx) => {
+          if (!row) return;
           if (row.rowType === "section-header" || row.rowType === "sub-section-header") {
             insideSection = true;
           } else if (row.rowType === "section-total") {
             insideSection = false;
             total += resolveSectionTotalBackward(rows, idx, data);
-          } else if ((row.rowType === "row" || !row.rowType) && !insideSection) {
+          } else if ((row.rowType === "row" || !row.rowType || row.rowType === "item") && !insideSection) {
             const val = totalCol?.type === "formula"
               ? resolveFormula(row, totalCol.formula)
               : Number(row[totalCol?.id || ""]) || 0;
-            total += val;
+            total += (isNaN(val) ? 0 : val);
           }
         });
         return total;
       })()
     : (data.table.rows || []).reduce((acc: number, row: TableRow) => {
+        if (!row) return acc;
         if (row.rowType === "section-header" || row.rowType === "sub-section-header" || row.rowType === "section-total") return acc;
         const rowTotal =
           totalCol?.type === "formula"
             ? resolveFormula(row, totalCol.formula)
             : Number(row[totalCol?.id || ""]) || 0;
-        return acc + rowTotal;
+        return acc + (isNaN(rowTotal) ? 0 : rowTotal);
       }, 0);
 
   const summaries: any[] = [];

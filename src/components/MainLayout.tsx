@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
-import { 
-  Folder, 
-  FileText, 
+import {
+  Folder,
+  FileText,
   Check,
   ShieldCheck,
   X,
-  Plus, 
-  Search, 
-  MoreHorizontal, 
-  LayoutGrid, 
-  List, 
-  Clock, 
-  Trash, 
-  Copy, 
+  Plus,
+  Search,
+  MoreHorizontal,
+  LayoutGrid,
+  List,
+  Clock,
+  Trash,
+  Copy,
   Edit,
   ArrowLeft,
   UserIcon,
@@ -31,10 +31,12 @@ import {
   Boxes,
   Calculator,
   ScrollText,
+  BookOpen,
   Image as ImageIcon,
   Video,
   ChevronDown
 } from "../lib/icons/lucide";
+import { ServiceDictionaryModal } from "./ServiceDictionaryModal";
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 import { useSyncedStore } from "@syncedstore/react";
@@ -62,6 +64,7 @@ const MainLayout: React.FC = () => {
   const [activeModule, setActiveModule] = useState<"documents" | "inventory" | "accounting">("documents");
   const [activeView, setActiveView] = useState<"home" | "templates">("home");
   const [isProjectSwitcherOpen, setIsProjectSwitcherOpen] = useState(false);
+  const [isServiceDictionaryOpen, setIsServiceDictionaryOpen] = useState(false);
   const [localSearch, setLocalSearch] = useState(uiAction.settings.searchQuery);
 
   useEffect(() => {
@@ -112,11 +115,11 @@ const MainLayout: React.FC = () => {
                 active={currentPath === "/dashboard"} 
                 onClick={() => { setActiveView("home"); navigate("/dashboard"); }} 
               />
-              <SidebarItem 
-                icon={<ScrollText size={18} />} 
-                label="Templates" 
-                active={currentPath === "/templates"} 
-                onClick={() => { setActiveView("templates"); navigate("/dashboard"); /* In dashboard, we can switch views via search or state, but for now navigate home */ }} 
+              <SidebarItem
+                icon={<BookOpen size={18} />}
+                label="Service Dictionary"
+                active={isServiceDictionaryOpen}
+                onClick={() => setIsServiceDictionaryOpen(true)}
               />
               <SidebarItem 
                 icon={<Users size={18} />} 
@@ -384,6 +387,13 @@ const MainLayout: React.FC = () => {
           <Outlet />
         </div>
       </main>
+
+      {/* Service Dictionary modal — mounted at the layout level so it's
+          reachable from any route (dashboard, editor, receipt editor) */}
+      <ServiceDictionaryModal
+        isOpen={isServiceDictionaryOpen}
+        onClose={() => setIsServiceDictionaryOpen(false)}
+      />
     </div>
   );
 };

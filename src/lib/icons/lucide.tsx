@@ -78,7 +78,9 @@ import {
   CheckCircle2 as LucideCheckCircle2,
   Ban as LucideBan,
   History as LucideHistory,
-  Info as LucideInfo
+  Info as LucideInfo,
+  BookOpen as LucideBookOpen,
+  Sparkles as LucideSparkles
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -166,3 +168,5 @@ export const CheckCircle2 = wrapIcon(LucideCheckCircle2);
 export const Ban = wrapIcon(LucideBan);
 export const History = wrapIcon(LucideHistory);
 export const Info = wrapIcon(LucideInfo);
+export const BookOpen = wrapIcon(LucideBookOpen);
+export const Sparkles = wrapIcon(LucideSparkles);

@@ -7,6 +7,11 @@ import { A4PageProps } from "./A4PageProps";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { TableRow } from "../types";
+import {
+  serviceDictionary,
+  findPriceColumnId,
+  isDescriptionColumn,
+} from "../lib/service-dictionary";
 
 const HEADER_DARK_BROWN = "#503D36";
 const PRIMARY_BROWN = "#8D6E63";
@@ -167,18 +172,67 @@ const SortableRow = ({
                 <span className="font-bold text-slate-800">
                   ₦{Math.round(resolveFormula(row, col.formula)).toLocaleString()}
                 </span>
-              ) : (
-                <Editable
-                  className={cn(
-                    "w-full",
-                    (isNumeric || isFormula) && "text-left font-lexend",
-                  )}
-                  value={value as string | number}
-                  numeric={isNumeric}
-                  onSave={(val) => onUpdateCell(startIndex + idx, col.id, val)}
-                  readOnly={isPreview}
-                />
-              )}
+              ) : (() => {
+                // Description-like text cells get Service Dictionary autocomplete.
+                // The row's price column is resolved once per render and passed
+                // to the suggestion-pick handler so selecting an entry fills
+                // both the description and the adjacent price in one shot.
+                const isDesc =
+                  !isNumeric &&
+                  isDescriptionColumn(col, data.table.columns || []);
+                const priceColId = isDesc
+                  ? findPriceColumnId(data.table.columns || [])
+                  : null;
+                return (
+                  <Editable
+                    className={cn(
+                      "w-full",
+                      (isNumeric || isFormula) && "text-left font-lexend",
+                    )}
+                    value={value as string | number}
+                    numeric={isNumeric}
+                    onSave={(val) => onUpdateCell(startIndex + idx, col.id, val)}
+                    readOnly={isPreview}
+                    getSuggestions={
+                      isDesc
+                        ? (q) => serviceDictionary.search(q, 6)
+                        : undefined
+                    }
+                    onPickSuggestion={
+                      isDesc
+                        ? (entry) => {
+                            // Fill the resolved price column, if any.
+                            if (priceColId) {
+                              onUpdateCell(
+                                startIndex + idx,
+                                priceColId,
+                                entry.price,
+                              );
+                            }
+                            // If the row has a "unit" column (type=text, label
+                            // matches /unit/i) and the dictionary entry has a
+                            // unit, pre-fill that too.
+                            const unitCol = (
+                              data.table.columns || []
+                            ).find(
+                              (c: any) =>
+                                c?.type === "text" &&
+                                /unit/i.test(c?.label || "") &&
+                                c.id !== col.id,
+                            );
+                            if (unitCol && entry.unit) {
+                              onUpdateCell(
+                                startIndex + idx,
+                                unitCol.id,
+                                entry.unit,
+                              );
+                            }
+                          }
+                        : undefined
+                    }
+                  />
+                );
+              })()}
             </td>
           );
         })}
