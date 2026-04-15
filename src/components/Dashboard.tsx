@@ -43,6 +43,7 @@ import { type TemplateDefinition, TEMPLATES } from "../lib/templates";
 import { type InvoiceCode } from "../types";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
+import { CardDocumentPreview } from "./CardDocumentPreview";
 import { useSyncedStore } from "@syncedstore/react";
 import { workspaceStore, authStore, connectProject, workspaceProvider, authProvider } from "../store";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -1024,8 +1025,8 @@ const ItemCard = ({ item, mode, onClick, onDoubleClick, onDelete, onDuplicate, o
              </div>
           </div>
         ) : (
-          <div className={cn("w-full h-full rounded-md overflow-hidden p-1.5 relative")}>
-             <DocumentThumbnail data={item.content} className="rounded-sm" />
+          <div className={cn("w-full h-full rounded-md overflow-hidden relative bg-white")}>
+             <CardDocumentPreview data={item.content} />
           </div>
         )}
         {badgeLabel && <div className="absolute bottom-3 left-3 pointer-events-none"><span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none shadow-sm", badgeClass)}>{badgeLabel}</span></div>}

@@ -179,12 +179,8 @@ const InvoiceManagementPage: React.FC = () => {
               <FileText size={16} /> Linked Receipts
             </h2>
             <button
-              onClick={() => {
-                if (status === 'draft') {
-                   if (!confirm("Creating a receipt will permanently lock this invoice from further changes. Continue?")) return;
-                }
-                createReceiptMutation.mutate();
-              }}
+              onClick={() => createReceiptMutation.mutate()}
+              disabled={createReceiptMutation.isPending}
               className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-primary hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus size={14} /> {createReceiptMutation.isPending ? 'Creating...' : 'New Receipt'}

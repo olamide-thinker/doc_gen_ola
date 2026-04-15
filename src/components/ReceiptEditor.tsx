@@ -529,7 +529,7 @@ const ReceiptEditor: React.FC = () => {
           {docMetadata?.status !== 'finalised' && docMetadata?.status !== 'voided' && (
             <button
               onClick={async () => {
-                const confirm = window.confirm("Finalizing this receipt will freeze it and add it to the payment chain. Proceed?");
+                const confirm = window.confirm("Finalising this receipt will freeze it, add it to the payment chain, and LOCK the parent invoice — no further edits to the invoice itself will be allowed. Proceed?");
                 if (!confirm) return;
                 try {
                   await api.finaliseReceipt(id!);
