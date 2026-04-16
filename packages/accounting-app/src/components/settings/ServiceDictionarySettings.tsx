@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Search, BookOpen, CheckCircle } from 'lucide-react';
-
-interface Service {
-  id: string;
-  title: string;
-  unit: string;
-  price: number;
-}
+import { serviceDictionary, ServiceDictionaryEntry } from '../../lib/service-dictionary';
 
 const ServiceDictionarySettings: React.FC = () => {
-  const [services, setServices] = useState<Service[]>([]);
+  const [services, setServices] = useState<ServiceDictionaryEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -21,17 +15,16 @@ const ServiceDictionarySettings: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    // TODO: Load services from localStorage or API
-    const savedServices = localStorage.getItem('serviceDictionary');
-    if (savedServices) {
-      setServices(JSON.parse(savedServices));
-    }
-  }, []);
+    // Load real services from serviceDictionary
+    setServices(serviceDictionary.getAll());
 
-  const saveServices = (updated: Service[]) => {
-    setServices(updated);
-    localStorage.setItem('serviceDictionary', JSON.stringify(updated));
-  };
+    // Subscribe to changes from other tabs/windows
+    const unsubscribe = serviceDictionary.onChange(() => {
+      setServices(serviceDictionary.getAll());
+    });
+
+    return unsubscribe;
+  }, []);
 
   const handleAddService = () => {
     if (!newService.title.trim() || !newService.unit.trim() || !newService.price) {
@@ -39,14 +32,13 @@ const ServiceDictionarySettings: React.FC = () => {
       return;
     }
 
-    const service: Service = {
-      id: Date.now().toString(),
+    serviceDictionary.add({
       title: newService.title,
       unit: newService.unit,
       price: parseFloat(newService.price),
-    };
+    });
 
-    saveServices([...services, service]);
+    setServices(serviceDictionary.getAll());
     setNewService({ title: '', unit: '', price: '' });
     setIsAdding(false);
     setMessage({ type: 'success', text: 'Service added successfully' });
@@ -54,17 +46,16 @@ const ServiceDictionarySettings: React.FC = () => {
   };
 
   const handleEditService = (id: string, field: string, value: string) => {
-    const updated = services.map(s =>
-      s.id === id
-        ? { ...s, [field]: field === 'price' ? parseFloat(value) || 0 : value }
-        : s
-    );
-    saveServices(updated);
+    serviceDictionary.update(id, {
+      [field]: field === 'price' ? parseFloat(value) || 0 : value,
+    });
+    setServices(serviceDictionary.getAll());
   };
 
   const handleDeleteService = (id: string) => {
     if (!confirm('Delete this service?')) return;
-    saveServices(services.filter(s => s.id !== id));
+    serviceDictionary.delete(id);
+    setServices(serviceDictionary.getAll());
     setMessage({ type: 'success', text: 'Service deleted' });
     setTimeout(() => setMessage(null), 2000);
   };

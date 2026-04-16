@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useSyncedStore } from '@syncedstore/react';
+import { workspaceStore } from '../../store';
 import { FolderOpen, MoreVertical, ArchiveIcon } from 'lucide-react';
 
 interface Project {
@@ -12,35 +14,25 @@ interface Project {
 const ProjectsSettings: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const workspaceAction = useSyncedStore(workspaceStore);
 
   useEffect(() => {
-    // TODO: Fetch projects from API
-    // const fetchProjects = async () => {
-    //   const data = await api.getProjects();
-    //   setProjects(data);
-    //   setIsLoading(false);
-    // };
-    // fetchProjects();
-
-    // Mock data for now
-    setProjects([
-      {
-        id: '1',
-        name: 'Construction Site A',
-        status: 'active',
-        createdAt: '2024-01-15',
-        memberCount: 5,
-      },
-      {
-        id: '2',
-        name: 'Renovation Project B',
-        status: 'active',
-        createdAt: '2024-02-20',
-        memberCount: 3,
-      },
-    ]);
-    setIsLoading(false);
-  }, []);
+    try {
+      const allProjects = (workspaceAction.projects || []) as any[];
+      const mappedProjects: Project[] = allProjects.map(p => ({
+        id: p.id || '',
+        name: p.name || 'Untitled Project',
+        status: p.archived ? 'archived' : 'active',
+        createdAt: p.createdAt || new Date().toISOString(),
+        memberCount: (p.members || []).length,
+      }));
+      setProjects(mappedProjects);
+    } catch (error) {
+      console.error('Failed to load projects:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [workspaceAction.projects]);
 
   const activeProjects = projects.filter(p => p.status === 'active');
   const archivedProjects = projects.filter(p => p.status === 'archived');

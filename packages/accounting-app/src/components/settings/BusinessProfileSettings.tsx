@@ -3,10 +3,10 @@ import { useAuth } from '../../context/AuthContext';
 import { Save, X, CheckCircle } from 'lucide-react';
 
 const BusinessProfileSettings: React.FC = () => {
-  const { businessName, businessId } = useAuth();
+  const { businessName, businessId, user: currentUser } = useAuth();
   const [businessInfo, setBusinessInfo] = useState({
     name: businessName || '',
-    email: '',
+    email: currentUser?.email || '',
     phone: '',
     address: '',
     city: '',
@@ -19,13 +19,13 @@ const BusinessProfileSettings: React.FC = () => {
   useEffect(() => {
     setBusinessInfo({
       name: businessName || '',
-      email: '',
+      email: currentUser?.email || '',
       phone: '',
       address: '',
       city: '',
       country: '',
     });
-  }, [businessName]);
+  }, [businessName, currentUser?.email]);
 
   const handleChange = (field: string, value: string) => {
     setBusinessInfo(prev => ({

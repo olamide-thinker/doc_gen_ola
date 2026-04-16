@@ -1,33 +1,58 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { api } from '../../lib/api';
+import { API_BASE } from '../../lib/workspace-persist';
 import { Mail, Plus, Trash2, Copy, Link2, CheckCircle } from 'lucide-react';
 
 interface TeamMember {
   email: string;
   role: 'owner' | 'admin' | 'editor' | 'viewer';
-  status: 'active' | 'pending';
-  joinedAt?: string;
+  userId?: string;
 }
 
 const TeamAccessSettings: React.FC = () => {
-  const { businessId, currentUserRole } = useAuth();
+  const { user: currentUser, projectId, businessId } = useAuth();
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [selectedRole, setSelectedRole] = useState<'admin' | 'editor' | 'viewer'>('editor');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [joinLink, setJoinLink] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [isOwner] = useState(currentUserRole === 'owner');
+  const isOwner = currentUser?.uid === ownerId;
 
   useEffect(() => {
-    // TODO: Fetch members from API
-    // const fetchMembers = async () => {
-    //   const data = await api.getTeamMembers(businessId);
-    //   setMembers(data);
-    // };
-    // fetchMembers();
-  }, [businessId]);
+    if (!projectId || !currentUser) return;
+
+    const fetchMembers = async () => {
+      try {
+        const token = await currentUser.getIdToken();
+        const response = await fetch(`${API_BASE}/workspace/${projectId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const result = await response.json();
+
+        if (result.success && result.data) {
+          const data = result.data;
+          setOwnerId(data.ownerId || null);
+          const rawMembers: any[] = data.members || [];
+          setMembers(rawMembers.map(m => ({
+            email: m.email,
+            role: m.role,
+            userId: m.userId
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to fetch team members:', error);
+        setMessage({ type: 'error', text: 'Failed to load team members' });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchMembers();
+  }, [projectId, currentUser]);
 
   const handleAddMember = async () => {
     if (!newMemberEmail.trim()) {
@@ -35,15 +60,20 @@ const TeamAccessSettings: React.FC = () => {
       return;
     }
 
+    if (!projectId) {
+      setMessage({ type: 'error', text: 'No project selected' });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      // TODO: Implement API call to add member
-      // await api.addMember(businessId, newMemberEmail, selectedRole);
+      await api.addMember('project', projectId, newMemberEmail);
+      setMembers(prev => [...prev, { email: newMemberEmail, role: selectedRole }]);
       setMessage({ type: 'success', text: `Invitation sent to ${newMemberEmail}` });
       setNewMemberEmail('');
       setSelectedRole('editor');
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to add member' });
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Failed to add member' });
     } finally {
       setIsLoading(false);
     }
@@ -52,13 +82,18 @@ const TeamAccessSettings: React.FC = () => {
   const handleRemoveMember = async (email: string) => {
     if (!confirm(`Remove ${email} from the team?`)) return;
 
+    if (!projectId) {
+      setMessage({ type: 'error', text: 'No project selected' });
+      return;
+    }
+
     try {
-      // TODO: Implement API call to remove member
-      // await api.removeMember(businessId, email);
+      await api.removeMember('project', projectId, email);
       setMembers(members.filter(m => m.email !== email));
       setMessage({ type: 'success', text: 'Member removed successfully' });
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to remove member' });
+      setTimeout(() => setMessage(null), 2000);
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error.message || 'Failed to remove member' });
     }
   };
 
