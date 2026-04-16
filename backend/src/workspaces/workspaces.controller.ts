@@ -183,7 +183,7 @@ export class WorkspacesController {
   async getProjectDetails(@Param('id') id: string) {
     try {
       console.log(`[WorkspaceAPI] 🔍 Fetching details for project: ${id}`);
-      
+
       // 1. Initial lookup
       const project = await this.db.query.projects.findFirst({
         where: eq(schema.projects.id, id),
@@ -197,8 +197,8 @@ export class WorkspacesController {
 
       if (!project) {
         console.warn(`[WorkspaceAPI] ⚠️ Project ${id} not found in DB.`);
-        
-        // 2. IDENTITY RESCUE: If the requested project is a playground and doesn't exist, 
+
+        // 2. IDENTITY RESCUE: If the requested project is a playground and doesn't exist,
         // check if this user has ANY projects. If not, create one.
         if (id.startsWith('playground-')) {
           const userId = id.replace('playground-', '');
@@ -209,24 +209,50 @@ export class WorkspacesController {
 
           if (!existing) {
              console.log(`[Rescue] 🚀 No projects found for user ${userId}. Provisioning default...`);
-             // This will be handled by the frontend calling upsertProject, 
+             // This will be handled by the frontend calling upsertProject,
              // but we return a valid structure here to keep the UI alive.
           }
 
-          return { 
-            success: true, 
-            data: { 
-              id, 
+          return {
+            success: true,
+            data: {
+              id,
               name: 'Playground',
-              folders: [], 
-              documents: [], 
-              projects: [], 
-              members: [] 
-            } 
+              folders: [],
+              documents: [],
+              projects: [],
+              members: []
+            }
           };
         }
         return { success: true, data: { folders: [], documents: [], projects: [], members: [] } };
       }
+
+      // 2. Resolve full user data for all members
+      const memberEmails = (project.members || []).map((m: any) => m.email).filter(Boolean);
+      const users = memberEmails.length > 0
+        ? await this.db.query.users.findMany({
+            where: inArray(schema.users.email, memberEmails),
+          })
+        : [];
+      const userByEmail = new Map<string, any>();
+      for (const u of users) {
+        userByEmail.set(u.email, u);
+      }
+
+      // 3. Map project members to full user details
+      const fullMembers = (project.members || [])
+        .map((m: any) => {
+          const user = userByEmail.get(m.email);
+          return {
+            email: m.email,
+            userId: user?.id || null,
+            displayName: user?.fullName || m.email?.split('@')[0] || 'Unknown User',
+            photoURL: user?.metadata?.picture || null,
+            role: normalizeRole(m.role),
+          };
+        })
+        .filter((m: any) => m.email); // Only include entries with email
 
       // Normalize members from rows to email strings, and folders/docs to top-level shape
       const normalized = {
@@ -234,7 +260,7 @@ export class WorkspacesController {
         name: project.name,
         businessId: project.businessId,
         ownerId: project.ownerId,
-        members: (project.members || []).map((m: any) => m.email).filter(Boolean),
+        members: fullMembers, // Now returns full user details instead of just emails
         folders: (project.folders || []).map((f: any) => ({
           id: f.id,
           name: f.name,
@@ -270,10 +296,10 @@ export class WorkspacesController {
     } catch (error: any) {
       console.error(`[WorkspaceAPI] ❌ Error fetching project ${id}:`, error);
       // Return a safer structure instead of crashing
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: error.message,
-        data: { folders: [], documents: [], projects: [], members: [] } 
+        data: { folders: [], documents: [], projects: [], members: [] }
       };
     }
   }
