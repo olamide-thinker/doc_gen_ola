@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSyncedStore } from '@syncedstore/react';
 import { workspaceStore } from '../../store';
 import { FolderOpen, MoreVertical, ArchiveIcon, Edit2, Archive, RotateCcw, Trash2, CheckCircle } from 'lucide-react';
@@ -18,7 +18,6 @@ const ProjectsSettings: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   const workspaceAction = useSyncedStore(workspaceStore);
 
   useEffect(() => {
@@ -42,7 +41,9 @@ const ProjectsSettings: React.FC = () => {
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as HTMLElement;
+      // Close menu if clicking outside any menu container
+      if (!target.closest('[data-menu-container]')) {
         setOpenMenuId(null);
       }
     };
@@ -188,7 +189,7 @@ const ProjectsSettings: React.FC = () => {
                 </div>
 
                 {/* Menu Button */}
-                <div className="relative" ref={menuRef}>
+                <div className="relative" data-menu-container>
                   <button
                     onClick={() => setOpenMenuId(openMenuId === project.id ? null : project.id)}
                     className="p-2 hover:bg-muted rounded-lg transition-colors opacity-0 group-hover:opacity-100"
@@ -198,7 +199,7 @@ const ProjectsSettings: React.FC = () => {
 
                   {/* Dropdown Menu */}
                   {openMenuId === project.id && (
-                    <div className="absolute right-0 mt-1 w-48 bg-card border border-border rounded-lg shadow-lg z-50">
+                    <div className="absolute right-0 mt-1 w-48 bg-card border border-border rounded-lg shadow-lg z-50" data-menu-container>
                       <button
                         onClick={() => handleRename(project.id)}
                         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-muted/50 transition-colors text-left"
@@ -251,7 +252,7 @@ const ProjectsSettings: React.FC = () => {
                   </div>
 
                   {/* Menu Button */}
-                  <div className="relative" ref={menuRef}>
+                  <div className="relative" data-menu-container>
                     <button
                       onClick={() => setOpenMenuId(openMenuId === project.id ? null : project.id)}
                       className="p-2 hover:bg-muted rounded-lg transition-colors opacity-0 group-hover:opacity-100"
@@ -261,7 +262,7 @@ const ProjectsSettings: React.FC = () => {
 
                     {/* Dropdown Menu */}
                     {openMenuId === project.id && (
-                      <div className="absolute right-0 mt-1 w-48 bg-card border border-border rounded-lg shadow-lg z-50">
+                      <div className="absolute right-0 mt-1 w-48 bg-card border border-border rounded-lg shadow-lg z-50" data-menu-container>
                         <button
                           onClick={() => handleRename(project.id)}
                           className="w-full flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-muted/50 transition-colors text-left"
