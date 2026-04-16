@@ -69,7 +69,10 @@ export class ProjectsController {
   }
 
   @Get(':id')
-  async getProject(@Param('id') id: string) {
+  async getProject(@Param('id') id: string, @Req() req: any) {
+    // Verify user has access to this project (owner or member)
+    await this.getCallerRole(id, req);
+
     const project = await this.db.query.projects.findFirst({
       where: eq(schema.projects.id, id),
       with: {

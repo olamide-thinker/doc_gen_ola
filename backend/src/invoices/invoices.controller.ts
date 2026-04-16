@@ -1,24 +1,26 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
+import {
+  Controller,
+  Get,
+  Post,
   Patch,
-  Param, 
-  Body, 
-  UseGuards, 
+  Param,
+  Body,
+  UseGuards,
   Inject,
   Req,
   NotFoundException,
+  ForbiddenException,
   Delete
 } from '@nestjs/common';
 import { DRIZZLE_PROVIDER } from '../database/database.provider';
 import * as schema from '../db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, or } from 'drizzle-orm';
 import { FirebaseGuard } from '../auth/firebase.guard';
 import { InvoicesService } from './invoices.service';
 import { PdfService } from '../pdf/pdf.service';
 
 @Controller('api/invoices')
+@UseGuards(FirebaseGuard)
 export class InvoicesController {
   constructor(
     @Inject(DRIZZLE_PROVIDER) private db: any,
@@ -27,24 +29,63 @@ export class InvoicesController {
   ) {}
 
   @Get(':id')
-  async getInvoice(@Param('id') id: string) {
-    const data = await this.invoicesService.computeInvoiceTotals(id);
-    // Fetch the raw record too for name/draft
-    const raw = await this.db.query.invoices.findFirst({
+  async getInvoice(@Param('id') id: string, @Req() req: any) {
+    // Fetch invoice first
+    const invoice = await this.db.query.invoices.findFirst({
       where: eq(schema.invoices.id, id),
-      with: {
-        receipts: true
-      }
+      with: { receipts: true }
     });
 
-    return { 
-      success: true, 
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    // Verify access: owner of invoice OR member of project (if linked to project)
+    const userId = req.user.uid;
+    const userEmail = req.user.email;
+
+    if (invoice.userId !== userId) {
+      // If linked to a project, check project membership
+      if (invoice.projectId) {
+        const project = await this.db.query.projects.findFirst({
+          where: eq(schema.projects.id, invoice.projectId),
+        });
+
+        if (!project) {
+          throw new NotFoundException('Parent project not found');
+        }
+
+        // Check if user is owner or member
+        if (project.ownerId !== userId) {
+          const member = await this.db.query.projectMembers.findFirst({
+            where: and(
+              eq(schema.projectMembers.projectId, invoice.projectId),
+              or(
+                eq(schema.projectMembers.userId, userId),
+                userEmail ? eq(schema.projectMembers.email, userEmail) : undefined
+              ).filter(Boolean),
+            ),
+          });
+
+          if (!member) {
+            throw new ForbiddenException('Not authorized to view this invoice');
+          }
+        }
+      } else {
+        // Invoice not linked to project and user is not the creator
+        throw new ForbiddenException('Not authorized to view this invoice');
+      }
+    }
+
+    const data = await this.invoicesService.computeInvoiceTotals(id);
+    return {
+      success: true,
       data: {
         ...data,
-        name: raw?.name,
-        draft: raw?.draft,
-        receipts: raw?.receipts
-      } 
+        name: invoice.name,
+        draft: invoice.draft,
+        receipts: invoice.receipts
+      }
     };
   }
 
