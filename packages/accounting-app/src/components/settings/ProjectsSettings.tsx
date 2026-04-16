@@ -23,13 +23,15 @@ const ProjectsSettings: React.FC = () => {
   useEffect(() => {
     try {
       const allProjects = (workspaceAction.projects || []) as any[];
-      const mappedProjects: Project[] = allProjects.map(p => ({
-        id: p.id || '',
-        name: p.name || 'Untitled Project',
-        status: p.archived ? 'archived' : 'active',
-        createdAt: p.createdAt || new Date().toISOString(),
-        memberCount: (p.members || []).length,
-      }));
+      const mappedProjects: Project[] = allProjects
+        .map((p, idx) => ({
+          id: p.id || `project-${idx}`,   // guaranteed non-empty key
+          name: p.name || 'Untitled Project',
+          status: (p.archived ? 'archived' : 'active') as 'active' | 'archived',
+          createdAt: p.createdAt || new Date().toISOString(),
+          memberCount: (p.members || []).length,
+        }))
+        .filter(p => p.name); // drop any fully empty phantom entries
       setProjects(mappedProjects);
     } catch (error) {
       console.error('Failed to load projects:', error);
