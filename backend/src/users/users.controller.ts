@@ -2,11 +2,14 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
+  Param,
   UseGuards,
   Inject,
   Req,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DRIZZLE_PROVIDER } from '../database/database.provider';
 import * as schema from '../db/schema';
@@ -105,6 +108,23 @@ export class UsersController {
 
     const projectId = allProjects.length > 0 ? allProjects[0].id : null;
 
+    // 4. Extract business branding assets from business.metadata
+    const businessMeta: any = business.metadata || {};
+    const businessAssets = {
+      logoUrl: businessMeta.logoUrl || null,
+      letterheadUrl1: businessMeta.letterheadUrl1 || null,
+      letterheadUrl2: businessMeta.letterheadUrl2 || null,
+      letterheadUrl3: businessMeta.letterheadUrl3 || null,
+    };
+
+    // 5. Extract user profile from user.metadata
+    const userMeta: any = user.metadata || {};
+    const userProfile = {
+      signatureUrl: userMeta.signatureUrl || null,
+      bio: userMeta.bio || null,
+      title: userMeta.title || null,
+    };
+
     return {
       success: true,
       data: {
@@ -112,7 +132,9 @@ export class UsersController {
         businessId,
         businessName,
         projectId,
-        role: 'owner', // Since we found it by ownerId, they are the owner
+        role: 'owner',
+        businessAssets,
+        userProfile,
       },
     };
   }
@@ -148,5 +170,47 @@ export class UsersController {
       });
 
     return { success: true };
+  }
+
+  @Patch(':id')
+  async updateUser(
+    @Param('id') userId: string,
+    @Body() body: any,
+    @Req() req: any,
+  ) {
+    // Verify user is updating their own profile
+    if (req.user.uid !== userId) {
+      throw new ForbiddenException('Can only update your own profile');
+    }
+
+    const user = await this.db.query.users.findFirst({
+      where: eq(schema.users.id, userId),
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Merge metadata
+    const currentMetadata = user.metadata || {};
+    const updatedMetadata = {
+      ...currentMetadata,
+      ...(body.metadata || {}),
+    };
+
+    // Update user
+    await this.db.update(schema.users)
+      .set({
+        fullName: body.displayName || body.fullName || user.fullName,
+        metadata: updatedMetadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.users.id, userId));
+
+    const updated = await this.db.query.users.findFirst({
+      where: eq(schema.users.id, userId),
+    });
+
+    return { success: true, data: updated };
   }
 }

@@ -130,6 +130,13 @@ export interface DocData {
   // File management
   totalInvoiceAmount?: number;
   files?: FileAttachment[];
+  // Branding assets — stored at creation for persistence
+  businessLogoUrl?: string;
+  businessLetterheadUrl1?: string;
+  businessLetterheadUrl2?: string;
+  businessLetterheadUrl3?: string;
+  // User assets
+  userSignatureUrl?: string;
   // Template metadata — stored at creation for display purposes only
   _templateColor?: string;
   _templateName?: string;
@@ -162,6 +169,8 @@ export interface WorkspaceProject {
   owner?: ProjectOwner;
   isOwner?: boolean;
   businessId?: string;
+  archived?: boolean;
+  metadata?: any;
   /** Caller's role within this project — populated by GET /api/workspace/projects */
   myRole?: MemberRole;
   /** Map of email → role for every member of the project */

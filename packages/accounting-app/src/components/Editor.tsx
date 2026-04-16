@@ -183,7 +183,7 @@ export const Editor = () => {
   // connected to the `doc-{id}` Hocuspocus room.
   const editorAction = useSyncedStore(editorStore);
   
-  const { user: currentUser, businessId, businessName: ctxBusinessName, projectId } = useAuth();
+  const { user: currentUser, businessId, businessName: ctxBusinessName, projectId, businessAssets } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [lastUpdated, setLastUpdated] = useState(0);
   const bump = () => setLastUpdated(prev => prev + 1);
@@ -202,7 +202,7 @@ export const Editor = () => {
 
   const [jsonInput, setJsonInput] = useState<string>("");
   const [headerImage, setHeaderImage] = useState<string>(
-    () => localStorage.getItem("headerImage") || "/Shan-Invoice.png",
+    () => businessAssets?.logoUrl || localStorage.getItem("headerImage") || "/Shan-Invoice.png",
   );
   const [headerHeight, setHeaderHeight] = useState<number>(
     () => Number(localStorage.getItem("headerHeight")) || 128,
@@ -212,6 +212,7 @@ export const Editor = () => {
   const [history, setHistory] = useState<DocData[]>([]);
   const [future, setFuture] = useState<DocData[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [selectedHeaderType, setSelectedHeaderType] = useState<'logo' | 'letterhead1' | 'letterhead2' | 'letterhead3'>('logo');
 
   const { data: allDocuments = [], isLoading: isLoadingDocs } = useQuery({
     queryKey: ['documents', projectId],
@@ -852,6 +853,26 @@ export const Editor = () => {
     document.addEventListener("mouseup", handleMouseUp);
   }, [headerHeight]);
 
+  const getHeaderImageUrl = useCallback((type: 'logo' | 'letterhead1' | 'letterhead2' | 'letterhead3'): string => {
+    switch (type) {
+      case 'logo':
+        return businessAssets?.logoUrl || "/Shan-Invoice.png";
+      case 'letterhead1':
+        return businessAssets?.letterheadUrl1 || "/Shan-Invoice.png";
+      case 'letterhead2':
+        return businessAssets?.letterheadUrl2 || "/Shan-Invoice.png";
+      case 'letterhead3':
+        return businessAssets?.letterheadUrl3 || "/Shan-Invoice.png";
+      default:
+        return "/Shan-Invoice.png";
+    }
+  }, [businessAssets]);
+
+  const handleHeaderTypeChange = useCallback((type: 'logo' | 'letterhead1' | 'letterhead2' | 'letterhead3') => {
+    setSelectedHeaderType(type);
+    setHeaderImage(getHeaderImageUrl(type));
+  }, [getHeaderImageUrl]);
+
 
   const getLetterId = (idx: number) => String.fromCharCode(65 + idx);
 
@@ -1354,6 +1375,57 @@ export const Editor = () => {
                       >
                         {showBOQSummary ? "Visible" : "Hidden"}
                       </button>
+                    </div>
+                    <div className="flex flex-col gap-2 pt-4 border-t border-border/40">
+                      <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60">
+                        Header Image
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleHeaderTypeChange('logo')}
+                          className={cn(
+                            "px-2 py-2 text-[8px] font-black uppercase rounded-lg border transition-all whitespace-nowrap text-center",
+                            selectedHeaderType === 'logo'
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "bg-muted text-muted-foreground border-border hover:bg-muted/80",
+                          )}
+                        >
+                          Logo
+                        </button>
+                        <button
+                          onClick={() => handleHeaderTypeChange('letterhead1')}
+                          className={cn(
+                            "px-2 py-2 text-[8px] font-black uppercase rounded-lg border transition-all whitespace-nowrap text-center",
+                            selectedHeaderType === 'letterhead1'
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "bg-muted text-muted-foreground border-border hover:bg-muted/80",
+                          )}
+                        >
+                          Letterhead 1
+                        </button>
+                        <button
+                          onClick={() => handleHeaderTypeChange('letterhead2')}
+                          className={cn(
+                            "px-2 py-2 text-[8px] font-black uppercase rounded-lg border transition-all whitespace-nowrap text-center",
+                            selectedHeaderType === 'letterhead2'
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "bg-muted text-muted-foreground border-border hover:bg-muted/80",
+                          )}
+                        >
+                          Letterhead 2
+                        </button>
+                        <button
+                          onClick={() => handleHeaderTypeChange('letterhead3')}
+                          className={cn(
+                            "px-2 py-2 text-[8px] font-black uppercase rounded-lg border transition-all whitespace-nowrap text-center",
+                            selectedHeaderType === 'letterhead3'
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "bg-muted text-muted-foreground border-border hover:bg-muted/80",
+                          )}
+                        >
+                          Letterhead 3
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -1,17 +1,34 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  signOut, 
-  User 
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+  User
 } from "firebase/auth";
 import { auth, googleProvider } from "../lib/firebase";
 import { API_BASE } from "../lib/workspace-persist";
+
+// Business branding assets (shared across all team members)
+interface BusinessAssets {
+  logoUrl?: string;
+  letterheadUrl1?: string;
+  letterheadUrl2?: string;
+  letterheadUrl3?: string;
+}
+
+// User profile data (per-user)
+interface UserProfile {
+  signatureUrl?: string;
+  bio?: string;
+  title?: string;
+}
 
 interface AuthContextType {
   user: User | null;
   businessId: string | null;
   businessName: string | null;
+  businessAssets?: BusinessAssets;
+  userProfile?: UserProfile;
   projectId: string | null;
   role: string | null;
   loading: boolean;
@@ -27,6 +44,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState<string | null>(null);
+  const [businessAssets, setBusinessAssets] = useState<BusinessAssets | undefined>(undefined);
+  const [userProfile, setUserProfile] = useState<UserProfile | undefined>(undefined);
   const [projectId, setProjectId] = useState<string | null>(() => {
     return localStorage.getItem("invsys_active_project") || null;
   });
@@ -56,7 +75,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setBusinessId(data?.businessId || null);
           setBusinessName(data?.businessName || null);
           setRole(data?.role || null);
-          
+          setBusinessAssets(data?.businessAssets || undefined);
+          setUserProfile(data?.userProfile || undefined);
+
           // Only set projectId if we don't already have one in localStorage
           if (!localStorage.getItem("invsys_active_project")) {
             const initialId = data?.projectId || 'playground';
@@ -102,6 +123,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setBusinessName(data?.businessName || null);
       setProjectId(data?.projectId || null);
       setRole(data?.role || null);
+      setBusinessAssets(data?.businessAssets || undefined);
+      setUserProfile(data?.userProfile || undefined);
     }
   };
 
@@ -131,15 +154,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      businessId, 
+    <AuthContext.Provider value={{
+      user,
+      businessId,
       businessName,
-      projectId, 
-      role, 
-      loading, 
-      loginWithGoogle, 
-      logout, 
+      businessAssets,
+      userProfile,
+      projectId,
+      role,
+      loading,
+      loginWithGoogle,
+      logout,
       refreshProfile,
       setProject
     }}>

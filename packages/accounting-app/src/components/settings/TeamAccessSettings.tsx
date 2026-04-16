@@ -8,6 +8,9 @@ interface TeamMember {
   email: string;
   role: 'owner' | 'admin' | 'editor' | 'viewer';
   userId?: string;
+  displayName?: string;
+  photoURL?: string;
+  status?: 'active' | 'pending';
 }
 
 const TeamAccessSettings: React.FC = () => {
@@ -38,9 +41,12 @@ const TeamAccessSettings: React.FC = () => {
           setOwnerId(data.ownerId || null);
           const rawMembers: any[] = data.members || [];
           setMembers(rawMembers.map(m => ({
-            email: m.email,
+            email: m.email || m.userEmail || m.email || '',
             role: m.role,
-            userId: m.userId
+            userId: m.userId || m.id || '',
+            displayName: m.displayName || m.user?.displayName || '',
+            photoURL: m.photoURL || m.user?.photoURL || '',
+            status: m.status || 'active'
           })));
         }
       } catch (error) {
@@ -222,31 +228,52 @@ const TeamAccessSettings: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {members.map(member => (
+            {members.map((member, idx) => (
               <div
-                key={member.email}
-                className={`flex items-center justify-between p-4 bg-card border border-border rounded-lg ${
+                key={member.userId ? `${member.email}-${member.userId}` : `${member.email}-${idx}`}
+                className={`flex items-center justify-between p-4 bg-card border border-border rounded-lg transition-colors hover:border-primary/30 ${
                   member.role === 'owner' ? 'border-amber-500/30 bg-amber-500/5' : ''
                 }`}
               >
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground">{member.email}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded capitalize">
-                      {member.role}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20 overflow-hidden">
+                      {member.photoURL ? (
+                        <img
+                          src={member.photoURL}
+                          alt={member.displayName || member.email || 'User'}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs font-black text-primary">
+                          {(member.email || 'U').charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{member.displayName || member.email || 'Unknown User'}</p>
+                      {member.email && member.email !== (member.displayName || '') && (
+                        <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-11">
+                    <span className="text-xs px-2.5 py-1 bg-primary/10 text-primary rounded-full font-medium capitalize">
+                      {member.role || 'viewer'}
                     </span>
                     {member.status === 'pending' && (
-                      <span className="text-xs px-2 py-1 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded">
+                      <span className="text-xs px-2.5 py-1 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 rounded-full font-medium">
                         Pending
                       </span>
                     )}
                   </div>
                 </div>
 
-                {isOwner && member.role !== 'owner' && (
+                {isOwner && member.role !== 'owner' && member.email && (
                   <button
                     onClick={() => handleRemoveMember(member.email)}
-                    className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                    className="ml-4 p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors flex-shrink-0"
+                    title={`Remove ${member.email}`}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

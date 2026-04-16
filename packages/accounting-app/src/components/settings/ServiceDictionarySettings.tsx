@@ -63,7 +63,7 @@ const ServiceDictionarySettings: React.FC = () => {
   const filteredServices = services.filter(
     s =>
       s.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.unit.toLowerCase().includes(searchTerm.toLowerCase())
+      (s.unit?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
   return (

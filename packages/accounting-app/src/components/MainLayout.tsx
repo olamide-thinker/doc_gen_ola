@@ -56,7 +56,7 @@ const SidebarItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, 
 const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user: currentUser, logout, businessId, businessName, projectId: activeProjectId, setProject, role } = useAuth();
+  const { user: currentUser, logout, businessId, businessName, projectId: activeProjectId, setProject, role, businessAssets } = useAuth();
   const workspaceAction = useSyncedStore(workspaceStore);
   
   const { theme, toggleTheme } = useTheme();
@@ -89,8 +89,16 @@ const MainLayout: React.FC = () => {
       <aside className="w-64 border-r border-border bg-card hidden md:flex flex-col p-6 space-y-8">
         {/* Company Identity */}
         <div className="flex items-center gap-3 px-2">
-          <div className="p-2.5 bg-primary/10 rounded-2xl border border-primary/20 shrink-0 shadow-sm shadow-primary/5">
-            <ShieldCheck size={20} className="text-primary" />
+          <div className="w-12 h-12 bg-primary/10 rounded-2xl border border-primary/20 shrink-0 shadow-sm shadow-primary/5 flex items-center justify-center overflow-hidden">
+            {businessAssets?.logoUrl ? (
+              <img
+                src={businessAssets.logoUrl}
+                alt={businessName || "Company Logo"}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <ShieldCheck size={20} className="text-primary" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-[13px] font-black tracking-tighter uppercase text-foreground truncate leading-none">

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { ChevronLeft, Building2, Users, BookOpen, FolderOpen, Palette, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Building2, Users, BookOpen, FolderOpen, Palette, AlertTriangle, UserCircle, Image } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import SettingsNavigation from './settings/SettingsNavigation';
 import BusinessProfileSettings from './settings/BusinessProfileSettings';
+import UserProfileSettings from './settings/UserProfileSettings';
+import BrandingAssetsSettings from './settings/BrandingAssetsSettings';
 import TeamAccessSettings from './settings/TeamAccessSettings';
 import ServiceDictionarySettings from './settings/ServiceDictionarySettings';
 import ProjectsSettings from './settings/ProjectsSettings';
@@ -11,6 +13,8 @@ import DangerZoneSettings from './settings/DangerZoneSettings';
 
 export type SettingsSection =
   | 'business-profile'
+  | 'user-profile'
+  | 'branding-assets'
   | 'team-access'
   | 'service-dictionary'
   | 'projects'
@@ -36,6 +40,20 @@ const SettingsPage: React.FC = () => {
       icon: <Building2 className="w-4 h-4" />,
       category: 'primary',
       component: <BusinessProfileSettings />,
+    },
+    {
+      id: 'user-profile',
+      label: 'User Profile',
+      icon: <UserCircle className="w-4 h-4" />,
+      category: 'primary',
+      component: <UserProfileSettings />,
+    },
+    {
+      id: 'branding-assets',
+      label: 'Branding & Assets',
+      icon: <Image className="w-4 h-4" />,
+      category: 'primary',
+      component: <BrandingAssetsSettings />,
     },
     {
       id: 'team-access',
