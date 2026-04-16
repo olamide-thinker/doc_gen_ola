@@ -34,7 +34,8 @@ import {
   BookOpen,
   Image as ImageIcon,
   Video,
-  ChevronDown
+  ChevronDown,
+  Settings as SettingsIcon
 } from "../lib/icons/lucide";
 import { ServiceDictionaryModal } from "./ServiceDictionaryModal";
 import { cn } from "../lib/utils";
@@ -109,29 +110,23 @@ const MainLayout: React.FC = () => {
               <Folder size={12} /> Library
             </h3>
             <nav className="space-y-1">
-              <SidebarItem 
-                icon={<Clock size={18} />} 
-                label="Home" 
-                active={currentPath === "/dashboard"} 
-                onClick={() => { setActiveView("home"); navigate("/dashboard"); }} 
+              <SidebarItem
+                icon={<Clock size={18} />}
+                label="Home"
+                active={currentPath === "/dashboard"}
+                onClick={() => { setActiveView("home"); navigate("/dashboard"); }}
               />
               <SidebarItem
-                icon={<BookOpen size={18} />}
-                label="Service Dictionary"
-                active={isServiceDictionaryOpen}
-                onClick={() => setIsServiceDictionaryOpen(true)}
+                icon={<SettingsIcon size={18} />}
+                label="Settings"
+                active={currentPath === "/settings"}
+                onClick={() => navigate("/settings")}
               />
-              <SidebarItem 
-                icon={<Users size={18} />} 
-                label="Manage Team" 
-                active={currentPath === "/team"} 
-                onClick={() => navigate("/team")} 
-              />
-              <SidebarItem 
-                icon={<Boxes size={18} />} 
-                label="All Projects" 
-                active={currentPath === "/projects"} 
-                onClick={() => navigate("/projects")} 
+              <SidebarItem
+                icon={<Boxes size={18} />}
+                label="All Projects"
+                active={currentPath === "/projects"}
+                onClick={() => navigate("/projects")}
               />
               <SidebarItem icon={<Trash size={18} />} label="Trash bin" onClick={() => alert("Trash feature coming soon")} />
             </nav>

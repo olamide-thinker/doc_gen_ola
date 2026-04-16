@@ -13,6 +13,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import OnboardingPage from "./components/OnboardingPage";
 import ProjectsPage from "./components/ProjectsPage";
 import TeamPage from "./components/TeamPage";
+import SettingsPage from "./components/SettingsPage";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, businessId, loading } = useAuth();
@@ -60,12 +61,13 @@ const AppContent: React.FC = () => {
       
       <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route 
-          path="dashboard" 
-          element={<Dashboard key={activeProjectId || 'initial'} />} 
+        <Route
+          path="dashboard"
+          element={<Dashboard key={activeProjectId || 'initial'} />}
         />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="team" element={<TeamPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="crdt-test" element={<CrdtTest />} />
       </Route>
 
