@@ -128,7 +128,7 @@ const MainLayout: React.FC = () => {
                 icon={<SettingsIcon size={18} />}
                 label="Settings"
                 active={currentPath === "/settings"}
-                onClick={() => navigate("/settings")}
+                onClick={() => navigate(`/settings${activeProjectId ? `?project=${activeProjectId}` : ""}`)}
               />
               <SidebarItem
                 icon={<Boxes size={18} />}

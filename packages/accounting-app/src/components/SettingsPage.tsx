@@ -31,7 +31,11 @@ interface SettingsSectionConfig {
 
 const SettingsPage: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('business-profile');
-  const { businessId } = useAuth();
+  const { businessId, projectId } = useAuth();
+
+  // Get the current project name from URL params or a simple lookup
+  const urlParams = new URLSearchParams(window.location.search);
+  const projectParam = urlParams.get('project') || projectId;
 
   const sections: SettingsSectionConfig[] = [
     {
@@ -107,14 +111,26 @@ const SettingsPage: React.FC = () => {
       <div className="flex-1 overflow-y-auto pr-6 pb-8">
         {/* Header */}
         <div className="sticky top-0 bg-background z-10 pb-4 mb-6 border-b border-border">
-          <h1 className="text-2xl font-semibold text-foreground">
-            {activeConfig?.label}
-          </h1>
-          {businessId && (
-            <p className="text-sm text-muted-foreground mt-1">
-              Workspace ID: {businessId.substring(0, 12)}...
-            </p>
-          )}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-foreground">
+                {activeConfig?.label}
+              </h1>
+              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                {projectParam && (
+                  <span className="flex items-center gap-2 px-3 py-1 bg-primary/5 border border-primary/20 rounded-lg">
+                    <span className="w-2 h-2 bg-primary rounded-full"></span>
+                    Project: {projectParam}
+                  </span>
+                )}
+                {businessId && (
+                  <span className="text-xs">
+                    Workspace: {businessId.substring(0, 12)}...
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Dynamic Content */}

@@ -17,6 +17,7 @@ const TeamAccessSettings: React.FC = () => {
   const { user: currentUser, projectId, businessId } = useAuth();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState<string | null>(null);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [selectedRole, setSelectedRole] = useState<'admin' | 'editor' | 'viewer'>('editor');
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +40,7 @@ const TeamAccessSettings: React.FC = () => {
         if (result.success && result.data) {
           const data = result.data;
           setOwnerId(data.ownerId || null);
+          setProjectName(data.name || null);
           const rawMembers: any[] = data.members || [];
           setMembers(rawMembers.map(m => ({
             email: m.email || m.userEmail || m.email || '',
@@ -116,6 +118,15 @@ const TeamAccessSettings: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Project Context Info */}
+      {projectName && projectId && (
+        <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+          <p className="text-sm text-blue-600 dark:text-blue-400">
+            <span className="font-semibold">Managing team members for:</span> <span className="font-mono text-xs">{projectName}</span>
+          </p>
+        </div>
+      )}
+
       {/* Message */}
       {message && (
         <div
