@@ -257,9 +257,9 @@ const MainLayout: React.FC = () => {
                                </div>
                                
                                <div className="space-y-1 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
-                                 {projects.map((project) => (
+                                 {projects.map((project, idx) => (
                                    <button
-                                     key={project.id}
+                                     key={project?.id || `project-${idx}`}
                                      onClick={() => {
                                        setProject(project.id);
                                        setIsProjectSwitcherOpen(false);
