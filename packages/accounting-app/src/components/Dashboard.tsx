@@ -79,6 +79,12 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+/** Pure helper — defined once outside the component for a stable reference. */
+const normalizeMembers = (list: any): DocumentMember[] =>
+  (list || []).map((m: any) =>
+    typeof m === "string" ? { email: m, role: "editor" as const } : m,
+  );
+
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -270,10 +276,6 @@ const Dashboard: React.FC = () => {
   // Owners always count as project members — inherit full visibility.
   const userEmail = currentUser?.email || "";
 
-  const normalizeMembers = (list: any): DocumentMember[] => {
-    return (list || []).map((m: any) => typeof m === 'string' ? { email: m, role: 'editor' } : m);
-  };
-
   const projectContext = useMemo(() => {
     const activeProject = projects.find(p => p.id === activeProjectId);
     if (!activeProject) return { isMember: false, role: 'viewer' as MemberRole };
@@ -312,21 +314,27 @@ const Dashboard: React.FC = () => {
     return currentFolderId ? allFolders.find(f => f.id === currentFolderId) : null;
   }, [allFolders, currentFolderId]);
 
-  const getFolderPath = (id: string | null): FolderType[] => {
-    if (!id) return [];
+  const folderPath = useMemo<FolderType[]>(() => {
+    if (!currentFolderId) return [];
     const path: FolderType[] = [];
-    let curr = id;
-    const email = currentUser?.email || "";
+    let curr: string = currentFolderId;
     while (curr) {
       const folder = allFolders.find(f => f.id === curr);
-      if (folder && (isProjectMember || (folder.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === userEmail))) {
+      if (
+        folder &&
+        (isProjectMember ||
+          (folder.members || []).some(
+            (m: any) => (typeof m === "string" ? m : m.email) === userEmail,
+          ))
+      ) {
         path.unshift(folder as any);
         curr = folder.parentId || (folder.metadata as any)?.parentId || "";
-      } else curr = "";
+      } else {
+        curr = "";
+      }
     }
     return path;
-  };
-  const folderPath = getFolderPath(currentFolderId);
+  }, [allFolders, currentFolderId, isProjectMember, userEmail]);
 
   const searchResults = useMemo(() => {
     if (!isSearching) return [];
@@ -339,23 +347,37 @@ const Dashboard: React.FC = () => {
     );
   }, [allDocuments, isSearching, activeProjectId, isProjectMember, userEmail, searchQuery]);
 
-  const searchInvoices = searchResults.filter(d => !d.content?.isReceipt);
-  const searchReceipts = searchResults.filter(d => d.content?.isReceipt);
+  const searchInvoices = useMemo(
+    () => searchResults.filter(d => !d.content?.isReceipt),
+    [searchResults],
+  );
+  const searchReceipts = useMemo(
+    () => searchResults.filter(d => !!d.content?.isReceipt),
+    [searchResults],
+  );
 
-  const items = [
+  // Combined, memoized list for the DnD grid.
+  // Inner allFolders/allDocuments pass avoids recompute when unrelated state
+  // changes — folder stat counts only re-run when the source arrays change.
+  const items = useMemo(() => [
     ...folderItems.map(f => {
       const subFolders = allFolders.filter(sf => sf.parentId === f.id).length;
       const subDocs = allDocuments.filter(sd => sd.folderId === f.id).length;
-      return { 
-        ...f, 
-        id: `f-${f.id}`, 
-        _type: 'folder' as const, 
+      return {
+        ...f,
+        id: `f-${f.id}`,
+        _type: "folder" as const,
         _realId: f.id,
-        stats: { folders: subFolders, files: subDocs }
+        stats: { folders: subFolders, files: subDocs },
       };
     }),
-    ...docItems.map(d => ({ ...d, id: `d-${d.id}`, _type: 'document' as const, _realId: d.id }))
-  ];
+    ...docItems.map(d => ({
+      ...d,
+      id: `d-${d.id}`,
+      _type: "document" as const,
+      _realId: d.id,
+    })),
+  ], [folderItems, docItems, allFolders, allDocuments]);
 
   const isLoading = false;
 

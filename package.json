@@ -1,15 +1,21 @@
 {
-  "name": "shan-doc-printer",
+  "name": "construction-pm-monorepo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "backend"
+  ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
-    "dev:frontend": "vite --force",
-    "dev:backend": "cd backend && npm run dev",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "dev": "concurrently \"npm run dev:accounting-app\" \"npm run dev:backend\"",
+    "dev:accounting-app": "npm --prefix packages/accounting-app run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build": "npm --prefix packages/accounting-app run build",
+    "build:all": "npm --workspaces run build",
+    "lint": "eslint packages/",
+    "preview": "npm --prefix packages/accounting-app run preview",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

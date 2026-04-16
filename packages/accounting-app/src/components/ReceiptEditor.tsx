@@ -27,7 +27,6 @@ import {
   SortableContext,
   verticalListSortingStrategy,
   sortableKeyboardCoordinates,
-  arrayMove,
 } from "@dnd-kit/sortable";
 import { type Annotation, type MemberRole, canWrite, DocData, TableRow, InvoiceCode, Contact } from "../types";
 import { api } from "../lib/api";
@@ -373,8 +372,14 @@ const ReceiptEditor: React.FC = () => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
-      const newRow = { id: crypto.randomUUID(), rowType: "row", B: "New Item", C: 1, D: 0 };
-      docData.table.rows.splice(i + 1, 0, newRow as any);
+      // Build the new row from the actual column schema so it works across
+      // every template, not just the default B/C/D layout.
+      const newRow: any = { id: crypto.randomUUID(), rowType: "row" };
+      (docData.table.columns || []).forEach((col: any) => {
+        if (col.type === "index") return;
+        newRow[col.id] = col.type === "number" ? 0 : "";
+      });
+      docData.table.rows.splice(i + 1, 0, newRow);
     }
   };
 
@@ -432,11 +437,14 @@ const ReceiptEditor: React.FC = () => {
     if (over && active.id !== over.id && docData) {
       const oldIndex = docData.table.rows.findIndex((r: any) => r.id === active.id);
       const newIndex = docData.table.rows.findIndex((r: any) => r.id === over.id);
-      const updatedRows = arrayMove(docData.table.rows, oldIndex, newIndex);
-      updateDocData({
-        ...docData,
-        table: { ...docData.table, rows: updatedRows },
-      });
+      // Mutate the SyncedStore Yjs proxy directly so the reorder is tracked and
+      // broadcast to every connected peer — arrayMove + Object.assign would
+      // replace the whole array reference and bypass Yjs change tracking.
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const item = docData.table.rows[oldIndex];
+        docData.table.rows.splice(oldIndex, 1);
+        docData.table.rows.splice(newIndex, 0, item);
+      }
     }
   };
 

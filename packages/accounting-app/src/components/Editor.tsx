@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Printer,
@@ -691,7 +691,7 @@ export const Editor = () => {
     }
   };
 
-  const onMoveRow = (targetId: string, dir: "up" | "down") => {
+  const onMoveRow = useCallback((targetId: string, dir: "up" | "down") => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
@@ -700,9 +700,9 @@ export const Editor = () => {
       const [movedItem] = docData.table.rows.splice(i, 1);
       docData.table.rows.splice(target, 0, movedItem);
     }
-  };
+  }, [docData]);
 
-  const onAddSectionBelow = (targetId: string, numbered?: boolean) => {
+  const onAddSectionBelow = useCallback((targetId: string, numbered?: boolean) => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
@@ -713,9 +713,9 @@ export const Editor = () => {
         affectsNumbering: numbered ?? true,
       });
     }
-  };
+  }, [docData]);
 
-  const onAddSectionAbove = (targetId: string, numbered?: boolean) => {
+  const onAddSectionAbove = useCallback((targetId: string, numbered?: boolean) => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
@@ -726,9 +726,9 @@ export const Editor = () => {
         affectsNumbering: numbered ?? true,
       });
     }
-  };
+  }, [docData]);
 
-  const onRemoveRow = (targetId: string) => {
+  const onRemoveRow = useCallback((targetId: string) => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i !== -1) {
@@ -736,9 +736,9 @@ export const Editor = () => {
         bump();
       }
     }
-  };
+  }, [docData]);
 
-  const onAddSubSectionBelow = (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => {
+  const onAddSubSectionBelow = useCallback((targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
@@ -750,9 +750,9 @@ export const Editor = () => {
         affectsNumbering: numbered ?? true,
       });
     }
-  };
+  }, [docData]);
 
-  const onAddSubSectionAbove = (targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => {
+  const onAddSubSectionAbove = useCallback((targetId: string, numbered?: boolean, type?: TableRow["rowType"]) => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
@@ -764,9 +764,9 @@ export const Editor = () => {
         affectsNumbering: numbered ?? true,
       });
     }
-  };
+  }, [docData]);
 
-  const onAddRowBelow = (targetId: string) => {
+  const onAddRowBelow = useCallback((targetId: string) => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
@@ -778,9 +778,9 @@ export const Editor = () => {
       docData.table.rows.splice(i + 1, 0, newRow as any);
       bump();
     }
-  };
+  }, [docData]);
 
-  const onAddRowAbove = (targetId: string) => {
+  const onAddRowAbove = useCallback((targetId: string) => {
     if (docData) {
       const i = docData.table.rows.findIndex((r: any) => r.id === targetId);
       if (i === -1) return;
@@ -792,13 +792,13 @@ export const Editor = () => {
       docData.table.rows.splice(i, 0, newRow as any);
       bump();
     }
-  };
+  }, [docData]);
 
-  const handleDragStart = (event: DragStartEvent) => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string);
-  };
+  }, []);
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     setActiveId(null);
     if (over && active.id !== over.id && docData) {
@@ -812,13 +812,13 @@ export const Editor = () => {
         bump();
       }
     }
-  };
+  }, [docData]);
 
-  const handleDragCancel = () => {
+  const handleDragCancel = useCallback(() => {
     setActiveId(null);
-  };
+  }, []);
 
-  const handleSummaryDragEnd = (event: DragEndEvent) => {
+  const handleSummaryDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     if (active.id !== over?.id && docData) {
       const oldIndex = docData.table.summary.findIndex(
@@ -834,9 +834,9 @@ export const Editor = () => {
         bump();
       }
     }
-  };
+  }, [docData]);
 
-  const handleHeaderResize = (e: React.MouseEvent) => {
+  const handleHeaderResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startY = e.clientY;
     const startHeight = headerHeight;
@@ -850,7 +850,7 @@ export const Editor = () => {
     };
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  };
+  }, [headerHeight]);
 
 
   const getLetterId = (idx: number) => String.fromCharCode(65 + idx);
@@ -864,11 +864,17 @@ export const Editor = () => {
     grandTotal,
   };
 
-  const resolveSectionTotalBackwardWrapper = (rows: TableRow[], fromIdx: number) => 
-    docData ? resolveSectionTotalBackward(rows, fromIdx, docData) : 0;
-  
-  const resolveSectionTotalWrapper = (rows: TableRow[], fromIdx: number) => 
-    docData ? resolveSectionTotal(rows, fromIdx, docData) : 0;
+  const resolveSectionTotalBackwardWrapper = useCallback(
+    (rows: TableRow[], fromIdx: number) =>
+      docData ? resolveSectionTotalBackward(rows, fromIdx, docData) : 0,
+    [docData],
+  );
+
+  const resolveSectionTotalWrapper = useCallback(
+    (rows: TableRow[], fromIdx: number) =>
+      docData ? resolveSectionTotal(rows, fromIdx, docData) : 0,
+    [docData],
+  );
 
   const summaryForRender = summaries;
 
@@ -892,39 +898,28 @@ export const Editor = () => {
     (docMetadata.members || []).some((m: any) => (typeof m === 'string' ? m : m.email) === email)
   );
 
-  if (isLoadingDoc || !docData)
-    return (
-      <div className="flex items-center justify-center h-screen bg-background text-muted-foreground">
-        <RefreshCw className="animate-spin text-muted-foreground/30" size={32} />
-      </div>
-    );
+  // ── Stable field-update callbacks ─────────────────────────────────────────
+  // All are defined BEFORE the early-return so they obey Rules of Hooks.
+  // Each guards against !docData so they're safe to call before content loads.
 
-  // Removed Access Denied guard to restore editability
-
-  const onUpdateContact = (field: keyof Contact, value: string) => {
+  const onUpdateContact = useCallback((field: keyof Contact, value: string) => {
     if (docData) docData.contact[field] = value;
-  };
+  }, [docData]);
 
-  const onUpdateTitle = (value: string) => {
+  const onUpdateTitle = useCallback((value: string) => {
     if (docData) docData.title = value;
-  };
+  }, [docData]);
 
-  const onUpdateCell = (
-    rowId: string, // Changed from rowIndex to rowId
+  const onUpdateCell = useCallback((
+    rowId: string,
     colId: string,
     value: string | number | boolean,
   ) => {
     if (!docData) return;
-    
-    // 1. Find the exact row by ID, not index
     const row = docData.table.rows.find((r: any) => r.id === rowId);
     if (!row) return;
-
-    // 2. Check if the column is meant to be a number
     const column = docData.table.columns.find((c: any) => c.id === colId);
     const isNumeric = column?.type === "number";
-
-    // 3. Mutate the SyncedStore proxy directly and cast numbers!
     if (isNumeric) {
       const parsed = parseFloat(value as string);
       row[colId] = isNaN(parsed) ? 0 : parsed;
@@ -932,40 +927,46 @@ export const Editor = () => {
       row[colId] = value;
     }
     bump();
-  };
+  }, [docData]);
 
-  const onUpdateSummaryItem = (id: string, label: string) => {
+  const onUpdateSummaryItem = useCallback((id: string, label: string) => {
     if (docData) {
       const item = docData.table.summary.find((s) => s.id === id);
       if (item) item.label = label;
     }
-  };
+  }, [docData]);
 
-  const onUpdateDate = (v: string) => {
+  const onUpdateDate = useCallback((v: string) => {
     if (docData) docData.date = v;
-  };
+  }, [docData]);
 
-  const onUpdatePaymentMethod = (v: string) => {
+  const onUpdatePaymentMethod = useCallback((v: string) => {
     if (docData) docData.paymentMethod = v;
-  };
+  }, [docData]);
 
-  const onUpdateTransactionId = (v: string) => {
+  const onUpdateTransactionId = useCallback((v: string) => {
     if (docData) docData.transactionId = v;
-  };
+  }, [docData]);
 
-  const onUpdateReference = (v: string) => {
+  const onUpdateReference = useCallback((v: string) => {
     if (docData) docData.reference = v;
-  };
+  }, [docData]);
 
-  const onUpdateSignature = (v: string) => {
+  const onUpdateSignature = useCallback((v: string) => {
     if (docData) docData.signature = v;
-  };
+  }, [docData]);
 
-  const onUpdateReceiptMessage = (v: string) => {
+  const onUpdateReceiptMessage = useCallback((v: string) => {
     if (docData) docData.receiptMessage = v;
-  };
+  }, [docData]);
 
-  const pagesToDisplay = pages;
+  // ── Early return after all hooks ──────────────────────────────────────────
+  if (isLoadingDoc || !docData)
+    return (
+      <div className="flex items-center justify-center h-screen bg-background text-muted-foreground">
+        <RefreshCw className="animate-spin text-muted-foreground/30" size={32} />
+      </div>
+    );
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
@@ -2513,7 +2514,7 @@ const A4Page: React.FC<A4PageProps> = ({
                       <ColumnHeader
                         key={col.id}
                         col={col}
-                        isReadOnly={isReadOnly}
+                        isReadOnly={!!isReadOnly}
                         onResize={(width) => {
                           const target = data.table.columns.find(c => c.id === col.id);
                           if (target) target.width = width;
