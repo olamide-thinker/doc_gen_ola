@@ -10,10 +10,13 @@ import {
   Shield,
   FileText,
   Eye,
-  Trash2
+  Trash2,
+  Download
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
+import { AnnotationSystem } from "./AnnotationSystem";
+import { PdfViewer } from "./PdfViewer";
 import {
   DndContext,
   closestCenter,
@@ -39,11 +42,12 @@ import {
   computeTotalPrice,
   getRowNumbering 
 } from "../lib/documentUtils";
-import { AnnotationSystem } from "./AnnotationSystem";
+import { findPriceColumnId } from "../lib/service-dictionary";
 import { useSyncedStore } from "@syncedstore/react";
 import { workspaceStore, authStore, editorStore, connectProject, connectEditor, authProvider } from "../store";
 import { getYjsDoc } from "@syncedstore/core";
 import { Radio, SignalIcon } from "lucide-react";
+import { API_BASE } from "../lib/workspace-persist";
 
 const ReceiptEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -52,6 +56,7 @@ const ReceiptEditor: React.FC = () => {
   const location = useLocation();
   const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
+  const [finalisedPdfUrl, setFinalisedPdfUrl] = useState<string | null>(null);
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
@@ -294,6 +299,76 @@ const ReceiptEditor: React.FC = () => {
     await api.updateDocument(docMetadata.id, docData, updatedMetadata);
     queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
   };
+
+  // --- Auto-fill financial metadata from Parent Invoice ---
+  useEffect(() => {
+    if (isSyncReady && docData && parentInvoiceData && docMetadata?.status === 'draft') {
+      // Only auto-fill if these fields are essentially empty/unset
+      if (!docData.totalInvoiceAmount || docData.totalInvoiceAmount === 0) {
+        docData.totalInvoiceAmount = parentInvoiceData.grandTotal;
+      }
+
+      if (!docData.table.columns || docData.table.columns.length === 0) {
+        docData.table.columns = [
+          { id: "A", label: "S/N",         type: "index",  width: "50px" },
+          { id: "B", label: "Description", type: "text"                  },
+          { id: "C", label: "Amount (₦)",  type: "number", width: "160px" },
+        ];
+      }
+      
+      if (!docData.contact?.name && parentInvoiceData.name) {
+        if (!docData.contact) docData.contact = { name: "", address1: "", address2: "" };
+        docData.contact.name = parentInvoiceData.name;
+        // Try to pull contact details from the invoice's own content if available
+        const invContent = parentInvoiceData.draft || parentInvoiceData.versions?.[0]?.content;
+        if (invContent?.contact) {
+          docData.contact.address1 = invContent.contact.address1 || "";
+          docData.contact.address2 = invContent.contact.address2 || "";
+        }
+      }
+
+      if (!docData.amountPaid || docData.amountPaid === 0) {
+        const amt = parentInvoiceData.outstanding;
+        docData.amountPaid = amt;
+        
+        // Sync with table row so backend sees the total
+        if (docData.table && docData.table.rows && docData.table.rows.length > 0) {
+           const firstRow = docData.table.rows[0];
+           if (firstRow) firstRow.C = amt;
+        } else if (docData.table) {
+           docData.table.rows.push({
+             id: 'r-auto-1',
+             rowType: 'row',
+             B: 'Payment for referenced invoice',
+             C: amt
+           });
+        }
+      }
+
+      // Default reference if empty
+      if (!docData.reference && parentInvoiceCode) {
+        docData.reference = `Ref: ${parentInvoiceCode}`;
+      }
+    }
+  }, [isSyncReady, docData, parentInvoiceData, docMetadata?.status, parentInvoiceCode]);
+
+  const handleManualSync = () => {
+    if (!docData || !parentInvoiceData) return;
+    docData.totalInvoiceAmount = parentInvoiceData.grandTotal;
+    docData.amountPaid = parentInvoiceData.outstanding;
+    
+    const invContent = parentInvoiceData.draft || parentInvoiceData.versions?.[0]?.content;
+    if (invContent?.contact) {
+      docData.contact.name = invContent.contact.name;
+      docData.contact.address1 = invContent.contact.address1 || "";
+      docData.contact.address2 = invContent.contact.address2 || "";
+    }
+    
+    if (parentInvoiceCode) {
+       docData.reference = `Ref: ${parentInvoiceCode}`;
+    }
+    alert("Synced with parent invoice stats!");
+  };
   const [headerImage, setHeaderImage] = useState<string>(
     () => localStorage.getItem("receiptHeaderImage") || "/Shan-PaymentReceipt.png",
   );
@@ -469,7 +544,7 @@ const ReceiptEditor: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden font-sans transition-colors duration-300">
       {/* ── Sticky Workspace Header ── */}
-      <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300">
+      <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300 no-print">
         <button
           onClick={() => {
             const invId = (docMetadata as any)?.metadata?.invoiceId;
@@ -505,7 +580,7 @@ const ReceiptEditor: React.FC = () => {
         <div className="flex items-center gap-2">
           {/* Status Indicator */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40">
-            <SignalIcon size={10} className="text-success animate-pulse" />
+            <RefreshCw size={10} className="text-success animate-spin-slow" />
             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Auto Saved</span>
           </div>
           
@@ -535,6 +610,17 @@ const ReceiptEditor: React.FC = () => {
              {isPreview ? "Exit Preview" : "Preview"}
           </button>
 
+          <div className="h-6 w-px bg-border/40 mx-1" />
+
+
+
+          <button
+            onClick={() => window.print()}
+            className="p-1.5 bg-muted text-muted-foreground border border-border rounded-lg transition-all shadow-sm hover:bg-muted/80 active:scale-95 no-print"
+            title="Print (Browser)"
+          >
+            <Printer size={16} />
+          </button>
           {docMetadata?.status === 'draft' && (
             <button
               onClick={async () => {
@@ -553,15 +639,31 @@ const ReceiptEditor: React.FC = () => {
             </button>
           )}
 
-          {docMetadata?.status !== 'finalised' && docMetadata?.status !== 'voided' && (
+          {docMetadata?.status === 'draft' && parentInvoiceData && (
+            <button
+              onClick={handleManualSync}
+              className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all text-[10px] font-black uppercase tracking-widest shadow-sm border border-primary/20"
+              title="Pull latest totals and contact from parent invoice"
+            >
+              <RefreshCw size={12} /> Sync with Invoice
+            </button>
+          )}
+
+          {docMetadata?.status !== 'finalised' && docMetadata?.status !== 'voided' && !finalisedPdfUrl && (
             <button
               onClick={async () => {
                 const confirm = window.confirm("Finalising this receipt will freeze it, add it to the payment chain, and LOCK the parent invoice — no further edits to the invoice itself will be allowed. Proceed?");
                 if (!confirm) return;
                 try {
-                  await api.finaliseReceipt(id!);
-                  const invId = (docMetadata as any)?.metadata?.invoiceId;
-                  navigate(invId ? `/invoice/${invId}` : `/dashboard`);
+                  const res = await api.finaliseReceipt(id!);
+                  const url = res.url || res.pdfUrl;
+                  if (url) {
+                    setFinalisedPdfUrl(url);
+                    queryClient.invalidateQueries({ queryKey: ['document', id] });
+                  } else {
+                    const invId = (docMetadata as any)?.metadata?.invoiceId;
+                    navigate(invId ? `/invoice/${invId}` : `/dashboard`);
+                  }
                 } catch (e) {
                   alert("Finalization failed");
                 }
@@ -569,6 +671,18 @@ const ReceiptEditor: React.FC = () => {
               className="flex items-center gap-2 px-4 py-1.5 bg-success text-success-foreground rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 active:scale-95"
             >
               <Check size={14} /> Finalize Receipt
+            </button>
+          )}
+
+          {(docMetadata?.status === 'finalised' || finalisedPdfUrl) && (
+            <button
+              onClick={() => {
+                const invId = (docMetadata as any)?.metadata?.invoiceId;
+                navigate(invId ? `/invoice/${invId}` : `/dashboard`);
+              }}
+              className="px-3 py-1.5 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-all text-[10px] font-black uppercase tracking-widest border border-border"
+            >
+              Close
             </button>
           )}
         </div>
@@ -580,8 +694,33 @@ const ReceiptEditor: React.FC = () => {
         </div>
       )}
 
-      <div className="preview-container flex-1 overflow-y-auto p-6 lg:p-16 flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto">
-        <div ref={containerRef} className="relative w-fit flex flex-col items-center">
+      <div className={cn("preview-container flex-1 overflow-y-auto flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto custom-scrollbar", finalisedPdfUrl ? "bg-[#525659] p-0" : "bg-slate-100/50 p-6 lg:p-16")}>
+        {finalisedPdfUrl ? (
+          <div className="w-full h-full flex flex-col items-center">
+             <div className="w-full max-w-5xl h-full bg-card shadow-2xl overflow-hidden border border-white/5">
+               <PdfViewer 
+                 url={finalisedPdfUrl}
+                 annotations={annotations}
+                 onSaveAnnotations={handleSaveAnnotations}
+                 role={userRole}
+                 className="w-full h-full"
+               />
+             </div>
+             <div className="my-6 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700 no-print">
+                <div className="px-4 py-2 bg-success/20 border border-success/30 rounded-xl flex items-center gap-2 text-success">
+                  <Check size={16} strokeWidth={3} />
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Finalized High-Fidelity PDF</span>
+                </div>
+                <button 
+                  onClick={() => setFinalisedPdfUrl(null)}
+                  className="text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors underline underline-offset-4"
+                >
+                  Switch to component view
+                </button>
+             </div>
+          </div>
+        ) : (
+          <div ref={containerRef} className="relative w-fit flex flex-col items-center">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={(docData?.table.rows || []).map((r: any) => r.id as string)} strategy={verticalListSortingStrategy}>
             {pages.map((page, idx) => (
@@ -618,21 +757,34 @@ const ReceiptEditor: React.FC = () => {
                   if (!docData.invoiceCode) {
                     docData.invoiceCode = {
                       text: "",
-                      prefix: "INV",
-                      company: "IS",
+                      prefix: "REC",
+                      company: "IP",
                       count: "0001",
                       year: String(new Date().getFullYear()),
                       x: 600,
                       y: 100,
                       color: "#503D36",
-                      ...upd
                     } as any;
-                  } else {
-                    Object.assign(docData.invoiceCode, upd);
                   }
-                  // Sync formatting
+                  
+                  // If we are updating the full text, try to explode it into parts 
+                  // to keep the structured fields in sync.
+                  if (upd.text) {
+                    const parts = upd.text.split("/");
+                    if (parts.length === 4) {
+                      docData.invoiceCode.prefix = parts[0];
+                      docData.invoiceCode.company = parts[1];
+                      docData.invoiceCode.count = parts[2];
+                      docData.invoiceCode.year = parts[3];
+                    }
+                  }
+
+                  Object.assign(docData.invoiceCode, upd);
+                  
+                  // Sync formatting: only re-apply formatting if we HAVE the parts, 
+                  // otherwise respect the raw text provided.
                   const ic = docData.invoiceCode!;
-                  ic.text = `${ic.prefix || "INV"}/${ic.company || "IS"}/${ic.count || "0001"}/${ic.year || new Date().getFullYear()}`;
+                  ic.text = ic.text || `${ic.prefix || "REC"}/${ic.company || "IP"}/${ic.count || "0001"}/${ic.year || new Date().getFullYear()}`;
                 }
               }}
               onUpdateSummaryItem={() => {}}
@@ -643,10 +795,27 @@ const ReceiptEditor: React.FC = () => {
               onUpdateTransactionId={(val) => { if (docData) docData.transactionId = val; }}
               onUpdateReference={(val) => { if (docData) docData.reference = val; }}
               onUpdateTotalInvoiceAmount={(val) => { if (docData) docData.totalInvoiceAmount = Number(val); }}
-              onUpdateAmountPaid={(val) => { if (docData) docData.amountPaid = Number(val); }}
+              onUpdateAmountPaid={(val) => { 
+                if (docData) {
+                  const numVal = Number(val);
+                  docData.amountPaid = numVal;
+                  const priceColId = findPriceColumnId(docData.table.columns) || 'C';
+                  if (docData.table && docData.table.rows && docData.table.rows.length > 0) {
+                    const firstRow = docData.table.rows[0];
+                    if (firstRow) firstRow[priceColId] = numVal;
+                  } else if (docData.table) {
+                    docData.table.rows.push({
+                      id: 'r-manual-1',
+                      rowType: 'row',
+                      B: 'Payment for referenced invoice',
+                      [priceColId]: numVal
+                    });
+                  }
+                } 
+              }}
               onUpdateOutstandingBalance={(val) => { if (docData) docData.outstandingBalance = Number(val); }}
               onUpdateAcknowledgement={(val) => { if (docData) docData.acknowledgement = val; }}
-              isPreview={isPreview}
+              isPreview={isReadOnly || isPreview}
               showRows={false}
               showTotals={false}
               showFooter={true}
@@ -663,7 +832,8 @@ const ReceiptEditor: React.FC = () => {
             isReadOnly={isReadOnly}
             userRole={userRole}
         />
-        </div>
+          </div>
+        )}
       </div>
       <style>{`
         @media print {

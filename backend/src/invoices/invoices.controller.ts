@@ -63,7 +63,7 @@ export class InvoicesController {
               or(
                 eq(schema.projectMembers.userId, userId),
                 userEmail ? eq(schema.projectMembers.email, userEmail) : undefined
-              ).filter(Boolean),
+              )
             ),
           });
 
@@ -141,21 +141,18 @@ export class InvoicesController {
         columns: [
           { id: 'A', label: 'S/N', type: 'index', width: '60px' },
           { id: 'B', label: 'Description', type: 'text' },
-          { id: 'C', label: 'Qty', type: 'number', width: '80px' },
-          { id: 'D', label: 'Price (₦)', type: 'number', width: '140px' },
-          { id: 'E', label: 'Total (₦)', type: 'formula', formula: 'C * D', width: '140px' },
+          { id: 'C', label: 'Amount (₦)', type: 'number', width: '160px' },
         ],
         rows: [
           {
             id: `r-${Date.now()}`,
             rowType: 'row',
             B: 'Payment',
-            C: 1,
-            D: 0,
+            C: 0,
           },
         ],
         summary: [
-          { id: 'subTotal', label: 'Sub Total', type: 'formula', formula: 'sum(E)' },
+          { id: 'subTotal', label: 'Sub Total', type: 'formula', formula: 'subTotal' },
         ],
       },
       footer: { notes: '', emphasis: [] },
@@ -213,7 +210,77 @@ export class InvoicesController {
     return { success: true, id };
   }
 
+  @Post(':id/finalise')
+  @UseGuards(FirebaseGuard)
+  async finaliseInvoice(@Param('id') id: string, @Req() req: any) {
+    const invoice = await this.db.query.invoices.findFirst({
+      where: eq(schema.invoices.id, id),
+    });
+
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    const business = invoice.businessId
+      ? await this.db.query.businesses.findFirst({
+          where: eq(schema.businesses.id, invoice.businessId),
+        })
+      : null;
+
+    const draftContent = invoice.draft || {};
+
+    // 1. Generate PDF (Dedicated invoice template)
+    const pdfFileName = `invoice_${id}_finalised_${Date.now()}.pdf`;
+    const docDef = this.pdfService.createInvoiceDefinition(draftContent, {
+      name: business?.name || 'Business',
+    });
+    const pdfUrl = await this.pdfService.generateAndSave(docDef, pdfFileName);
+    
+    // Update invoice status to locked (finalised) and save pdfUrl
+    await this.db.update(schema.invoices)
+      .set({ 
+        status: 'locked',
+        metadata: { ...(invoice.metadata as any || {}), pdfUrl },
+        updatedAt: new Date()
+      })
+      .where(eq(schema.invoices.id, id));
+
+    const url = `${process.env.API_BASE || 'http://localhost:1234'}/${pdfUrl}`;
+    return { success: true, url };
+  }
+  
+  @Post(':id/preview')
+  @UseGuards(FirebaseGuard)
+  async previewInvoice(@Param('id') id: string, @Req() req: any) {
+    try {
+      const invoice = await this.db.query.invoices.findFirst({
+        where: eq(schema.invoices.id, id),
+      });
+
+      if (!invoice) throw new NotFoundException('Invoice not found');
+
+      const business = invoice.businessId
+        ? await this.db.query.businesses.findFirst({
+            where: eq(schema.businesses.id, invoice.businessId),
+          })
+        : null;
+
+      const draftContent = invoice.draft || {};
+
+      // Generate PDF (Dedicated invoice template) — No status update
+      const pdfFileName = `invoice_${id}_preview_${Date.now()}.pdf`;
+      const docDef = this.pdfService.createInvoiceDefinition(draftContent, {
+        name: business?.name || 'Business',
+      });
+      const pdfUrl = await this.pdfService.generateAndSave(docDef, pdfFileName);
+      const url = `${process.env.API_BASE || 'http://localhost:1234'}/${pdfUrl}`;
+      return { success: true, url };
+    } catch (error: any) {
+      console.error('[Invoice Preview] Error:', error.message);
+      return { success: false, message: error.message };
+    }
+  }
+
   @Post('receipts/:rid/finalise')
+
   @UseGuards(FirebaseGuard)
   async finaliseReceipt(@Param('rid') rid: string, @Req() req: any) {
     const receipt = await this.db.query.receipts.findFirst({
@@ -233,14 +300,35 @@ export class InvoicesController {
       const fromDoc = (siblingDoc?.metadata as any)?.content;
       if (fromDoc && Object.keys(fromDoc).length > 0) {
         draftContent = fromDoc;
-        // Stamp it onto receipts.draft so future reads see the snapshot
-        await this.db.update(schema.receipts)
-          .set({ draft: draftContent, updatedAt: new Date() })
-          .where(eq(schema.receipts.id, rid));
       } else {
         throw new NotFoundException('Receipt draft is empty');
       }
     }
+
+    // Ensure invoiceCode exists in the draft before finalization
+    if (!draftContent.invoiceCode || !draftContent.invoiceCode.text) {
+      const timestamp = Date.now().toString().slice(-4);
+      const year = new Date().getFullYear();
+      const generatedCode = `REC/IP/${timestamp}/${year}`;
+      
+      draftContent = {
+        ...draftContent,
+        invoiceCode: {
+          text: generatedCode,
+          prefix: 'REC',
+          count: timestamp,
+          year: year.toString(),
+          x: 600,
+          y: 100,
+          color: '#503D36',
+        }
+      };
+    }
+
+    // Stamp it onto receipts.draft so future reads see the snapshot (including the generated code)
+    await this.db.update(schema.receipts)
+      .set({ draft: draftContent, updatedAt: new Date() })
+      .where(eq(schema.receipts.id, rid));
 
     // Resolve real business via the parent invoice's businessId
     const parentInvoice = await this.db.query.invoices.findFirst({
@@ -275,7 +363,77 @@ export class InvoicesController {
       })
       .where(eq(schema.invoices.id, receipt.invoiceId));
 
-    return { success: true, pdfUrl };
+    const url = `${process.env.API_BASE || 'http://localhost:1234'}/${pdfUrl}`;
+    return { success: true, url };
+  }
+
+  @Post('receipts/:rid/preview')
+  @UseGuards(FirebaseGuard)
+  async previewReceipt(@Param('rid') rid: string, @Req() req: any) {
+    try {
+      const receipt = await this.db.query.receipts.findFirst({
+        where: eq(schema.receipts.id, rid),
+      });
+
+      if (!receipt) throw new NotFoundException('Receipt not found');
+
+      // Bridge: Handle empty drafts by falling back to sibling document content
+      let draftContent: any = receipt.draft;
+      if (!draftContent || Object.keys(draftContent).length === 0) {
+        const siblingDoc = await this.db.query.documents.findFirst({
+          where: eq(schema.documents.id, rid),
+        });
+        const fromDoc = (siblingDoc?.metadata as any)?.content;
+        if (fromDoc && Object.keys(fromDoc).length > 0) {
+          draftContent = fromDoc;
+        } else {
+          throw new NotFoundException('Receipt draft is empty');
+        }
+      }
+
+      // Safeguard: Ensure invoiceCode exists before generation
+      if (!draftContent.invoiceCode || !draftContent.invoiceCode.text) {
+        const timestamp = Date.now().toString().slice(-4);
+        const year = new Date().getFullYear();
+        draftContent = {
+          ...draftContent,
+          invoiceCode: {
+            text: `REC/IP/${timestamp}/${year}`,
+            prefix: 'REC',
+            count: timestamp,
+            year: year.toString(),
+            x: 600,
+            y: 100,
+            color: '#503D36',
+          }
+        };
+      }
+
+      const parentInvoice = await this.db.query.invoices.findFirst({
+        where: eq(schema.invoices.id, receipt.invoiceId),
+      });
+      const business = parentInvoice?.businessId
+        ? await this.db.query.businesses.findFirst({
+            where: eq(schema.businesses.id, parentInvoice.businessId),
+          })
+        : null;
+
+      try {
+        const docDef = this.pdfService.createReceiptDefinition(draftContent, {
+          name: business?.name || 'SYNC SALEZ',
+        });
+
+        const pdfPath = await this.pdfService.generateAndSave(docDef, `receipt-${rid}.pdf`);
+        
+        return { success: true, url: `${process.env.API_BASE || 'http://localhost:1234'}/${pdfPath}` };
+      } catch (err: any) {
+        console.error('[InvoicesController] PDF Preview failed:', err);
+        return { success: false, message: err.message };
+      }
+    } catch (error: any) {
+      console.error('[Receipt Preview] Error:', error.message);
+      return { success: false, message: error.message };
+    }
   }
 
   @Post('receipts/:rid/void')
@@ -347,6 +505,14 @@ export class InvoicesController {
       const firebaseUid = req.user?.uid;
       const userId = firebaseUid || body.userId || 'dev-user';
       const projectId = body.projectId || null;
+
+      // Check if invoice is locked
+      const existingInvoice = await this.db.query.invoices.findFirst({
+        where: eq(schema.invoices.id, id),
+      });
+      if (existingInvoice && existingInvoice.status === 'locked') {
+        throw new ForbiddenException('This invoice is locked and cannot be modified');
+      }
 
       // ── Ensure the user row exists ────────────────────────────────────────
       // The invoices table FK requires users.id to exist.  Firebase auth does

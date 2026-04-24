@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SiteZone Pro | Construction Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f0f11;
+            color: #e5e5e5;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #toolbar {
+            background: #18181b;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            z-index: 50;
+        }
+
+        #workspace-container {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        #workspace {
+            flex-grow: 1;
+            overflow: auto;
+            background: #09090b;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px;
+            position: relative;
+        }
+
+        #sidebar {
+            width: 320px;
+            background: #18181b;
+            border-left: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            flex-direction: column;
+            z-index: 40;
+        }
+
+        /* The critical wrapper to keep the PDF and Annotations aligned */
+        #pdf-wrapper {
+            position: relative;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            display: none; /* Hidden until PDF loads */
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #pdf-layer {
+            z-index: 1;
+        }
+
+        #annotation-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+        }
+
+        .btn {
+            background: #27272a;
+            border: 1px solid #3f3f46;
+            color: #e4e4e7;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover { background: #3f3f46; }
+        .btn-primary { background: #eab308; border-color: #d97706; color: black; }
+        .btn-primary:hover { background: #f59e0b; }
+
+        .btn-tool {
+            background: transparent;
+            color: #a1a1aa;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .btn-tool:hover { background: rgba(255,255,255,0.05); color: #fff; }
+        .btn-tool.active { background: #eab308; color: black; border-color: #d97706; }
+
+        .loader {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #eab308;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: none;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .modal-content {
+            background: #18181b;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 24px;
+            width: 400px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+            transform: scale(0.95);
+            transition: transform 0.2s;
+        }
+        .modal-overlay.active .modal-content {
+            transform: scale(1);
+        }
+
+        .input-field {
+            width: 100%;
+            background: #27272a;
+            border: 1px solid #3f3f46;
+            color: white;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+        }
+        .input-field:focus { border-color: #eab308; }
+
+        .zone-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .zone-card:hover { background: rgba(255,255,255,0.08); }
+        .zone-card.active { border-color: #eab308; background: rgba(234, 179, 8, 0.1); }
+
+        .task-item {
+            background: #09090b;
+            border: 1px solid #27272a;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+        
+        .status-badge {
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .status-pending { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .status-progress { background: rgba(234, 179, 8, 0.2); color: #fbbf24; }
+        .status-done { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar" class="flex items-center justify-between p-4 shrink-0">
+        <div class="flex items-center gap-4">
+            <h1 class="font-black text-lg tracking-tight">SiteZone <span class="text-yellow-500">PRO</span></h1>
+            <div class="h-6 w-px bg-white/10"></div>
+            
+            <label class="btn btn-primary flex items-center gap-2 cursor-pointer">
+                <i class="fa-solid fa-map"></i> Upload Blueprint
+                <input type="file" id="file-upload" accept="application/pdf" class="hidden">
+            </label>
+            
+            <div class="flex items-center gap-2 bg-black/40 rounded-lg px-3 py-1 border border-white/5 hidden" id="page-controls">
+                <button class="text-white/50 hover:text-white px-2" id="prev-page"><i class="fa-solid fa-chevron-left"></i></button>
+                <span class="text-xs font-mono text-white/80">Page <span id="page-num">0</span> / <span id="page-count">0</span></span>
+                <button class="text-white/50 hover:text-white px-2" id="next-page"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-1 bg-black/40 rounded-lg p-1 border border-white/5 mr-2">
+                <button class="btn-tool" id="tool-view" title="Select / View Zones"><i class="fa-solid fa-arrow-pointer"></i></button>
+                <div class="w-px h-6 bg-white/10 mx-1"></div>
+                <button class="btn-tool active" id="tool-pen" title="Draw New Zone"><i class="fa-solid fa-draw-polygon"></i></button>
+                
+                <!-- Zone Color Selection -->
+                <div id="pen-settings" class="flex items-center gap-2 ml-1 pl-2 border-l border-white/10">
+                    <span class="text-[10px] uppercase font-bold text-white/50">Zone Color:</span>
+                    <input type="color" id="zone-color" value="#eab308" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" title="Zone Color">
+                </div>
+            </div>
+
+            <div class="loader" id="loader"></div>
+            <button class="btn" id="clear-btn" title="Clear All Zones"><i class="fa-solid fa-trash"></i></button>
+        </div>
+    </div>
+
+    <div id="workspace-container">
+        <div id="workspace">
+            <div id="empty-state" class="text-center text-white/30 flex flex-col items-center justify-center h-full">
+                <i class="fa-solid fa-hard-hat text-6xl mb-4 text-white/10"></i>
+                <h2 class="text-xl font-bold">Waiting for Site Plan</h2>
+                <p class="text-sm mt-2 max-w-md">Upload a PDF floorplan or blueprint to start mapping construction zones and assigning tasks.</p>
+            </div>
+
+            <!-- PDF AND ANNOTATION LAYER -->
+            <div id="pdf-wrapper">
+                <canvas id="pdf-layer"></canvas>
+                <canvas id="annotation-layer"></canvas>
+            </div>
+        </div>
+
+        <!-- THE ZONE & TASK MANAGER SIDEBAR -->
+        <div id="sidebar" class="hidden">
+            <!-- Sidebar Header -->
+            <div class="p-4 border-b border-white/5">
+                <h2 class="text-sm font-black uppercase tracking-widest text-neutral-400">Site Management</h2>
+            </div>
+            
+            <!-- Default View: List of Zones -->
+            <div id="zone-list-view" class="flex-grow overflow-auto p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xs font-bold text-white/70">Created Zones</h3>
+                    <span class="text-xs text-white/30" id="zone-count">0</span>
+                </div>
+                <div id="zones-container" class="space-y-3">
+                    <p class="text-xs text-white/30 italic text-center mt-10">Select the Zone Tool <i class="fa-solid fa-draw-polygon mx-1"></i> to draw on the blueprint.</p>
+                </div>
+            </div>
+
+            <!-- Detail View: Tasks for a specific Zone -->
+            <div id="zone-detail-view" class="flex-grow flex flex-col hidden bg-black/20">
+                <div class="p-4 border-b border-white/5 flex items-center gap-3">
+                    <button id="back-to-zones" class="text-white/50 hover:text-white"><i class="fa-solid fa-arrow-left"></i></button>
+                    <div class="flex items-center gap-2">
+                        <div id="detail-color-indicator" class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <h3 class="text-sm font-bold text-white" id="detail-zone-name">Zone Name</h3>
+                    </div>
+                </div>
+                <div class="flex-grow overflow-auto p-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="text-xs font-bold text-white/70">Assigned Tasks</h4>
+                        <button class="text-yellow-500 hover:text-yellow-400 text-xs font-bold uppercase" id="trigger-add-task">+ Add Task</button>
+                    </div>
+                    <div id="tasks-container" class="space-y-2">
+                        <!-- Tasks go here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Create Zone -->
+    <div id="modal-new-zone" class="modal-overlay">
+        <div class="modal-content">
+            <h2 class="text-lg font-bold mb-1">Define New Zone</h2>
+            <p class="text-xs text-white/50 mb-4">Name this area for your laborers and contractors.</p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-white/70 mb-1">Zone Name</label>
+                    <input type="text" id="input-zone-name" class="input-field" placeholder="e.g., HVAC Sector B, Ground Floor Plumbing" autocomplete="off">
+                </div>
+                <div class="flex gap-3 justify-end mt-6">
+                    <button class="btn" id="cancel-zone-btn">Cancel</button>
+                    <button class="btn btn-primary" id="save-zone-btn">Create Zone</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Create Task -->
+    <div id="modal-new-task" class="modal-overlay">
+        <div class="modal-content">
+            <h2 class="text-lg font-bold mb-1">Assign Task</h2>
+            <p class="text-xs text-white/50 mb-4">Add a work order to <span id="task-modal-zone-name" class="text-white font-bold"></span>.</p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-white/70 mb-1">Task Description</label>
+                    <input type="text" id="input-task-desc" class="input-field" placeholder="e.g., Install overhead ducting">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-white/70 mb-1">Assignee / Contractor</label>
+                    <input type="text" id="input-task-assignee" class="input-field" placeholder="e.g., Smith Plumbing Co.">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-white/70 mb-1">Status</label>
+                    <select id="input-task-status" class="input-field">
+                        <option value="pending">Pending</option>
+                        <option value="progress">In Progress</option>
+                        <option value="done">Completed</option>
+                    </select>
+                </div>
+                <div class="flex gap-3 justify-end mt-6">
+                    <button class="btn" id="cancel-task-btn">Cancel</button>
+                    <button class="btn btn-primary" id="save-task-btn">Assign Task</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // [AI INTEGRATION GUIDE] - SITEZONE PRO ENGINE
+        // This script handles PDF rendering, normalized polygon drawing, and state.
+        // When migrating to a framework (React/Vue/Angular) or adding a backend,
+        // search for [DATABASE HOOK] and [STATE MANAGEMENT] tags to wire up APIs.
+        // ============================================================================
+
+        // --- DATA ARCHITECTURE ---
+        // [STATE MANAGEMENT]
+        // In a production app, initialize 'zones' by fetching from your database 
+        // (e.g., GET /api/projects/:projectId/zones) when the PDF loads.
+        let zones = [];
+        
+        /* [AI INTEGRATION NOTE] Data Model required by the rendering engine:
+        {
+            id: string,             // Unique Zone ID
+            name: string,           // Display name (e.g., "HVAC Sector A")
+            color: string,          // Hex color (e.g., "#eab308")
+            points: [{x, y}],       // NORMALIZED coordinates (0.0 to 1.0). 
+                                    // *CRITICAL*: We store relative coordinates so shapes 
+                                    // scale perfectly if the PDF is zoomed or resized.
+            tasks: [
+                { id: string, desc: string, assignee: string, status: 'pending'|'progress'|'done' }
+            ]
+        }
+        */
+        let activeZoneId = null; // Tracks currently selected zone for UI highlighting
+
+        // --- PDF.JS INITIALIZATION ---
+        // [AI INTEGRATION NOTE] You may want to host this worker locally in production
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let pdfDoc = null, pageNum = 1, pageRendering = false, pageNumPending = null, currentScale = 1.5;
+        const pdfCanvas = document.getElementById('pdf-layer');
+        const pdfCtx = pdfCanvas.getContext('2d');
+        const annoCanvas = document.getElementById('annotation-layer');
+        const annoCtx = annoCanvas.getContext('2d');
+        const wrapper = document.getElementById('pdf-wrapper');
+
+        // [AI INTEGRATION NOTE] This function scales both canvases to match the PDF viewport.
+        // If implementing zoom features, call this function with an updated 'currentScale'.
+        function renderPage(num) {
+            pageRendering = true;
+            document.getElementById('loader').style.display = 'block';
+
+            pdfDoc.getPage(num).then(function(page) {
+                const viewport = page.getViewport({ scale: currentScale });
+                wrapper.style.width = `${viewport.width}px`;
+                wrapper.style.height = `${viewport.height}px`;
+                pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+                annoCanvas.width = viewport.width; annoCanvas.height = viewport.height;
+
+                page.render({ canvasContext: pdfCtx, viewport: viewport }).promise.then(function() {
+                    pageRendering = false;
+                    document.getElementById('loader').style.display = 'none';
+                    if (pageNumPending !== null) { renderPage(pageNumPending); pageNumPending = null; }
+                    redrawAnnotations(); // Always redraw zones after a page render/resize
+                });
+            });
+            document.getElementById('page-num').textContent = num;
+        }
+
+        function queueRenderPage(num) {
+            if (pageRendering) pageNumPending = num;
+            else renderPage(num);
+        }
+
+        // [DATABASE HOOK] PDF Upload. 
+        // In your main app, this might be replaced by fetching a PDF URL from your server:
+        // pdfjsLib.getDocument('https://your-server.com/blueprint.pdf')
+        document.getElementById('file-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file.type !== 'application/pdf') return;
+            const fileReader = new FileReader();
+            fileReader.onload = function() {
+                const typedarray = new Uint8Array(this.result);
+                document.getElementById('empty-state').style.display = 'none';
+                wrapper.style.display = 'block';
+                document.getElementById('page-controls').classList.remove('hidden');
+                document.getElementById('sidebar').classList.remove('hidden');
+                document.getElementById('loader').style.display = 'block';
+
+                pdfjsLib.getDocument(typedarray).promise.then(function(pdfDoc_) {
+                    pdfDoc = pdfDoc_;
+                    document.getElementById('page-count').textContent = pdfDoc.numPages;
+                    renderPage(pageNum);
+                });
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+
+        // Pagination Events
+        document.getElementById('prev-page').addEventListener('click', () => { if (pageNum <= 1) return; pageNum--; queueRenderPage(pageNum); });
+        document.getElementById('next-page').addEventListener('click', () => { if (pageNum >= pdfDoc.numPages) return; pageNum++; queueRenderPage(pageNum); });
+        
+        // [DATABASE HOOK] Bulk Delete
+        document.getElementById('clear-btn').addEventListener('click', () => {
+            if(confirm("Are you sure you want to delete all zones and tasks?")) {
+                zones = []; // TRIGGER API DELETE HERE: DELETE /api/projects/:id/zones
+                activeZoneId = null;
+                renderZoneList();
+                showZoneList();
+                redrawAnnotations();
+            }
+        });
+
+        // --- POLYGON DRAWING & SELECTION ENGINE ---
+        let currentMode = 'pen'; // State: 'pen' (draw zone) or 'view' (select zone)
+        let currentPolygon = []; // Array of normalized {x, y} for the shape currently being drawn
+        let currentMousePos = null;
+        let pendingPolygon = null; // Temporarily holds the shape while the naming modal is open
+
+        // Utility: Convert Hex to RGBA for transparent fills
+        function hexToRgba(hex, alpha) {
+            let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        // Utility: Calculate center of a polygon (used to place the label & task badges)
+        function getCenterPoint(points, width, height) {
+            let sumX = 0, sumY = 0;
+            points.forEach(p => { sumX += p.x * width; sumY += p.y * height; });
+            return { x: sumX / points.length, y: sumY / points.length };
+        }
+
+        // [AI INTEGRATION NOTE] Core Render Loop for the annotation layer.
+        // Call this whenever 'zones', 'activeZoneId', or 'currentPolygon' state changes.
+        function redrawAnnotations() {
+            annoCtx.clearRect(0, 0, annoCanvas.width, annoCanvas.height);
+            
+            // 1. Iterate and draw all saved Zones from state
+            zones.forEach(zone => {
+                if(zone.points.length < 2) return;
+                
+                const isActive = zone.id === activeZoneId;
+                
+                annoCtx.beginPath();
+                // [AI INTEGRATION NOTE] Multiply normalized coordinates (0-1) by actual canvas dimensions
+                annoCtx.moveTo(zone.points[0].x * annoCanvas.width, zone.points[0].y * annoCanvas.height);
+                for(let i=1; i<zone.points.length; i++) {
+                    annoCtx.lineTo(zone.points[i].x * annoCanvas.width, zone.points[i].y * annoCanvas.height);
+                }
+                annoCtx.closePath();
+                
+                // Highlight active zone visually
+                annoCtx.fillStyle = hexToRgba(zone.color, isActive ? 0.5 : 0.2);
+                annoCtx.fill();
+                annoCtx.strokeStyle = zone.color;
+                annoCtx.lineWidth = isActive ? 4 : 2;
+                annoCtx.lineJoin = "round";
+                annoCtx.stroke();
+
+                // Calculate center to place UI elements
+                const center = getCenterPoint(zone.points, annoCanvas.width, annoCanvas.height);
+                annoCtx.font = "bold 12px Inter, sans-serif";
+                annoCtx.textAlign = "center";
+                annoCtx.textBaseline = "middle";
+                
+                // Draw Zone Name Label Background
+                const textWidth = annoCtx.measureText(zone.name).width;
+                annoCtx.fillStyle = "rgba(0,0,0,0.8)";
+                annoCtx.beginPath();
+                annoCtx.roundRect(center.x - (textWidth/2) - 8, center.y - 12, textWidth + 16, 24, 4);
+                annoCtx.fill();
+                
+                // Draw Zone Name Text
+                annoCtx.fillStyle = "#ffffff";
+                annoCtx.fillText(zone.name, center.x, center.y);
+
+                // Draw Task Badges (if tasks exist)
+                if(zone.tasks.length > 0) {
+                    const allDone = zone.tasks.every(t => t.status === 'done');
+                    const badgeX = center.x + (textWidth/2) + 8;
+                    const badgeY = center.y - 12;
+
+                    if (allDone) {
+                        // Green Checkmark (All tasks completed)
+                        annoCtx.fillStyle = "#10b981";
+                        annoCtx.beginPath();
+                        annoCtx.arc(badgeX, badgeY, 8, 0, Math.PI*2);
+                        annoCtx.fill();
+                        
+                        annoCtx.strokeStyle = "#ffffff";
+                        annoCtx.lineWidth = 2;
+                        annoCtx.lineCap = "round";
+                        annoCtx.lineJoin = "round";
+                        annoCtx.beginPath();
+                        annoCtx.moveTo(badgeX - 2.5, badgeY + 0.5);
+                        annoCtx.lineTo(badgeX - 0.5, badgeY + 2.5);
+                        annoCtx.lineTo(badgeX + 3, badgeY - 2.5);
+                        annoCtx.stroke();
+                    } else {
+                        // Yellow Counter (Pending tasks)
+                        annoCtx.fillStyle = "#eab308";
+                        annoCtx.beginPath();
+                        annoCtx.arc(badgeX, badgeY, 8, 0, Math.PI*2);
+                        annoCtx.fill();
+                        annoCtx.fillStyle = "#000";
+                        annoCtx.font = "bold 10px sans-serif";
+                        annoCtx.fillText(zone.tasks.length, badgeX, badgeY);
+                    }
+                }
+            });
+
+            // 2. Draw the Zone actively being constructed by user
+            if(currentPolygon.length > 0) {
+                const drawColor = document.getElementById('zone-color').value;
+                annoCtx.beginPath();
+                const startX = currentPolygon[0].x * annoCanvas.width;
+                const startY = currentPolygon[0].y * annoCanvas.height;
+                annoCtx.moveTo(startX, startY);
+                
+                for(let i=1; i<currentPolygon.length; i++) {
+                    annoCtx.lineTo(currentPolygon[i].x * annoCanvas.width, currentPolygon[i].y * annoCanvas.height);
+                }
+                
+                // Draw trailing line to mouse preview
+                if (currentMousePos) annoCtx.lineTo(currentMousePos.x, currentMousePos.y);
+                
+                annoCtx.fillStyle = hexToRgba(drawColor, 0.3);
+                annoCtx.fill();
+                annoCtx.strokeStyle = drawColor;
+                annoCtx.lineWidth = 2;
+                annoCtx.setLineDash([5, 5]); 
+                annoCtx.stroke();
+                annoCtx.setLineDash([]);
+
+                // Draw Anchor Dot indicating where to click to close shape
+                annoCtx.beginPath();
+                annoCtx.arc(startX, startY, 6, 0, Math.PI*2);
+                annoCtx.fillStyle = '#ffffff';
+                annoCtx.fill();
+                annoCtx.strokeStyle = drawColor;
+                annoCtx.stroke();
+            }
+        }
+
+        // Toolbar Modifiers
+        document.getElementById('tool-pen').addEventListener('click', (e) => {
+            currentMode = 'pen';
+            e.currentTarget.classList.add('active');
+            document.getElementById('tool-view').classList.remove('active');
+            annoCanvas.style.cursor = 'crosshair';
+            activeZoneId = null;
+            showZoneList();
+            redrawAnnotations();
+        });
+
+        document.getElementById('tool-view').addEventListener('click', (e) => {
+            currentMode = 'view';
+            e.currentTarget.classList.add('active');
+            document.getElementById('tool-pen').classList.remove('active');
+            annoCanvas.style.cursor = 'pointer';
+            currentPolygon = []; 
+            redrawAnnotations();
+        });
+
+        // Mouse Events for Drawing / Selection
+        annoCanvas.addEventListener('mousedown', (e) => {
+            const rect = annoCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (currentMode === 'view') {
+                // Ray-casting logic to detect which polygon the user clicked
+                let clickedZoneId = null;
+                // Reverse loop selects the top-most zone if they overlap
+                for(let i = zones.length - 1; i >= 0; i--) {
+                    const zone = zones[i];
+                    annoCtx.beginPath();
+                    annoCtx.moveTo(zone.points[0].x * annoCanvas.width, zone.points[0].y * annoCanvas.height);
+                    for(let j=1; j<zone.points.length; j++) {
+                        annoCtx.lineTo(zone.points[j].x * annoCanvas.width, zone.points[j].y * annoCanvas.height);
+                    }
+                    annoCtx.closePath();
+                    
+                    if(annoCtx.isPointInPath(mouseX, mouseY)) {
+                        clickedZoneId = zone.id;
+                        break;
+                    }
+                }
+                
+                if(clickedZoneId) openZoneDetails(clickedZoneId);
+                else { activeZoneId = null; showZoneList(); }
+                
+                redrawAnnotations();
+                return;
+            }
+
+            if (currentMode === 'pen') {
+                // Check if user clicked the starting point to close the shape (15px snap radius)
+                if(currentPolygon.length > 2) {
+                    const startX = currentPolygon[0].x * annoCanvas.width;
+                    const startY = currentPolygon[0].y * annoCanvas.height;
+                    if(Math.sqrt((mouseX - startX)**2 + (mouseY - startY)**2) < 15) {
+                        triggerZoneCreation();
+                        return;
+                    }
+                }
+                // Store normalized coordinates
+                currentPolygon.push({ x: mouseX / annoCanvas.width, y: mouseY / annoCanvas.height });
+                redrawAnnotations();
+            }
+        });
+
+        annoCanvas.addEventListener('mousemove', (e) => {
+            if (currentMode === 'pen' && currentPolygon.length > 0) {
+                const rect = annoCanvas.getBoundingClientRect();
+                currentMousePos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+                redrawAnnotations();
+            }
+        });
+
+        // Keybindings (Enter to close shape, Escape to cancel)
+        window.addEventListener('keydown', (e) => {
+            if (currentMode === 'pen') {
+                if (e.key === 'Enter' && currentPolygon.length > 2) triggerZoneCreation();
+                if (e.key === 'Escape') { currentPolygon = []; currentMousePos = null; redrawAnnotations(); }
+            }
+        });
+
+        document.getElementById('zone-color').addEventListener('input', redrawAnnotations);
+
+        // --- MODAL & DATA LOGIC ---
+
+        function generateId() { return Math.random().toString(36).substr(2, 9); }
+
+        // ZONE CREATION PIPELINE
+        function triggerZoneCreation() {
+            pendingPolygon = [...currentPolygon]; // Save to memory while modal is open
+            currentPolygon = [];
+            currentMousePos = null;
+            redrawAnnotations();
+            
+            document.getElementById('input-zone-name').value = '';
+            document.getElementById('modal-new-zone').classList.add('active');
+            document.getElementById('input-zone-name').focus();
+        }
+
+        document.getElementById('cancel-zone-btn').addEventListener('click', () => {
+            pendingPolygon = null;
+            document.getElementById('modal-new-zone').classList.remove('active');
+        });
+
+        // [DATABASE HOOK] Save New Zone
+        document.getElementById('save-zone-btn').addEventListener('click', () => {
+            const name = document.getElementById('input-zone-name').value.trim() || 'Unnamed Zone';
+            const newZone = {
+                id: generateId(),
+                name: name,
+                color: document.getElementById('zone-color').value,
+                points: pendingPolygon,
+                tasks: []
+            };
+            
+            // --> TRIGGER API HERE: POST /api/projects/:id/zones (Payload: newZone) <--
+            zones.push(newZone);
+            
+            pendingPolygon = null;
+            document.getElementById('modal-new-zone').classList.remove('active');
+            
+            // Auto-switch to view mode and open the new zone's task list
+            document.getElementById('tool-view').click();
+            openZoneDetails(newZone.id);
+        });
+
+        // --- UI: SIDEBAR VIEWS ---
+        
+        // Renders the list of all zones in the sidebar
+        function renderZoneList() {
+            const container = document.getElementById('zones-container');
+            document.getElementById('zone-count').textContent = zones.length;
+            
+            if(zones.length === 0) {
+                container.innerHTML = `<p class="text-xs text-white/30 italic text-center mt-10">Select the Zone Tool <i class="fa-solid fa-draw-polygon mx-1"></i> to draw on the blueprint.</p>`;
+                return;
+            }
+
+            container.innerHTML = '';
+            zones.forEach(zone => {
+                const div = document.createElement('div');
+                div.className = `zone-card ${activeZoneId === zone.id ? 'active' : ''}`;
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-3 h-3 rounded-full" style="background-color: ${zone.color}"></div>
+                        <div class="flex-grow">
+                            <h4 class="text-sm font-bold text-white">${zone.name}</h4>
+                            <p class="text-[10px] text-white/50">${zone.tasks.length} Active Tasks</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-white/20 text-xs"></i>
+                    </div>
+                `;
+                div.onclick = () => openZoneDetails(zone.id);
+                container.appendChild(div);
+            });
+        }
+
+        function showZoneList() {
+            document.getElementById('zone-detail-view').classList.add('hidden');
+            document.getElementById('zone-list-view').classList.remove('hidden');
+            renderZoneList();
+        }
+
+        function openZoneDetails(id) {
+            activeZoneId = id;
+            redrawAnnotations(); 
+            
+            const zone = zones.find(z => z.id === id);
+            if(!zone) return;
+
+            document.getElementById('zone-list-view').classList.add('hidden');
+            document.getElementById('zone-detail-view').classList.remove('hidden');
+            
+            document.getElementById('detail-zone-name').textContent = zone.name;
+            document.getElementById('detail-color-indicator').style.backgroundColor = zone.color;
+            
+            renderTasks(zone);
+        }
+
+        document.getElementById('back-to-zones').addEventListener('click', () => {
+            activeZoneId = null;
+            redrawAnnotations();
+            showZoneList();
+        });
+
+        // --- TASK MANAGEMENT PIPELINE ---
+        
+        // Renders the tasks for a specific zone in the sidebar
+        function renderTasks(zone) {
+            const container = document.getElementById('tasks-container');
+            if(zone.tasks.length === 0) {
+                container.innerHTML = `<div class="p-4 border border-dashed border-white/10 rounded-lg text-center"><p class="text-xs text-white/40">No tasks assigned to this zone yet.</p></div>`;
+                return;
+            }
+
+            container.innerHTML = '';
+            zone.tasks.forEach(task => {
+                let badgeClass = '';
+                if(task.status === 'pending') badgeClass = 'status-pending';
+                if(task.status === 'progress') badgeClass = 'status-progress';
+                if(task.status === 'done') badgeClass = 'status-done';
+
+                container.innerHTML += `
+                    <div class="task-item">
+                        <div class="flex justify-between items-start mb-2">
+                            <select onchange="updateTaskStatus('${zone.id}', '${task.id}', this.value)" class="status-badge ${badgeClass} border-none outline-none cursor-pointer font-bold appearance-none text-center">
+                                <option value="pending" ${task.status === 'pending' ? 'selected' : ''} style="background: #18181b; color: #f87171;">PENDING</option>
+                                <option value="progress" ${task.status === 'progress' ? 'selected' : ''} style="background: #18181b; color: #fbbf24;">IN PROGRESS</option>
+                                <option value="done" ${task.status === 'done' ? 'selected' : ''} style="background: #18181b; color: #34d399;">COMPLETED</option>
+                            </select>
+                            <button onclick="deleteTask('${zone.id}', '${task.id}')" class="text-white/20 hover:text-red-500"><i class="fa-solid fa-xmark text-[10px]"></i></button>
+                        </div>
+                        <p class="text-sm text-white font-medium mb-1">${task.desc}</p>
+                        <p class="text-[10px] text-white/50"><i class="fa-solid fa-user-helmet mr-1"></i> ${task.assignee}</p>
+                    </div>
+                `;
+            });
+        }
+
+        document.getElementById('trigger-add-task').addEventListener('click', () => {
+            const zone = zones.find(z => z.id === activeZoneId);
+            document.getElementById('task-modal-zone-name').textContent = zone.name;
+            document.getElementById('input-task-desc').value = '';
+            document.getElementById('input-task-assignee').value = '';
+            document.getElementById('input-task-status').value = 'pending';
+            document.getElementById('modal-new-task').classList.add('active');
+        });
+
+        document.getElementById('cancel-task-btn').addEventListener('click', () => {
+            document.getElementById('modal-new-task').classList.remove('active');
+        });
+
+        // [DATABASE HOOK] Create New Task
+        document.getElementById('save-task-btn').addEventListener('click', () => {
+            const desc = document.getElementById('input-task-desc').value.trim();
+            if(!desc) return alert("Task description is required.");
+            
+            const zone = zones.find(z => z.id === activeZoneId);
+            const newTask = {
+                id: generateId(),
+                desc: desc,
+                assignee: document.getElementById('input-task-assignee').value.trim() || 'Unassigned',
+                status: document.getElementById('input-task-status').value
+            };
+            
+            // --> TRIGGER API HERE: POST /api/zones/:zoneId/tasks (Payload: newTask) <--
+            zone.tasks.push(newTask);
+            
+            document.getElementById('modal-new-task').classList.remove('active');
+            renderTasks(zone);
+            redrawAnnotations(); // Updates task counts/checkmarks on canvas
+        });
+
+        // [DATABASE HOOK] Delete Task
+        window.deleteTask = function(zoneId, taskId) {
+            // --> TRIGGER API HERE: DELETE /api/zones/:zoneId/tasks/:taskId <--
+            const zone = zones.find(z => z.id === zoneId);
+            zone.tasks = zone.tasks.filter(t => t.id !== taskId);
+            renderTasks(zone);
+            redrawAnnotations();
+        };
+
+        // [DATABASE HOOK] Update Task Status
+        window.updateTaskStatus = function(zoneId, taskId, newStatus) {
+            // --> TRIGGER API HERE: PATCH /api/zones/:zoneId/tasks/:taskId (Payload: {status: newStatus}) <--
+            const zone = zones.find(z => z.id === zoneId);
+            const task = zone.tasks.find(t => t.id === taskId);
+            if (task) {
+                task.status = newStatus;
+                renderTasks(zone);
+                redrawAnnotations(); // Resolves whether to show counter or green checkmark
+            }
+        };
+
+    </script>
+</body>
+</html>

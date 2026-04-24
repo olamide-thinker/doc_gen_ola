@@ -1,13 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { 
-  X, Pin, Highlighter, UserIcon, Edit2, Maximize2, Minimize2, 
-  GripHorizontal, Hand, ChevronRight, MessageSquare, Check
+import {
+  X, Pin, Highlighter, UserIcon, Edit2, Maximize2, Minimize2,
+  GripHorizontal, Hand, ChevronRight, MessageSquare, Check, ChevronDown
 } from '../lib/icons/lucide';
 import { type Annotation, type MemberRole } from '../types';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { createPortal } from 'react-dom';
+import {
+  useOptionalAnnotationContext,
+  PRESET_COLORS as CTX_PRESET_COLORS,
+  DEFAULT_TOOL_CONFIG,
+} from './AnnotationContext';
 
 const getSmoothedPath = (points: {x: number, y: number}[]) => {
   if (points.length === 0) return '';
@@ -54,6 +59,8 @@ interface AnnotationSystemProps {
   userRole?: MemberRole;
   onModeChange?: (mode: 'inspect' | 'pin' | 'highlight' | 'draw') => void;
   onSeek?: (time: number) => void;
+  currentPage?: number;
+  onPageChange?: (page: number) => void;
 }
 
 export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
@@ -65,23 +72,73 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
   isReadOnly = false,
   userRole,
   onModeChange,
-  onSeek
+  onSeek,
+  currentPage,
+  onPageChange
 }) => {
-  console.log("[AnnotationSystem] Rendered", { annotationsCount: annotations.length });
   const { user } = useAuth();
-  const [activeMode, setActiveMode] = useState<'inspect' | 'pin' | 'highlight' | 'draw'>('inspect');
-  const [activeAnnotationId, setActiveAnnotationId] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [isMinimized, setIsMinimized] = useState(true);
-  const [relocatingAnnotation, setRelocatingAnnotation] = useState<{ id: string, x: number, y: number, originalX: number, originalY: number } | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [currentPath, setCurrentPath] = useState<{x: number, y: number}[]>([]);
-  const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
-  const [editingText, setEditingText] = useState("");
+  const ctx = useOptionalAnnotationContext();
 
-  const PRESET_COLORS = ['hsl(var(--primary))', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#1e293b'];
-  const [activeColor, setActiveColor] = useState(PRESET_COLORS[0]);
+  // ── Internal state (used only in legacy single-page mode, i.e. when ctx === null) ─
+  const [_activeMode,            _setActiveMode]            = useState<'inspect' | 'pin' | 'highlight' | 'draw'>('inspect');
+  const [_activeAnnotationId,    _setActiveAnnotationId]    = useState<string | null>(null);
+  const [_editingId,             _setEditingId]             = useState<string | null>(null);
+  const [_isMinimized,           _setIsMinimized]           = useState(true);
+  const [_relocatingAnnotation,  _setRelocatingAnnotation]  = useState<{ id: string, x: number, y: number, originalX: number, originalY: number } | null>(null);
+  const [_replyText,             _setReplyText]             = useState<Record<string, string>>({});
+  const [_editingText,           _setEditingText]           = useState('');
+  const [_activeColor,           _setActiveColor]           = useState(CTX_PRESET_COLORS[0]);
+  const [_toolConfig,            _setToolConfig]            = useState(DEFAULT_TOOL_CONFIG);
+  const [_openConfig,            _setOpenConfig]            = useState<'pin' | 'highlight' | 'draw' | null>(null);
+
+  // ── Resolved state — context takes priority ─────────────────────────────
+  const activeMode            = ctx ? ctx.activeMode            : _activeMode;
+  const setActiveMode         = ctx ? ctx.setActiveMode         : _setActiveMode;
+  const activeAnnotationId    = ctx ? ctx.activeAnnotationId    : _activeAnnotationId;
+  const setActiveAnnotationId = ctx ? ctx.setActiveAnnotationId : _setActiveAnnotationId;
+  const editingId             = ctx ? ctx.editingId             : _editingId;
+  const setEditingId          = ctx ? ctx.setEditingId          : _setEditingId;
+  const isMinimized           = ctx ? ctx.isMinimized           : _isMinimized;
+  const setIsMinimized        = ctx ? ctx.setIsMinimized        : _setIsMinimized;
+  const relocatingAnnotation  = ctx ? ctx.relocatingAnnotation  : _relocatingAnnotation;
+  const setRelocatingAnnotation = ctx ? ctx.setRelocatingAnnotation : _setRelocatingAnnotation;
+  const replyText             = ctx ? ctx.replyText             : _replyText;
+  const setReplyText          = ctx ? ctx.setReplyText          : _setReplyText;
+  const editingText           = ctx ? ctx.editingText           : _editingText;
+  const setEditingText        = ctx ? ctx.setEditingText        : _setEditingText;
+  const activeColor           = ctx ? ctx.activeColor           : _activeColor;
+  const setActiveColor        = ctx ? ctx.setActiveColor        : _setActiveColor;
+  const toolConfig            = ctx ? ctx.toolConfig            : _toolConfig;
+  const setToolConfig         = ctx ? ctx.setToolConfig         : _setToolConfig;
+  const openConfig            = ctx ? ctx.openConfig            : _openConfig;
+  const setOpenConfig         = ctx ? ctx.setOpenConfig         : _setOpenConfig;
+
+  const PRESET_COLORS = CTX_PRESET_COLORS;
+
+  // ── Legacy-only state (draw overlay, not needed in context/multi-page mode) ─
+  const [mousePos,     setMousePos]     = useState<{ x: number; y: number } | null>(null);
+  const [isDrawing,    setIsDrawing]    = useState(false);
+  const [currentPath,  setCurrentPath]  = useState<{ x: number; y: number }[]>([]);
+
+  // ── Dropdown edge-awareness ──────────────────────────────────────────────
+  const pinDropRef  = useRef<HTMLDivElement>(null);
+  const hlDropRef   = useRef<HTMLDivElement>(null);
+  const drawDropRef = useRef<HTMLDivElement>(null);
+  const [pinDropSide,  setPinDropSide]  = useState<'left' | 'right'>('left');
+  const [hlDropSide,   setHlDropSide]   = useState<'left' | 'right'>('left');
+  const [drawDropSide, setDrawDropSide] = useState<'left' | 'right'>('left');
+
+  useEffect(() => {
+    const DROPDOWN_W = 176; // w-44
+    const measure = (ref: React.RefObject<HTMLDivElement | null>, set: (s: 'left' | 'right') => void) => {
+      if (!ref.current) return;
+      const r = ref.current.getBoundingClientRect();
+      set(r.left + DROPDOWN_W > window.innerWidth - 8 ? 'right' : 'left');
+    };
+    if (openConfig === 'pin')       measure(pinDropRef,  setPinDropSide);
+    if (openConfig === 'highlight') measure(hlDropRef,   setHlDropSide);
+    if (openConfig === 'draw')      measure(drawDropRef, setDrawDropSide);
+  }, [openConfig]);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -128,10 +185,12 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
       userName: user?.displayName || user?.email || "Anonymous",
       userPhoto: user?.photoURL || undefined,
       createdAt: new Date().toISOString(),
-      type: activeMode === 'highlight' ? 'highlight' : 'pin',
+      type: 'pin',
       color: activeColor,
+      pinSize: toolConfig.pin.size,
       replies: [],
-      timestamp: mediaType === 'video' ? currentTime : undefined
+      timestamp: mediaType === 'video' ? currentTime : undefined,
+      pageNumber: currentPage
     };
 
     const next = [...annotations, newAnnotation];
@@ -163,12 +222,12 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
 
   const updateAnnotationText = (id: string, text: string) => {
     const next = annotations.map(a => a.id === id ? { ...a, text } : a);
-    onSave(next);
+    persistAnnotations(next);
   };
 
   const removeAnnotation = (id: string) => {
     const next = annotations.filter(a => a.id !== id);
-    onSave(next);
+    persistAnnotations(next);
     if (activeAnnotationId === id) setActiveAnnotationId(null);
   };
 
@@ -180,7 +239,13 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
     if (anno?.timestamp !== undefined && onSeek) {
       onSeek(anno.timestamp);
     }
-
+    
+    // If it's on a different page, we might need external help to switch pages.
+    if (anno?.pageNumber && anno.pageNumber !== currentPage && onPageChange) {
+      onPageChange(anno.pageNumber);
+    }
+    
+    // For now, we'll just focus the card.
     const card = document.getElementById(`comment-card-${id}`);
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -197,7 +262,8 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
 
   return (
     <>
-      <div 
+      {/* Overlay (draw/pin/highlight canvas) — skipped in multi-page/context mode */}
+      {!ctx && <div
         onDoubleClick={handleDoubleClick}
         className={cn(
           "absolute inset-0 w-full h-full z-[100] pointer-events-none",
@@ -206,16 +272,16 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
       >
       {/* Click-to-Add & Drawing Overlay */}
       {!isReadOnly && activeMode !== 'inspect' && (
-        <div 
+        <div
           onPointerDown={(e) => {
-            e.stopPropagation(); // Prevent framer-motion drag propagation
-            if (activeMode === 'draw') {
+            e.stopPropagation();
+            if (activeMode === 'draw' || activeMode === 'highlight') {
               setIsDrawing(true);
               const rect = containerRef.current?.getBoundingClientRect();
               if (rect) {
                 const x = ((e.clientX - rect.left) / rect.width) * 100;
                 const y = ((e.clientY - rect.top) / rect.height) * 100;
-                setCurrentPath([{x, y}]);
+                setCurrentPath([{ x, y }]);
               }
               (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
             }
@@ -226,14 +292,13 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
               const x = ((e.clientX - rect.left) / rect.width) * 100;
               const y = ((e.clientY - rect.top) / rect.height) * 100;
               setMousePos({ x, y });
-              
-              if (isDrawing && activeMode === 'draw') {
-                 setCurrentPath(prev => [...prev, {x, y}]);
+              if (isDrawing && (activeMode === 'draw' || activeMode === 'highlight')) {
+                setCurrentPath(prev => [...prev, { x, y }]);
               }
             }
           }}
           onPointerUp={(e) => {
-            if (isDrawing && activeMode === 'draw') {
+            if (isDrawing && (activeMode === 'draw' || activeMode === 'highlight')) {
               setIsDrawing(false);
               (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
               if (currentPath.length > 2) {
@@ -246,10 +311,14 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                   userName: user?.displayName || user?.email || "Anonymous",
                   userPhoto: user?.photoURL || undefined,
                   createdAt: new Date().toISOString(),
-                  type: 'draw',
+                  type: activeMode === 'highlight' ? 'highlight' : 'draw',
                   path: currentPath,
                   color: activeColor,
-                  replies: []
+                  strokeWidth: activeMode === 'highlight'
+                    ? toolConfig.highlight.thickness
+                    : toolConfig.draw.thickness,
+                  replies: [],
+                  pageNumber: currentPage
                 };
                 onSave([...annotations, newAnnotation]);
                 setActiveMode('inspect');
@@ -261,9 +330,7 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
             }
           }}
           onClick={(e) => {
-             if (activeMode === 'pin' || activeMode === 'highlight') {
-                handleContainerClick(e);
-             }
+            if (activeMode === 'pin') handleContainerClick(e);
           }}
           onMouseLeave={() => setMousePos(null)}
           className="absolute inset-0 z-[90] pointer-events-auto bg-primary/5 border-2 border-transparent transition-colors"
@@ -273,14 +340,14 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
 
       {/* Ghost Mouse Activity Layer */}
       {mousePos && activeMode !== 'draw' && activeMode !== 'inspect' && !isDrawing && (
-        <div 
-          className="absolute pointer-events-none z-[91] mix-blend-exclusion"
+        <div
+          className="absolute pointer-events-none z-[91]"
           style={{ left: `${mousePos.x}%`, top: `${mousePos.y}%`, transform: 'translate(-50%, -50%)' }}
         >
           {activeMode === 'pin' ? (
-            <div className="w-5 h-5 rounded-full border-2 border-white bg-white/20 animate-pulse" />
-          ) : (
             <div className="w-12 h-12 rounded-full border-2 border-white bg-white/10 animate-pulse" />
+          ) : (
+            <div className="w-12 h-12 rounded-full border-2 border-white bg-white/20 animate-pulse mix-blend-overlay" />
           )}
           <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-black/80 text-white text-[8px] font-black uppercase tracking-widest rounded whitespace-nowrap">
             Click to Place {activeMode}
@@ -288,26 +355,50 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
         </div>
       )}
 
-      {/* Drawings SVG Layer */}
-      <svg 
-        viewBox="0 0 100 100" 
-        preserveAspectRatio="none" 
+      {/* Drawings & Highlights SVG Layer */}
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
         className="absolute inset-0 w-full h-full pointer-events-none z-20 overflow-visible"
       >
-        {annotations.filter(a => a.type === 'draw' && a.path).map(anno => {
+        {/* Highlights - transparent filled strokes (like a marker pen) */}
+        {annotations.filter(a => a.type === 'highlight' && a.path && (!currentPage || (a.pageNumber || 1) === currentPage)).map(anno => {
            const isActive = activeAnnotationId === anno.id;
            const pathData = getSmoothedPath(anno.path!);
+           const sw = anno.strokeWidth ?? toolConfig.highlight.thickness;
            return (
              <g key={anno.id} onClick={() => selectAnnotation(anno.id)} className="pointer-events-auto cursor-pointer">
-               {/* Invisible wider path for easier clicking */}
-               <path d={pathData} fill="none" stroke="transparent" strokeWidth={15} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-               <path 
-                  d={pathData} 
-                  fill="none" 
-                  stroke={anno.color || "currentColor"} 
-                  strokeWidth={isActive ? 2.5 : 1.5} 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
+               <path d={pathData} fill="none" stroke="transparent" strokeWidth={sw + 10} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+               <path
+                  d={pathData}
+                  fill="none"
+                  stroke={anno.color || "hsl(var(--primary))"}
+                  strokeWidth={sw}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  style={{ opacity: isActive ? 0.45 : 0.28, mixBlendMode: 'multiply' }}
+                  className="transition-opacity"
+               />
+             </g>
+           );
+        })}
+
+        {/* Freehand Drawings - dashed outlined strokes */}
+        {annotations.filter(a => a.type === 'draw' && a.path && (!currentPage || (a.pageNumber || 1) === currentPage)).map(anno => {
+           const isActive = activeAnnotationId === anno.id;
+           const pathData = getSmoothedPath(anno.path!);
+           const sw = anno.strokeWidth ?? toolConfig.draw.thickness;
+           return (
+             <g key={anno.id} onClick={() => selectAnnotation(anno.id)} className="pointer-events-auto cursor-pointer">
+               <path d={pathData} fill="none" stroke="transparent" strokeWidth={sw + 12} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+               <path
+                  d={pathData}
+                  fill="none"
+                  stroke={anno.color || "currentColor"}
+                  strokeWidth={isActive ? sw + 1 : sw}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   strokeDasharray="2 6"
                   vectorEffect="non-scaling-stroke"
                   className={cn("transition-all text-primary", isActive ? "opacity-100 drop-shadow-md" : "opacity-50 hover:opacity-80")}
@@ -315,16 +406,22 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
              </g>
            );
         })}
+
+        {/* Live drawing preview */}
         {isDrawing && currentPath.length > 0 && (
-           <path 
+           <path
               d={getSmoothedPath(currentPath)}
               fill="none"
-              stroke={activeColor === "var(--primary)" ? "hsl(var(--primary))" : activeColor}
-              strokeWidth={1.5}
+              stroke={activeColor}
+              strokeWidth={activeMode === 'highlight' ? toolConfig.highlight.thickness : toolConfig.draw.thickness}
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeDasharray="2 6"
+              strokeDasharray={activeMode === 'highlight' ? undefined : '2 6'}
               vectorEffect="non-scaling-stroke"
+              style={{
+                opacity: activeMode === 'highlight' ? 0.3 : 1,
+                mixBlendMode: activeMode === 'highlight' ? 'multiply' : 'normal'
+              }}
            />
         )}
       </svg>
@@ -333,6 +430,7 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
       <div className="absolute inset-0 pointer-events-none z-30 overflow-visible">
         {annotations.map((anno, index) => {
             if (anno.type === 'draw') return null;
+            if (currentPage && (anno.pageNumber || 1) !== currentPage) return null;
             const isRelocating = relocatingAnnotation?.id === anno.id;
             const isActive = activeAnnotationId === anno.id;
             
@@ -389,48 +487,32 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                             </div>
                          </div>
                        )}
-                       <div className={cn(
-                         "w-5 h-5 rounded-full flex items-center justify-center shadow-2xl border transition-all duration-300 relative z-10",
-                         isActive ? "scale-125 ring-4 ring-white/20" : "hover:scale-110"
-                       )}
-                       style={{
-                         backgroundColor: anno.color || "white",
-                         borderColor: anno.color ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.4)",
-                         color: anno.color ? "#fff" : "#000",
-                         mixBlendMode: anno.color ? "normal" : "exclusion"
-                       }}>
-                          <span className="text-[8px] font-black">{index + 1}</span>
-                       </div>
+                       {(() => {
+                         const ps = anno.pinSize ?? toolConfig.pin.size;
+                         const fontSize = Math.max(8, Math.round(ps * 0.23));
+                         return (
+                           <div
+                             className={cn("rounded-full border-2 transition-all duration-300 flex items-center justify-center", isActive ? "shadow-[0_0_20px_rgba(255,255,255,0.4)]" : "shadow-sm")}
+                             style={{
+                               width: ps, height: ps,
+                               borderColor: anno.color || "rgba(255,255,255,0.4)",
+                               backgroundColor: anno.color ? `${anno.color}33` : "rgba(255,255,255,0.05)",
+                               mixBlendMode: anno.color ? "normal" : "exclusion"
+                             }}
+                           >
+                             <span style={{ fontSize, color: anno.color || "white" }} className="font-black">{index + 1}</span>
+                           </div>
+                         );
+                       })()}
                     </div>
-                  ) : (
-                    <div className="relative">
-                       {isRelocating && (
-                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-5 flex flex-col items-center gap-2 z-[100]">
-                            <div className="bg-primary/95 text-primary-foreground text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-full shadow-2xl border border-white/20 backdrop-blur-md">Confirm Move?</div>
-                            <div className="flex items-center gap-1.5 p-1 bg-card/95 backdrop-blur-md rounded-full shadow-xl border border-border/50">
-                               <button onClick={confirmRelocation} className="px-3 py-1 bg-primary text-primary-foreground rounded-full text-[8px] font-black uppercase">Yes</button>
-                               <button onClick={cancelRelocation} className="px-3 py-1 hover:bg-muted text-foreground rounded-full text-[8px] font-black uppercase">No</button>
-                            </div>
-                         </div>
-                       )}
-                       <div className={cn(
-                         "w-12 h-12 rounded-full border-2 transition-all duration-300 flex items-center justify-center",
-                         isActive ? "shadow-[0_0_20px_rgba(255,255,255,0.4)]" : "shadow-sm"
-                       )}
-                       style={{
-                          borderColor: anno.color || "rgba(255,255,255,0.4)",
-                          backgroundColor: anno.color ? `${anno.color}33` : "rgba(255,255,255,0.05)",
-                          mixBlendMode: anno.color ? "normal" : "exclusion"
-                       }}>
-                           <span className="text-[11px] font-black" style={{ color: anno.color || "white" }}>{index + 1}</span>
-                       </div>
-                    </div>
-                  )}
+                  ) : null}
               </motion.div>
             );
         })}
       </div>
       </div>
+      }
+      {/* end overlay */}
 
       {/* Right Sidebar Interface */}
       {createPortal(
@@ -467,10 +549,107 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
 
               {/* Tool Selection */}
               <div className="flex items-center gap-2 p-1 bg-muted/50 rounded-xl">
-                  <button onClick={() => setActiveMode('inspect')} className={cn("flex-1 p-2 flex items-center justify-center rounded-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'inspect' && "bg-background text-foreground shadow-sm")} title="Inspect tool"><Hand size={14}/></button>
-                  <button onClick={() => setActiveMode('pin')} className={cn("flex-1 p-2 flex items-center justify-center rounded-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'pin' && "bg-background text-foreground shadow-sm")} title="Pin tool"><Pin size={14}/></button>
-                  <button onClick={() => setActiveMode('highlight')} className={cn("flex-1 p-2 flex items-center justify-center rounded-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'highlight' && "bg-background text-foreground shadow-sm")} title="Highlight Area tool"><Highlighter size={14}/></button>
-                  <button onClick={() => setActiveMode('draw')} className={cn("flex-1 p-2 flex items-center justify-center rounded-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'draw' && "bg-background text-foreground shadow-sm")} title="Draw Pen tool"><Edit2 size={14}/></button>
+                {/* Inspect — no config */}
+                <button
+                  onClick={() => { setActiveMode('inspect'); setOpenConfig(null); }}
+                  className={cn("flex-1 p-2 flex items-center justify-center rounded-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'inspect' && "bg-background text-foreground shadow-sm")}
+                  title="Inspect"
+                >
+                  <Hand size={14}/>
+                </button>
+
+                {/* Pin + chevron */}
+                <div ref={pinDropRef} className="relative flex-1 flex">
+                  <button
+                    onClick={() => { setActiveMode('pin'); setOpenConfig(null); }}
+                    className={cn("flex-1 p-2 flex items-center justify-center rounded-l-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'pin' && "bg-background text-foreground shadow-sm")}
+                    title="Pin"
+                  >
+                    <Pin size={14}/>
+                  </button>
+                  <button
+                    onClick={() => setOpenConfig(openConfig === 'pin' ? null : 'pin')}
+                    className={cn("px-0.5 flex items-center rounded-r-lg transition-all text-muted-foreground hover:bg-background/50", openConfig === 'pin' && "bg-background text-foreground shadow-sm")}
+                  >
+                    <ChevronDown size={10}/>
+                  </button>
+                  {openConfig === 'pin' && (
+                    <div className={`absolute top-full ${pinDropSide}-0 mt-1 z-[200] bg-card border border-border rounded-xl shadow-xl p-3 w-44 flex flex-col gap-2`}>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Pin Size</span>
+                      <input
+                        type="range" min={24} max={80} step={4}
+                        value={toolConfig.pin.size}
+                        onChange={e => setToolConfig(c => ({ ...c, pin: { ...c.pin, size: Number(e.target.value) } }))}
+                        className="w-full accent-primary"
+                      />
+                      <div className="flex justify-between text-[9px] text-muted-foreground">
+                        <span>S</span><span className="font-black text-foreground">{toolConfig.pin.size}px</span><span>L</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Highlight + chevron */}
+                <div ref={hlDropRef} className="relative flex-1 flex">
+                  <button
+                    onClick={() => { setActiveMode('highlight'); setOpenConfig(null); }}
+                    className={cn("flex-1 p-2 flex items-center justify-center rounded-l-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'highlight' && "bg-background text-foreground shadow-sm")}
+                    title="Highlight"
+                  >
+                    <Highlighter size={14}/>
+                  </button>
+                  <button
+                    onClick={() => setOpenConfig(openConfig === 'highlight' ? null : 'highlight')}
+                    className={cn("px-0.5 flex items-center rounded-r-lg transition-all text-muted-foreground hover:bg-background/50", openConfig === 'highlight' && "bg-background text-foreground shadow-sm")}
+                  >
+                    <ChevronDown size={10}/>
+                  </button>
+                  {openConfig === 'highlight' && (
+                    <div className={`absolute top-full ${hlDropSide}-0 mt-1 z-[200] bg-card border border-border rounded-xl shadow-xl p-3 w-44 flex flex-col gap-2`}>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Thickness</span>
+                      <input
+                        type="range" min={4} max={32} step={2}
+                        value={toolConfig.highlight.thickness}
+                        onChange={e => setToolConfig(c => ({ ...c, highlight: { ...c.highlight, thickness: Number(e.target.value) } }))}
+                        className="w-full accent-primary"
+                      />
+                      <div className="flex justify-between text-[9px] text-muted-foreground">
+                        <span>Thin</span><span className="font-black text-foreground">{toolConfig.highlight.thickness}px</span><span>Thick</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Draw + chevron */}
+                <div ref={drawDropRef} className="relative flex-1 flex">
+                  <button
+                    onClick={() => { setActiveMode('draw'); setOpenConfig(null); }}
+                    className={cn("flex-1 p-2 flex items-center justify-center rounded-l-lg transition-all text-muted-foreground hover:bg-background/50", activeMode === 'draw' && "bg-background text-foreground shadow-sm")}
+                    title="Draw"
+                  >
+                    <Edit2 size={14}/>
+                  </button>
+                  <button
+                    onClick={() => setOpenConfig(openConfig === 'draw' ? null : 'draw')}
+                    className={cn("px-0.5 flex items-center rounded-r-lg transition-all text-muted-foreground hover:bg-background/50", openConfig === 'draw' && "bg-background text-foreground shadow-sm")}
+                  >
+                    <ChevronDown size={10}/>
+                  </button>
+                  {openConfig === 'draw' && (
+                    <div className={`absolute top-full ${drawDropSide}-0 mt-1 z-[200] bg-card border border-border rounded-xl shadow-xl p-3 w-44 flex flex-col gap-2`}>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Stroke Width</span>
+                      <input
+                        type="range" min={1} max={10} step={0.5}
+                        value={toolConfig.draw.thickness}
+                        onChange={e => setToolConfig(c => ({ ...c, draw: { ...c.draw, thickness: Number(e.target.value) } }))}
+                        className="w-full accent-primary"
+                      />
+                      <div className="flex justify-between text-[9px] text-muted-foreground">
+                        <span>Fine</span><span className="font-black text-foreground">{toolConfig.draw.thickness}px</span><span>Bold</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Default Tool Color Selection */}
@@ -581,7 +760,7 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                                  onClick={(e) => {
                                    e.stopPropagation();
                                    const next = annotations.map(a => a.id === anno.id ? {...a, color: c} : a);
-                                   onSave(next);
+                                   persistAnnotations(next);
                                  }}
                                  title="Change item color"
                                  className={cn(
@@ -664,7 +843,7 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
             initial={{ scale: 0, x: 50 }} 
             animate={{ scale: 1, x: 0 }} 
             exit={{ scale: 0, x: 50 }}
-            className="fixed bottom-8 right-8 z-[99999] pointer-events-auto"
+            className="fixed bottom-8 right-8 z-[99999] pointer-events-auto no-print"
           >
            <button
             onClick={() => setIsMinimized(false)}

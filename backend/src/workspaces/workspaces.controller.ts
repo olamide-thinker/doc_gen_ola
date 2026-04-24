@@ -427,6 +427,7 @@ export class WorkspacesController {
       // ── 2. Invoices table (new model) ──────────────────────────────────────
       const invoiceList = await this.db.query.invoices.findMany({
         where: eq(schema.invoices.projectId, projectId),
+        with: { receipts: true }
       });
 
       // Fetch folders once so we can cascade parent-folder restrictions
@@ -477,6 +478,8 @@ export class WorkspacesController {
         size: null,
         createdAt: inv.createdAt,
         updatedAt: inv.updatedAt,
+        status: inv.status,
+        receiptCount: (inv.receipts || []).filter((r: any) => r.status === 'finalised').length,
         _source: 'invoices' as const,
       }));
 
@@ -614,6 +617,35 @@ export class WorkspacesController {
   @Post(':id/documents')
   async upsertDocument(@Param('id') id: string, @Body() doc: any, @Req() req: any) {
     await this.assertProjectAccess(id, req);
+
+    // 1. Check if it's a Receipt
+    const receipt = await this.db.query.receipts.findFirst({
+      where: eq(schema.receipts.id, doc.id),
+    });
+    if (receipt) {
+      if (receipt.status === 'finalised') {
+        throw new ForbiddenException('This receipt is finalised and cannot be modified');
+      }
+      await this.db.update(schema.receipts)
+        .set({ draft: doc.content, updatedAt: new Date() })
+        .where(eq(schema.receipts.id, doc.id));
+      return { success: true };
+    }
+
+    // 2. Check if it's an Invoice
+    const invoice = await this.db.query.invoices.findFirst({
+      where: eq(schema.invoices.id, doc.id),
+    });
+    if (invoice) {
+      if (invoice.status === 'locked') {
+        throw new ForbiddenException('This invoice is locked and cannot be modified');
+      }
+      await this.db.update(schema.invoices)
+        .set({ draft: doc.content, updatedAt: new Date() })
+        .where(eq(schema.invoices.id, doc.id));
+      return { success: true };
+    }
+
     const userId = req.user.uid;
     let businessId = doc.businessId;
 

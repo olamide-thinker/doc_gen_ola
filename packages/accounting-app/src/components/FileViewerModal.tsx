@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { X, Download, ZoomIn, ZoomOut, RotateCw, Hand, Play, Pause, Minimize2, Maximize2, Volume2, VolumeX } from "../lib/icons/lucide";
+import { X, Download, ZoomIn, ZoomOut, RotateCw, Hand, Play, Pause, Minimize2, Maximize2, Volume2, VolumeX, Loader } from "../lib/icons/lucide";
 import { type FileAttachment, type Annotation, type MemberRole } from "../types";
 import { cn } from "../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { AnnotationSystem } from "./AnnotationSystem";
+import { PdfViewer } from "./PdfViewer";
 
 interface FileViewerModalProps {
   file: FileAttachment | null;
@@ -109,15 +110,47 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
   };
 
   const renderContent = () => {
-    switch (file.type) {
+    const type = file.type?.toLowerCase();
+    
+    switch (type) {
       case "pdf":
-        return blobUrl ? <embed src={`${blobUrl}#view=FitV&toolbar=1`} type="application/pdf" className="w-full h-full bg-white"/> : null;
+      case "application/pdf":
+        return blobUrl ? (
+          <PdfViewer 
+            url={blobUrl} 
+            annotations={file.annotations} 
+            onSaveAnnotations={(next) => onSaveAnnotations?.(file.id, next)}
+            role={role}
+            zoom={zoom}
+            rotation={rotation}
+            className="w-full h-full"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-4 py-20">
+            <Loader className="animate-spin text-primary" size={32} />
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Preparing high-fidelity viewer...</p>
+          </div>
+        );
       case "image":
         return <img src={file.url} alt={file.name} className="w-full h-full object-contain pointer-events-none select-none shadow-2xl rounded-lg"/>;
       case "video":
         return <video ref={videoRef} src={file.url} autoPlay onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)} onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)} className="w-full h-full object-contain rounded-lg shadow-2xl outline-none"/>;
       default:
-        return <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Unsupported file type</div>;
+        // Fallback for unknown types - if it's a PDF by extension, try PdfViewer
+        if (file.name?.toLowerCase().endsWith('.pdf')) {
+          return blobUrl ? (
+            <PdfViewer 
+              url={blobUrl} 
+              annotations={file.annotations} 
+              onSaveAnnotations={(next) => onSaveAnnotations?.(file.id, next)}
+              role={role}
+              zoom={zoom}
+              rotation={rotation}
+              className="w-full h-full"
+            />
+          ) : null;
+        }
+        return <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Unsupported file type: {file.type}</div>;
     }
   };
 
@@ -143,7 +176,10 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
             drag={(isPanning || zoom > 1) && annotationMode === 'inspect'}
             dragConstraints={dragConstraints}
             dragMomentum={false}
-            animate={{ scale: zoom, rotate: rotation }}
+            animate={{ 
+              scale: file.type === 'pdf' ? 1 : zoom, 
+              rotate: file.type === 'pdf' ? 0 : rotation 
+            }}
             className={cn(
               "relative z-10 w-full h-full max-w-screen-2xl mx-auto flex items-center justify-center select-none pointer-events-auto overflow-hidden",
               annotationMode === 'inspect' && (isPanning || zoom > 1) ? "cursor-grab active:cursor-grabbing" : ""
@@ -151,16 +187,18 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({ file, onClose,
           >
              <div ref={annotationRef} className="w-full h-full flex items-center justify-center relative">
                 {renderContent()}
-                <AnnotationSystem 
-                  annotations={file.annotations || []} 
-                  onSave={(next) => onSaveAnnotations?.(file.id, next)}
-                  containerRef={annotationRef}
-                  currentTime={currentTime}
-                  mediaType={file.type}
-                  userRole={role}
-                  onModeChange={setAnnotationMode}
-                  onSeek={handleSeek}
-                />
+                {file.type !== 'pdf' && (
+                  <AnnotationSystem 
+                    annotations={file.annotations || []} 
+                    onSave={(next) => onSaveAnnotations?.(file.id, next)}
+                    containerRef={annotationRef}
+                    currentTime={currentTime}
+                    mediaType={file.type}
+                    userRole={role}
+                    onModeChange={setAnnotationMode}
+                    onSeek={handleSeek}
+                  />
+                )}
              </div>
           </motion.div>
         </div>

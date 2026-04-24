@@ -12,7 +12,8 @@ import {
   Users,
   Shield,
   X,
-  Check
+  Check,
+  Printer
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
@@ -504,6 +505,14 @@ const InvoicePreviewPage: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all text-[10px] font-bold uppercase tracking-widest shadow-sm"
           >
             <Edit size={12} /> Edit Document
+          </button>
+          <div className="h-6 w-px bg-border/40 mx-1" />
+          <button
+            onClick={() => window.print()}
+            className="p-1.5 bg-muted text-muted-foreground rounded-md hover:bg-accent hover:text-foreground transition-all shadow-sm no-print"
+            title="Print Document"
+          >
+            <Printer size={14} />
           </button>
         </div>
       </header>

@@ -64,9 +64,10 @@ export class PdfService {
    * Template for Invoice PDF
    */
   createInvoiceDefinition(content: any, business: any) {
+    const businessName = business?.name || 'BUSINESS NAME';
     return {
       content: [
-        { text: business.name || 'BUSINESS NAME', style: 'header' },
+        { text: businessName, style: 'header' },
         { text: 'INVOICE', style: 'subheader', alignment: 'right' },
         { text: `Invoice ID: ${content.invoiceNumber || 'N/A'}`, alignment: 'right' },
         { text: '\n\n' },
@@ -122,21 +123,27 @@ export class PdfService {
   /**
    * Template for Receipt PDF
    */
-  createReceiptDefinition(doc: any, business: { name: string }) {
+  createReceiptDefinition(doc: any, business: { name: string } | null) {
     const rows = doc?.table?.rows || [];
-    const subTotal = rows.reduce((acc: number, row: any) => acc + (Number(row.D) || 0), 0);
+    const priceCol = (doc?.table?.columns || []).find((c: any) => 
+      c.type === 'number' && /price|amount|rate/i.test(c.label || '')
+    );
+    const priceColId = priceCol?.id || 'C';
+    const subTotal = rows.reduce((acc: number, row: any) => acc + (Number(row[priceColId]) || 0), 0);
     
     // Receipt-specific fields
-    const receiptNumber = doc?.invoiceCode?.text || '—';
+    const receiptNumber = doc?.invoiceCode?.text || 'NOT SPECIFIED';
     const date = doc?.date || new Date().toLocaleDateString();
     const payerName = doc?.contact?.name || '—';
     const amountPaid = doc?.amountPaid || 0;
     const paymentMethod = doc?.paymentMethod || 'Transfer';
     const ref = doc?.reference || '';
+    const businessName = business?.name || 'SYNC SALEZ';
+
 
     return {
       content: [
-        { text: business.name.toUpperCase(), style: 'header' },
+        { text: businessName.toUpperCase(), style: 'header' },
         { text: 'PAYMENT RECEIPT', style: 'subheader', margin: [0, 4, 0, 12] },
         { 
           columns: [
@@ -146,7 +153,7 @@ export class PdfService {
         },
         { text: '\n' },
         { text: `Received from: ${payerName}`, margin: [0, 8, 0, 4] },
-        { text: `Amount: ₦${Number(amountPaid).toLocaleString()}`, bold: true, fontSize: 14, margin: [0, 0, 0, 12] },
+        { text: `Amount: N${Number(amountPaid).toLocaleString()}`, bold: true, fontSize: 14, margin: [0, 0, 0, 12] },
         {
           table: {
             headerRows: 1,
@@ -155,9 +162,9 @@ export class PdfService {
               [{ text: 'Description', bold: true }, { text: 'Amount', bold: true, alignment: 'right' }],
               ...rows.filter((r: any) => r.rowType === 'row').map((it: any) => [
                 it.B || '',
-                { text: `₦${Number(it.D || 0).toLocaleString()}`, alignment: 'right' },
+                { text: `N${Number(it[priceColId] || 0).toLocaleString()}`, alignment: 'right' },
               ]),
-              [{ text: 'TOTAL', bold: true }, { text: `₦${Number(subTotal).toLocaleString()}`, bold: true, alignment: 'right' }],
+              [{ text: 'TOTAL', bold: true }, { text: `N${Number(subTotal).toLocaleString()}`, bold: true, alignment: 'right' }],
             ],
           },
         },

@@ -226,3 +226,11 @@
 .ProseMirror p { margin: 0 0 1em 0; }
 .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { font-weight: 700; }
 .ProseMirror a { text-decoration: underline; font-weight: 500; }
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}

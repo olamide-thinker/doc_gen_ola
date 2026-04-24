@@ -53,16 +53,18 @@ export function resolveFormula(
     });
     const idMatches = formula.match(/[a-z][a-zA-Z0-9]+/g) || [];
     idMatches.forEach((mid) => {
-      if (context[mid] !== undefined) return;
+      if (context[mid] !== undefined || mid === "sum") return;
       expression = expression.replace(
         new RegExp(`\\b${mid}\\b`, "g"),
         String(Number((rowData as any)[mid]) || 0),
       );
     });
-    if (/[^0-9\s+\-*/().,e]/.test(expression)) return 0;
+    if (/[^0-9\s+\-*/().,esum]/.test(expression)) return 0;
     // Allow commas in numbers by removing them before evaluation
     const cleaned = expression.replace(/(\d),(\d)/g, "$1$2");
-    return new Function(`return ${cleaned}`)() || 0;
+    // Pass subTotal as the default value for sum() for compatibility
+    const func = new Function("subTotal", "prev", `const sum = () => subTotal; return ${cleaned}`);
+    return func(context.subTotal || 0, context.prev || 0) || 0;
   } catch (e) {
     console.warn("[resolveFormula] Error:", e, "Expression:", formula);
     return 0;

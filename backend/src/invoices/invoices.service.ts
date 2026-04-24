@@ -167,9 +167,36 @@ export class InvoicesService {
     let remainingBefore = grandTotal;
 
     for (const r of activeReceipts) {
-      const amountPaid = (r.draft as any)?.amountPaid || 0;
-      const remainingAfter = remainingBefore - amountPaid;
+      let receiptDraft = r.draft;
+      if (typeof receiptDraft === 'string') {
+        try { receiptDraft = JSON.parse(receiptDraft); } catch(e) {}
+      }
       
+      const d = receiptDraft as any;
+      console.log(`[InvoicesService] 📑 Processing receipt ${r.id}. Raw amountPaid: ${d?.amountPaid}, Type: ${typeof d?.amountPaid}`);
+      let amountPaid = Number(d?.amountPaid) || 0;
+
+      // AGGRESSIVE FALLBACK: If amountPaid is 0, try to find it in the table
+      if (amountPaid === 0 && d?.table?.rows?.length > 0) {
+        // 1. Try to find column by label
+        const pCol = (d.table.columns || []).find((c: any) => c.type === 'number' && /price|amount|rate/i.test(c.label || ''));
+        const pColId = pCol?.id || 'C';
+        let foundAmount = d.table.rows.reduce((acc, row) => acc + (Number(row[pColId]) || 0), 0);
+        
+        // 2. If still 0, scan ALL columns in the first row for any number
+        if (foundAmount === 0) {
+          const firstRow = d.table.rows.find(r => r.rowType === 'row' || !r.rowType);
+          if (firstRow) {
+            const possibleCols = Object.keys(firstRow).filter(k => k.length === 1 && !['A', 'B'].includes(k) && Number(firstRow[k]) > 0);
+            if (possibleCols.length > 0) {
+              foundAmount = d.table.rows.reduce((acc, row) => acc + (Number(row[possibleCols[0]]) || 0), 0);
+            }
+          }
+        }
+        amountPaid = foundAmount;
+      }
+
+      const remainingAfter = remainingBefore - amountPaid;
       totalPaid += amountPaid;
 
       chain.push({

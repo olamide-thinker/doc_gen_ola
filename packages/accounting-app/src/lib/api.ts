@@ -738,6 +738,36 @@ export const api = {
     if (!json.success) throw new Error(json.message || 'Failed to finalise receipt');
     return json;
   },
+  finaliseInvoice: async (id: string): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/invoices/${id}/finalise`, {
+      method: 'POST',
+      headers
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to finalise invoice');
+    return json;
+  },
+  previewReceipt: async (id: string): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/invoices/receipts/${id}/preview`, {
+      method: 'POST',
+      headers
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to preview receipt');
+    return json;
+  },
+  previewInvoice: async (id: string): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/invoices/${id}/preview`, {
+      method: 'POST',
+      headers
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to preview invoice');
+    return json;
+  },
 
   createInvoice: async (name: string, content: any, projectId: string, userId: string): Promise<any> => {
     const headers = await authHeaders();

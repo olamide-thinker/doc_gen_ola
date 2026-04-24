@@ -34,6 +34,8 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
+import { PdfViewer } from "./PdfViewer";
+import { AnnotationSystem } from "./AnnotationSystem";
 import {
   DndContext,
   closestCenter,
@@ -80,10 +82,10 @@ import {
   findUnitColumnId 
 } from "../lib/service-dictionary";
 
-import { AnnotationSystem } from "./AnnotationSystem";
 import { A4PageProps } from "./A4PageProps";
 import { Annotation, DocumentMember, MemberRole, canWrite } from "../types";
 import { Radio, SignalIcon } from "lucide-react";
+import { API_BASE } from "../lib/workspace-persist";
 
 const SortableSummaryItem = ({
   item,
@@ -176,6 +178,7 @@ export const Editor = () => {
   const location = useLocation();
   const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
+  const [finalisedPdfUrl, setFinalisedPdfUrl] = useState<string | null>(null);
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
@@ -234,6 +237,18 @@ export const Editor = () => {
     return allDocuments.find((d: any) => d.id === id) || localMeta;
   }, [allDocuments, id, localMeta]);
 
+  // Fetch invoice management data — this is the source of truth for totals
+  // and receipts (which live in the invoices table, not the documents table).
+  const { data: invoiceMgmtData } = useQuery({
+    queryKey: ['invoice-management', id],
+    queryFn: () => api.getInvoiceManagement(id!),
+    enabled: !!id && !!currentUser,
+  });
+
+  const hasFinalizedReceipts = useMemo(() => {
+    return (invoiceMgmtData?.chain?.length || 0) > 0;
+  }, [invoiceMgmtData]);
+
   const availableEmails = useMemo(() => {
     if (!activeProject || !docMetadata) return [];
     const projectMembers = (activeProject.members || []).map(m => (typeof m === 'string' ? m : m.email));
@@ -265,8 +280,18 @@ export const Editor = () => {
   const isReadOnly = useMemo(() => {
     if (isPreview) return true;
     if (docMetadata?.status === 'locked') return true;
+    if (hasFinalizedReceipts) return true;
     return !canWrite(userRole);
-  }, [isPreview, userRole, docMetadata?.status]);
+  }, [isPreview, userRole, docMetadata?.status, hasFinalizedReceipts]);
+
+  const lockReason = useMemo(() => {
+    if (!isReadOnly) return null;
+    if (isPreview) return null;
+    if (docMetadata?.status === 'locked') return "This invoice is locked for editing";
+    if (hasFinalizedReceipts) return "This invoice is locked because receipts have been issued for it";
+    if (!canWrite(userRole)) return `View-only — your role (${userRole}) cannot edit this document`;
+    return "This document is read-only";
+  }, [isReadOnly, isPreview, docMetadata?.status, hasFinalizedReceipts, userRole]);
 
   // Editor Annotations state (stored in docMetadata.metadata)
   const annotations = useMemo(() => {
@@ -991,7 +1016,7 @@ export const Editor = () => {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
-      <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300">
+      <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300 no-print">
         <button
           onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
           className="p-2 hover:bg-muted rounded-xl transition-colors text-muted-foreground"
@@ -1048,6 +1073,44 @@ export const Editor = () => {
              {isPreview ? "Exit Preview" : "Preview"}
           </button>
 
+          <div className="h-6 w-px bg-border/40 mx-1" />
+
+
+
+          <button
+            onClick={() => window.print()}
+            className="p-1.5 bg-muted text-muted-foreground border border-border rounded-lg transition-all shadow-sm hover:bg-muted/80 active:scale-95 no-print"
+            title="Print (Browser)"
+          >
+            <Printer size={16} />
+          </button>
+
+          {docMetadata?.status !== 'locked' && !finalisedPdfUrl && !hasFinalizedReceipts && (
+            <button
+              onClick={async () => {
+                const confirm = window.confirm("Finalising this invoice will lock it for further edits and generate a PDF. Proceed?");
+                if (!confirm) return;
+                try {
+                  const res = await api.finaliseInvoice(id!);
+                  const url = res.url || res.pdfUrl;
+                  if (url) {
+                    setFinalisedPdfUrl(url);
+                    queryClient.invalidateQueries({ queryKey: ['documents', projectId] });
+                  } else {
+                    navigate(`/invoice/${id}`);
+                  }
+                } catch (e) {
+                  alert("Finalization failed");
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-1.5 bg-success text-success-foreground rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 active:scale-95"
+            >
+              <Check size={14} /> Finalize Invoice
+            </button>
+          )}
+
+
+
           <button
             onClick={() => {
               navigate(`/invoice/${id}`);
@@ -1059,9 +1122,9 @@ export const Editor = () => {
         </div>
       </header>
 
-      {isReadOnly && !isPreview && (
+      {lockReason && (
         <div className="bg-warning/10 border-b border-warning/30 px-6 py-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-warning">
-          <Eye size={12} /> View-only — your role ({userRole}) cannot edit this document
+          <Eye size={12} /> {lockReason}
         </div>
       )}
 
@@ -1480,10 +1543,35 @@ export const Editor = () => {
 
         <div 
           ref={containerRef}
-          className="flex-1 relative overflow-y-auto p-8 bg-slate-50/50 custom-scrollbar flex flex-col items-center"
+          className={cn("flex-1 relative overflow-y-auto custom-scrollbar flex flex-col items-center transition-all duration-500", finalisedPdfUrl ? "bg-[#323639] p-0" : "bg-slate-50/50 p-8")}
         >
-          {/* Relative wrapper for content-anchored annotations */}
-          <div ref={contentRef} className="relative w-full flex flex-col items-center min-h-full">
+          {finalisedPdfUrl ? (
+            <div className="w-full h-full flex flex-col items-center animate-in fade-in zoom-in-95 duration-500">
+               <div className="w-full max-w-5xl h-full bg-card shadow-2xl overflow-hidden border border-white/5 relative">
+                 <PdfViewer 
+                   url={finalisedPdfUrl}
+                   annotations={annotations}
+                   onSaveAnnotations={handleSaveAnnotations}
+                   role={userRole}
+                   className="w-full h-full"
+                 />
+               </div>
+               <div className="my-8 flex items-center gap-6 animate-in fade-in slide-in-from-bottom-6 duration-1000 delay-300 no-print">
+                  <div className="px-5 py-2.5 bg-success/20 border border-success/30 rounded-2xl flex items-center gap-3 text-success shadow-lg shadow-success/10">
+                    <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Finalized High-Fidelity Master Document</span>
+                  </div>
+                  <button 
+                    onClick={() => setFinalisedPdfUrl(null)}
+                    className="group flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-all underline underline-offset-8 decoration-white/20 hover:decoration-white"
+                  >
+                    <ArrowLeft size={12} className="group-hover:-translate-x-1 transition-transform" />
+                    Switch to draft view
+                  </button>
+               </div>
+            </div>
+          ) : (
+            <div ref={contentRef} className="relative w-full flex flex-col items-center min-h-full">
 
             {/* Coordinate-stable container for document and annotations */}
             <div ref={coordContainerRef} className="relative w-fit flex flex-col items-center">
@@ -1554,7 +1642,7 @@ export const Editor = () => {
                       onUpdateReceiptMessage={onUpdateReceiptMessage}
                       onUpdateTransactionId={onUpdateTransactionId}
                       onUpdateReference={onUpdateReference}
-                      isPreview={isPreview}
+                      isPreview={isReadOnly || isPreview}
                       isReadOnly={isReadOnly}
                       rowsLength={(docData.table.rows || []).length}
                       lastUpdated={lastUpdated}
@@ -1606,6 +1694,7 @@ export const Editor = () => {
               />
             </div>
           </div>
+        )}
         </div>
       </div>
 

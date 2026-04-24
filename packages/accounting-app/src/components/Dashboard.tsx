@@ -1071,7 +1071,9 @@ const ItemCard = ({
   const isFolder = item._type === 'folder';
   const folderStats = isFolder && item.stats ? `${item.stats.folders} ${item.stats.folders === 1 ? 'Folder' : 'Folders'} • ${item.stats.files} ${item.stats.files === 1 ? 'File' : 'Files'}` : null;
   const menuRef = useRef<HTMLDivElement>(null);
-  const isLocked = false; 
+  const isLocked = item.status === 'locked' || (item.receiptCount || 0) > 0; 
+  const receiptCount = item.receiptCount || 0;
+  const memberCount = (item.members || []).length;
 
   const subtitle = isFolder ? (folderStats || "Folder") : (item.content?._type === 'resource' || item.content?._isResource) ? `${item.content.resourceType?.toUpperCase() || 'FILE'} Resource` : (item.content?.title ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title) : "Invoice");
   const isResource = item.content?._isResource;
@@ -1116,6 +1118,19 @@ const ItemCard = ({
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <p className="text-xs font-semibold tracking-tight">{item.name}</p>
+              {isLocked && <ShieldCheck size={12} className="text-amber-500 shrink-0" />}
+              {receiptCount > 0 && (
+                <div className="flex items-center gap-1 text-[10px] font-bold text-primary shrink-0">
+                  <ScrollText size={10} />
+                  <span>{receiptCount}</span>
+                </div>
+              )}
+              {memberCount > 0 && (
+                <div className="flex items-center gap-1 text-[10px] font-bold text-blue-500 shrink-0">
+                  <Users size={10} />
+                  <span>{memberCount}</span>
+                </div>
+              )}
               {badgeLabel && <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-sm leading-none", badgeClass)}>{badgeLabel}</span>}
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
@@ -1246,7 +1261,27 @@ const ItemCard = ({
            </div>
          )}
       </div>
-      <div className="px-1"><p className="text-[12px] font-semibold truncate tracking-tight text-foreground">{item.name}</p><p className="text-[10px] text-muted-foreground font-medium opacity-70">{subtitle}</p></div>
+      <div className="px-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[12px] font-semibold truncate tracking-tight text-foreground flex-1">{item.name}</p>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isLocked && <ShieldCheck size={12} className="text-amber-500" />}
+            {receiptCount > 0 && (
+              <div className="flex items-center gap-1 text-[10px] font-bold text-primary">
+                <ScrollText size={10} />
+                <span>{receiptCount}</span>
+              </div>
+            )}
+            {memberCount > 0 && (
+              <div className="flex items-center gap-1 text-[10px] font-bold text-blue-500">
+                <Users size={10} />
+                <span>{memberCount}</span>
+              </div>
+            )}
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground font-medium opacity-70">{subtitle}</p>
+      </div>
     </div>
   );
 };

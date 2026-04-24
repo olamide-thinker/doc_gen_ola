@@ -390,15 +390,14 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
             <div className="opacity-80 relative h-[1.5em] overflow-hidden">
               <Editable value={data.date} onSave={(val) => onUpdateDate(val as string)} isDate={true} readOnly={isPreview} />
             </div>
-            {data.invoiceCode && (
-              <div className="font-bold text-[15px] whitespace-nowrap min-w-[100px]" style={{ color: data.invoiceCode.color }}>
-                <Editable 
-                  value={data.invoiceCode.text} 
-                  onSave={(val) => onUpdateInvoiceCode?.({ text: val as string })} 
-                  readOnly={isPreview}
-                />
-              </div>
-            )}
+            <div className="font-bold text-[15px] whitespace-nowrap min-w-[100px]" style={{ color: data.invoiceCode?.color || HEADER_DARK_BROWN }}>
+              <Editable 
+                value={data.invoiceCode?.text || "ADD RECEIPT #"} 
+                onSave={(val) => onUpdateInvoiceCode?.({ text: val as string })} 
+                readOnly={isPreview}
+                className={cn(!data.invoiceCode?.text && "opacity-40 italic font-normal text-xs")}
+              />
+            </div>
           </div>
 
           <div className="flex justify-between px-6 py-6 mb-8" style={{ backgroundColor: ADDRESS_BG }}>
@@ -473,7 +472,7 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
         </>
       )}
 
-      {isFirstPage && <BOQSummary />}
+
 
       {/* Financial Summary Section */}
       <div className="mb-8 font-lexend">
@@ -566,11 +565,11 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
          </div>
       </div>
 
-      {/* {showRows && !data.isReceipt && (
-        <div className="overflow-hidden border border-slate-100">
+      {showRows && (
+        <div className="overflow-hidden border border-slate-100 mb-8">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="text-white text-[13px] font-normal uppercase tracking-[0.2em] font-luzia" style={{ backgroundColor: HEADER_DARK_BROWN }}>
+              <tr className="text-white text-[13px] font-normal uppercase tracking-[0.2em] font-luzia" style={{ backgroundColor: "#503D36" }}>
                 {(data.table.columns || [])
                   .filter((c) => !c.hidden)
                   .map((col: any) => (
@@ -596,13 +595,9 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
                     onAddRowAbove={onAddRowAbove}
                     onAddSectionBelow={onAddSectionBelow}
                     onAddSectionAbove={onAddSectionAbove}
-                    onAddStageBelow={onAddStageBelow}
-                    onAddStageAbove={onAddStageAbove}
-                    useStages={useStages}
                     rowNumbering={rowNumbering}
                     resolveFormula={resolveFormula}
                     resolveSectionTotal={resolveSectionTotal}
-                    resolveStageTotal={resolveStageTotal}
                   />
                 ))}
             </tbody>
@@ -622,9 +617,9 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
             </div>
           )}
         </div>
-      )} */}
+      )}
 
-      {showTotals && totalPrice && !data.isReceipt && (
+      {showTotals && totalPrice && (
         <div className="mt-8 border-t border-slate-100">
           <TotalRow label="Sub Total" value={totalPrice.subTotal} readOnly className="bg-slate-100/50 font-bold" />
           {(totalPrice.summaries || []).map((item: any) => (
@@ -632,7 +627,7 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
           ))}
           <div className="flex items-center justify-between p-2 px-5 text-white" style={{ backgroundColor: "#212121" }}>
             <span className="text-[14px] font-normal tracking-wide font-lexend uppercase">Total Amount Paid</span>
-            <span className="text-[18px] font-bold font-lexend">₦{Math.round(totalPrice.grandTotal).toLocaleString()}</span>
+            <span className="text-[18px] font-bold font-lexend">₦{Math.round(data.amountPaid || totalPrice?.grandTotal || 0).toLocaleString()}</span>
           </div>
         </div>
       )}

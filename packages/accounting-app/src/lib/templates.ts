@@ -426,6 +426,17 @@ export const TEMPLATES: TemplateDefinition[] = [
       totalInvoiceAmount: 2500000,
       amountPaid: 1500000,
       outstandingBalance: 1000000,
+      table: {
+        columns: [
+          { id: "A", label: "S/N",         type: "index",  width: "50px" },
+          { id: "B", label: "Description", type: "text"                  },
+          { id: "C", label: "Amount (₦)",  type: "number", width: "160px" },
+        ],
+        rows: [
+          { id: "r1", rowType: "row", B: "Payment for referenced invoice", C: 1500000 },
+        ],
+        summary: [],
+      },
       footer: {
         notes: "<p>Thank you for your payment. This receipt serves as official proof of payment for the amount stated above. Please retain for your records. For queries, contact us at support@inv-sys.pro</p>",
         emphasis: [],

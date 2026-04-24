@@ -70,7 +70,10 @@ export interface Annotation {
   path?: {x: number, y: number}[]; // array of points for freehand drawing
   replies?: AnnotationReply[];     // nested replies
   timestamp?: number; // video-only: seconds into the video
-  color?: string; // custom color for the annotation
+  pageNumber?: number; // pdf-only: page number (1-indexed)
+  color?: string;      // custom color for the annotation
+  strokeWidth?: number; // thickness for highlight/draw strokes
+  pinSize?: number;     // diameter in px for pin circles
 }
 
 export type MemberRole = 'owner' | 'editor' | 'commenter' | 'viewer';
