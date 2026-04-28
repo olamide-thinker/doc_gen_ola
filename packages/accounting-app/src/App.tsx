@@ -14,6 +14,9 @@ import OnboardingPage from "./components/OnboardingPage";
 import ProjectsPage from "./components/ProjectsPage";
 import TeamPage from "./components/TeamPage";
 import SettingsPage from "./components/SettingsPage";
+import { PlanEditor } from "./components/PlanEditor";
+// Unified task dashboard for all plans
+import { TasksDashboard } from "./components/TasksDashboard";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, businessId, loading } = useAuth();
@@ -69,11 +72,13 @@ const AppContent: React.FC = () => {
         <Route path="team" element={<TeamPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="crdt-test" element={<CrdtTest />} />
+        <Route path="tasks" element={<TasksDashboard />} />
       </Route>
 
       <Route path="/invoice/:id" element={<ProtectedRoute><InvoiceManagementPage /></ProtectedRoute>} />
       <Route path="/invoice-preview/:id" element={<ProtectedRoute><InvoicePreviewPage /></ProtectedRoute>} />
       <Route path="/editor/:id" element={<ProtectedRoute><Editor /></ProtectedRoute>} />
+      <Route path="/plan/:id" element={<ProtectedRoute><PlanEditor /></ProtectedRoute>} />
       <Route path="/receipt-editor/:id" element={<ProtectedRoute><ReceiptEditor /></ProtectedRoute>} />
 
       {/* 404 Fallback */}

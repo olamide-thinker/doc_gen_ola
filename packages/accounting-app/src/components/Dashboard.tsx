@@ -430,6 +430,19 @@ const Dashboard: React.FC = () => {
 
     try {
       let newDoc;
+      if (createModal.template?.content?.isPlan) {
+        const planContent = {
+          ...createModal.template.content,
+          name,
+          ownerName: currentUser.displayName,
+          ownerPhoto: currentUser.photoURL,
+        };
+        newDoc = await api.createDocument(name, planContent as any, activeProjectId!, currentUser.email!, currentFolderId);
+        setCreateModal({ open: false });
+        navigate(`/plan/${newDoc.id}`);
+        return;
+      }
+
       // All new documents — whether from a template or blank — go through the
       // invoices table so they appear in the invoice management flow.
       newDoc = await api.createInvoice(name, content, activeProjectId!, currentUser.uid);
@@ -732,7 +745,8 @@ const Dashboard: React.FC = () => {
                           });
                           setViewingFileDocId(item._realId);
                         } else {
-                          navigate(item.content?.isReceipt ? `/receipt-editor/${item._realId}` : `/invoice/${item._realId}`, { state: { fromFolder: currentFolderId } });
+                          const route = item.content?.isPlan ? `/plan/${item._realId}` : (item.content?.isReceipt ? `/receipt-editor/${item._realId}` : `/invoice/${item._realId}`);
+                          navigate(route, { state: { fromFolder: currentFolderId } });
                         }
                         setSelectedIds([]);
                         setFocusedId(null);
@@ -883,10 +897,20 @@ const Dashboard: React.FC = () => {
           setIsTemplatePickerOpen(false); 
           handleCreateDocument(template); 
         }}
-        onFileUpload={async (file) => {
+        onFileUpload={async (file, intent) => {
           if (!currentUser?.email) return;
           const name = file.name;
-          const content = {
+          const isPlan = intent === 'plan';
+          const content = isPlan ? {
+            isPlan: true,
+            planData: {
+              pdfUrl: file.url,
+              zones: []
+            },
+            name: file.name,
+            ownerName: currentUser.displayName,
+            ownerPhoto: currentUser.photoURL,
+          } : {
             _isResource: true,
             resourceType: file.type,
             url: file.url,
@@ -895,8 +919,17 @@ const Dashboard: React.FC = () => {
             ownerName: currentUser.displayName,
             ownerPhoto: currentUser.photoURL,
           };
-          await api.createDocument(name, content, activeProjectId!, currentUser.email, currentFolderId);
+          const newDoc = await api.createDocument(name, content as any, activeProjectId!, currentUser.email, currentFolderId);
+          
+          // Refresh the list so the new file appears
+          queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
+          
           setIsTemplatePickerOpen(false);
+
+          // If it's a plan, navigate to it immediately
+          if (isPlan) {
+            navigate(`/plan/${newDoc.id}`);
+          }
         }}
       />
 
@@ -993,18 +1026,23 @@ const Dashboard: React.FC = () => {
           onClose={() => { setViewingFile(null); setViewingFileDocId(null); }}
           onSaveAnnotations={async (_fileId, annotations) => {
             if (!viewingFileDocId) return;
+            // Optimistic update FIRST — so the new pin/drawing appears instantly
+            // and any rapid follow-up draws see the latest annotations list
+            // (otherwise back-to-back saves race and overwrite each other).
+            setViewingFile(prev => prev ? { ...prev, annotations } : prev);
             // Prefer REST cache (source of truth) then fall back to Yjs store
             const docItem =
               allDocuments.find((d: any) => d.id === viewingFileDocId) ||
               workspaceAction.documents.find(d => d.id === viewingFileDocId);
             if (!docItem) return;
             const nextContent = { ...(docItem.content || {}), annotations };
-            await api.updateDocument(viewingFileDocId, nextContent);
+            try {
+              await api.updateDocument(viewingFileDocId, nextContent);
+            } catch (err) {
+              console.error('[Dashboard] Failed to persist annotations', err);
+            }
             // Refresh react-query cache so reopening the file shows the latest annotations
             queryClient.invalidateQueries({ queryKey: ['documents', activeProjectId] });
-            // Reflect immediately in the currently open viewer so the user sees
-            // their saved pins without closing and reopening
-            setViewingFile(prev => prev ? { ...prev, annotations } : prev);
           }}
           role={projectContext.role}
         />

@@ -11,15 +11,19 @@ import {
   Move as LucideMove,
   Copy as LucideCopy,
   Edit2 as LucideEdit2,
+  PenTool as LucidePenTool,
   LayoutGrid as LucideLayoutGrid,
   List as LucideList,
   Clock as LucideClock,
+  Filter as LucideFilter,
+  Calendar as LucideCalendar,
   ArrowLeft as LucideArrowLeft,
   Printer as LucidePrinter,
   Download as LucideDownload,
   Share as LucideShare,
   Settings as LucideSettings,
   Bell as LucideBell,
+  Save as LucideSave,
   User as LucideUser,
   RefreshCw as LucideRefreshCw,
   Check as LucideCheck,
@@ -82,7 +86,11 @@ import {
   BookOpen as LucideBookOpen,
   Sparkles as LucideSparkles,
   Volume2 as LucideVolume2,
-  VolumeX as LucideVolumeX
+  VolumeX as LucideVolumeX,
+  Palette as LucidePalette,
+  Layers as LucideLayers,
+  Square as LucideSquare,
+  Wand2 as LucideWand2
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -99,15 +107,19 @@ export const ChevronRight = wrapIcon(LucideChevronRight);
 export const Move = wrapIcon(LucideMove);
 export const Copy = wrapIcon(LucideCopy);
 export const Edit = wrapIcon(LucideEdit2);
+export const PenTool = wrapIcon(LucidePenTool);
 export const LayoutGrid = wrapIcon(LucideLayoutGrid);
 export const List = wrapIcon(LucideList);
 export const Clock = wrapIcon(LucideClock);
+export const Filter = wrapIcon(LucideFilter);
+export const Calendar = wrapIcon(LucideCalendar);
 export const ArrowLeft = wrapIcon(LucideArrowLeft);
 export const Printer = wrapIcon(LucidePrinter);
 export const Download = wrapIcon(LucideDownload);
 export const Share = wrapIcon(LucideShare);
 export const Settings = wrapIcon(LucideSettings);
 export const Bell = wrapIcon(LucideBell);
+export const Save = wrapIcon(LucideSave);
 export const UserIcon = wrapIcon(LucideUser);
 export const RefreshCw = wrapIcon(LucideRefreshCw);
 export const Check = wrapIcon(LucideCheck);
@@ -174,3 +186,7 @@ export const BookOpen = wrapIcon(LucideBookOpen);
 export const Sparkles = wrapIcon(LucideSparkles);
 export const Volume2 = wrapIcon(LucideVolume2);
 export const VolumeX = wrapIcon(LucideVolumeX);
+export const Palette = wrapIcon(LucidePalette);
+export const Layers = wrapIcon(LucideLayers);
+export const Wand2 = wrapIcon(LucideWand2);
+export const Square = wrapIcon(LucideSquare);

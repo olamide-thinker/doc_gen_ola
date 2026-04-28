@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   X, Pin, Highlighter, UserIcon, Edit2, Maximize2, Minimize2,
-  GripHorizontal, Hand, ChevronRight, MessageSquare, Check, ChevronDown
+  GripHorizontal, Hand, ChevronRight, MessageSquare, Check, ChevronDown, Search
 } from '../lib/icons/lucide';
 import { type Annotation, type MemberRole } from '../types';
 import { cn } from '../lib/utils';
@@ -119,6 +119,25 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
   const [mousePos,     setMousePos]     = useState<{ x: number; y: number } | null>(null);
   const [isDrawing,    setIsDrawing]    = useState(false);
   const [currentPath,  setCurrentPath]  = useState<{ x: number; y: number }[]>([]);
+
+  // ── Hover preview for highlight/draw strokes ──────────────────────────────
+  const [hoveredAnnoId, setHoveredAnnoId] = useState<string | null>(null);
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const filteredAnnotations = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return annotations;
+    return annotations.filter(a =>
+      (a.text || '').toLowerCase().includes(q) ||
+      (a.userName || '').toLowerCase().includes(q) ||
+      (a.type || '').toLowerCase().includes(q) ||
+      (a.replies || []).some(r =>
+        (r.text || '').toLowerCase().includes(q) ||
+        (r.userName || '').toLowerCase().includes(q)
+      )
+    );
+  }, [annotations, searchQuery]);
 
   // ── Dropdown edge-awareness ──────────────────────────────────────────────
   const pinDropRef  = useRef<HTMLDivElement>(null);
@@ -318,6 +337,7 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                     ? toolConfig.highlight.thickness
                     : toolConfig.draw.thickness,
                   replies: [],
+                  timestamp: mediaType === 'video' ? currentTime : undefined,
                   pageNumber: currentPage
                 };
                 onSave([...annotations, newAnnotation]);
@@ -362,12 +382,23 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
         className="absolute inset-0 w-full h-full pointer-events-none z-20 overflow-visible"
       >
         {/* Highlights - transparent filled strokes (like a marker pen) */}
-        {annotations.filter(a => a.type === 'highlight' && a.path && (!currentPage || (a.pageNumber || 1) === currentPage)).map(anno => {
+        {annotations.filter(a =>
+          a.type === 'highlight' && a.path &&
+          (!currentPage || (a.pageNumber || 1) === currentPage) &&
+          // On video: only show within ±2.5s of the timestamp the stroke was made at
+          (mediaType !== 'video' || a.timestamp === undefined || Math.abs(currentTime - a.timestamp) <= 2.5)
+        ).map(anno => {
            const isActive = activeAnnotationId === anno.id;
            const pathData = getSmoothedPath(anno.path!);
            const sw = anno.strokeWidth ?? toolConfig.highlight.thickness;
            return (
-             <g key={anno.id} onClick={() => selectAnnotation(anno.id)} className="pointer-events-auto cursor-pointer">
+             <g
+               key={anno.id}
+               onClick={() => selectAnnotation(anno.id)}
+               onMouseEnter={() => setHoveredAnnoId(anno.id)}
+               onMouseLeave={() => setHoveredAnnoId(prev => prev === anno.id ? null : prev)}
+               className="pointer-events-auto cursor-pointer"
+             >
                <path d={pathData} fill="none" stroke="transparent" strokeWidth={sw + 10} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                <path
                   d={pathData}
@@ -385,12 +416,23 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
         })}
 
         {/* Freehand Drawings - dashed outlined strokes */}
-        {annotations.filter(a => a.type === 'draw' && a.path && (!currentPage || (a.pageNumber || 1) === currentPage)).map(anno => {
+        {annotations.filter(a =>
+          a.type === 'draw' && a.path &&
+          (!currentPage || (a.pageNumber || 1) === currentPage) &&
+          // On video: only show within ±2.5s of the timestamp the stroke was made at
+          (mediaType !== 'video' || a.timestamp === undefined || Math.abs(currentTime - a.timestamp) <= 2.5)
+        ).map(anno => {
            const isActive = activeAnnotationId === anno.id;
            const pathData = getSmoothedPath(anno.path!);
            const sw = anno.strokeWidth ?? toolConfig.draw.thickness;
            return (
-             <g key={anno.id} onClick={() => selectAnnotation(anno.id)} className="pointer-events-auto cursor-pointer">
+             <g
+               key={anno.id}
+               onClick={() => selectAnnotation(anno.id)}
+               onMouseEnter={() => setHoveredAnnoId(anno.id)}
+               onMouseLeave={() => setHoveredAnnoId(prev => prev === anno.id ? null : prev)}
+               className="pointer-events-auto cursor-pointer"
+             >
                <path d={pathData} fill="none" stroke="transparent" strokeWidth={sw + 12} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                <path
                   d={pathData}
@@ -425,6 +467,35 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
            />
         )}
       </svg>
+
+      {/* Hover tooltips for highlight & draw strokes (HTML overlay over the SVG) */}
+      {annotations
+        .filter(a =>
+          (a.type === 'highlight' || a.type === 'draw') &&
+          a.path && a.path.length > 0 &&
+          hoveredAnnoId === a.id &&
+          activeAnnotationId !== a.id &&
+          (!currentPage || (a.pageNumber || 1) === currentPage)
+        )
+        .map(anno => (
+          <div
+            key={`stroke-tip-${anno.id}`}
+            className="absolute z-[80] px-2.5 py-1.5 bg-card text-foreground text-[10px] font-medium rounded-md shadow-lg border border-border max-w-[220px] pointer-events-none whitespace-normal break-words"
+            style={{
+              left: `${anno.path![0].x}%`,
+              top: `${anno.path![0].y}%`,
+              transform: 'translate(-50%, calc(-100% - 8px))'
+            }}
+          >
+            {anno.text ? (
+              <p className="line-clamp-2 leading-snug">{anno.text}</p>
+            ) : (
+              <p className="italic text-muted-foreground">No note</p>
+            )}
+            <p className="text-[8px] font-bold text-muted-foreground/80 uppercase tracking-widest mt-0.5 truncate">{anno.userName}</p>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 bg-card border-r border-b border-border rotate-45" />
+          </div>
+        ))}
 
       {/* The Visual Pins/Highlights */}
       <div className="absolute inset-0 pointer-events-none z-30 overflow-visible">
@@ -504,6 +575,19 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                            </div>
                          );
                        })()}
+
+                       {/* Hover preview tooltip */}
+                       {!isRelocating && !isActive && (
+                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 bg-card text-foreground text-[10px] font-medium rounded-md shadow-lg border border-border max-w-[220px] opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[80] whitespace-normal break-words">
+                           {anno.text ? (
+                             <p className="line-clamp-2 leading-snug">{anno.text}</p>
+                           ) : (
+                             <p className="italic text-muted-foreground">No note</p>
+                           )}
+                           <p className="text-[8px] font-bold text-muted-foreground/80 uppercase tracking-widest mt-0.5 truncate">{anno.userName}</p>
+                           <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 bg-card border-r border-b border-border rotate-45" />
+                         </div>
+                       )}
                     </div>
                   ) : null}
               </motion.div>
@@ -671,58 +755,110 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
               )}
             </div>
 
+            {/* Search */}
+            {annotations.length > 0 && (
+              <div className="px-3 pt-3 pb-1 shrink-0">
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 text-current pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search feedback…"
+                    className="w-full bg-muted/40 border border-transparent rounded-lg pl-7 pr-7 py-1.5 text-[11px] font-medium placeholder:text-muted-foreground/50 focus:outline-none focus:border-border focus:bg-background transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground/60 hover:text-foreground"
+                      title="Clear search"
+                    >
+                      <X size={11} className="text-current" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Comment List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 scrollbar-thin">
               {annotations.length === 0 ? (
-                <div className="py-20 flex flex-col items-center text-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground/30"><MessageSquare size={20} /></div>
-                  <p className="text-muted-foreground/50 text-[10px] font-black uppercase tracking-widest">No feedback yet.</p>
+                <div className="py-16 flex flex-col items-center text-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground/30"><MessageSquare size={18} /></div>
+                  <p className="text-muted-foreground/60 text-[10px] font-black uppercase tracking-widest">No feedback yet</p>
+                </div>
+              ) : filteredAnnotations.length === 0 ? (
+                <div className="py-16 flex flex-col items-center text-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground/30"><Search size={16} className="text-current" /></div>
+                  <p className="text-muted-foreground/60 text-[10px] font-black uppercase tracking-widest">No matches</p>
+                  <button onClick={() => setSearchQuery('')} className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline">Clear search</button>
                 </div>
               ) : (
-                annotations.map((anno, idx) => (
-                  <div 
-                    key={anno.id} 
+                filteredAnnotations.map((anno) => {
+                  const isActive = activeAnnotationId === anno.id;
+                  const idx = annotations.findIndex(a => a.id === anno.id);
+                  return (
+                  <div
+                    key={anno.id}
                     id={`comment-card-${anno.id}`}
                     onClick={() => selectAnnotation(anno.id)}
                     className={cn(
-                      "group flex flex-col gap-3 p-4 border rounded-2xl transition-all cursor-pointer relative",
-                      activeAnnotationId === anno.id ? "bg-card border-primary/50 shadow-lg ring-1 ring-primary/20" : "bg-muted/10 border-transparent hover:border-border"
+                      "group p-3 border rounded-xl transition-all cursor-pointer",
+                      isActive
+                        ? "bg-card border-primary/40 shadow-md ring-1 ring-primary/10"
+                        : "bg-muted/20 border-transparent hover:bg-muted/40"
                     )}
                   >
-                      {/* Top Bar */}
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex items-center justify-center border border-border shrink-0">
-                              {anno.userPhoto ? <img src={anno.userPhoto} className="w-full h-full object-cover"/> : <UserIcon size={14} className="text-muted-foreground/40"/>}
+                      {/* Top Bar — compact, single row */}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-6 h-6 rounded-full overflow-hidden bg-muted flex items-center justify-center shrink-0">
+                              {anno.userPhoto ? <img src={anno.userPhoto} className="w-full h-full object-cover"/> : <UserIcon size={11} className="text-muted-foreground/50"/>}
                           </div>
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-foreground truncate uppercase tracking-widest">{anno.userName}</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[8px] font-bold tracking-widest text-muted-foreground uppercase">{anno.type}</span>
-                              <span className="text-[8px] font-mono text-muted-foreground/40">{new Date(anno.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <div className="min-w-0 flex-1">
+                            <span className="text-[10px] font-black text-foreground uppercase tracking-widest truncate block">{anno.userName}</span>
+                            <div className="flex items-center gap-1.5 text-[8px] mt-0.5">
+                              <span className="font-bold tracking-widest text-muted-foreground uppercase">{anno.type}</span>
+                              <span className="text-muted-foreground/40">·</span>
+                              <span className="font-mono text-muted-foreground/60 tabular-nums">{new Date(anno.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                               {anno.timestamp !== undefined && (
-                                <span className="text-[8px] font-black text-primary px-1.5 py-0.5 bg-primary/10 rounded">
+                                <span className="font-black text-primary px-1 py-px bg-primary/10 rounded tabular-nums">
                                   {formatTime(anno.timestamp)}
                                 </span>
                               )}
                             </div>
                           </div>
                         </div>
-                        <div className="flex flex-col items-center gap-2">
-                           <div className={cn("w-6 h-6 rounded flex items-center justify-center text-[10px] font-black", activeAnnotationId === anno.id ? "bg-primary text-primary-foreground" : "bg-muted-foreground/10 text-muted-foreground")}>{idx + 1}</div>
-                           {!isReadOnly && <button onClick={(e) => { e.stopPropagation(); removeAnnotation(anno.id); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/50 hover:text-destructive"><X size={12}/></button>}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span
+                            className="w-5 h-5 rounded flex items-center justify-center shadow-sm relative"
+                            style={{ backgroundColor: anno.color || 'hsl(var(--primary))', isolation: 'isolate' }}
+                          >
+                            <span
+                              className="text-[9px] font-black tabular-nums text-white"
+                              style={{ mixBlendMode: 'difference' }}
+                            >{idx + 1}</span>
+                          </span>
+                          {!isReadOnly && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); removeAnnotation(anno.id); }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-muted-foreground/50 hover:text-destructive"
+                            >
+                              <X size={12}/>
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {/* Main Text */}
-                      <div className="pl-11">
+                      {/* Main Text — full width */}
+                      <div>
                         {editingId === anno.id ? (
                           <div className="relative">
-                            <textarea 
-                              autoFocus 
-                              className="w-full bg-background border border-border rounded-xl p-3 pr-10 text-[11px] font-medium focus:ring-1 focus:ring-primary/40 outline-none min-h-[80px] resize-none shadow-inner" 
-                              value={editingText} 
-                              onChange={e => setEditingText(e.target.value)} 
+                            <textarea
+                              autoFocus
+                              className="w-full bg-background border border-border rounded-lg p-2.5 pr-9 text-[11px] font-medium focus:ring-1 focus:ring-primary/40 outline-none min-h-[64px] resize-none"
+                              value={editingText}
+                              onChange={e => setEditingText(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                   e.preventDefault();
@@ -730,7 +866,6 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                                 }
                               }}
                               onBlur={() => {
-                                // Small delay to allow Check button or Color picks (which use onMouseDown preventDefault) to work
                                 setTimeout(() => {
                                   if (editingId === anno.id) handleSave(anno.id);
                                 }, 200);
@@ -739,20 +874,20 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                             <button
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleSave(anno.id)}
-                              className="absolute top-2 right-2 p-1.5 bg-primary text-primary-foreground rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all outline-none"
+                              className="absolute top-1.5 right-1.5 p-1 bg-primary text-primary-foreground rounded-md shadow hover:scale-110 active:scale-95 transition-all outline-none"
                             >
-                              <Check size={14} />
+                              <Check size={12} className="text-current" />
                             </button>
                           </div>
                         ) : (
-                          <p className="text-[11px] font-medium text-foreground/80 leading-relaxed whitespace-pre-wrap" onDoubleClick={() => !isReadOnly && startEditing(anno.id, anno.text)}>
-                            {anno.text || <span className="text-muted-foreground/40 italic">Double-click to edit note...</span>}
+                          <p className="text-[11px] font-medium text-foreground/85 leading-relaxed whitespace-pre-wrap break-words" onDoubleClick={() => !isReadOnly && startEditing(anno.id, anno.text)}>
+                            {anno.text || <span className="text-muted-foreground/50 italic">Double-click to add note…</span>}
                           </p>
                         )}
-                        
+
                         {/* Dynamic Color Picker for existing annotation */}
                         {editingId === anno.id && !isReadOnly && (
-                          <div className="mt-3 flex items-center gap-2 p-1.5 bg-muted/40 rounded-lg w-fit border border-border/50">
+                          <div className="mt-2 flex items-center gap-1.5 p-1 bg-muted/40 rounded-md border border-border/50 w-fit">
                              {PRESET_COLORS.map(c => (
                                <button
                                  key={c}
@@ -764,8 +899,8 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                                  }}
                                  title="Change item color"
                                  className={cn(
-                                   "w-3.5 h-3.5 rounded-full border transition-all hover:scale-125",
-                                   (anno.color || "hsl(var(--primary))") === c ? "scale-125 shadow-md ring-2 ring-primary/20 border-foreground/30" : "border-background/50 shadow-sm border-transparent"
+                                   "w-3 h-3 rounded-full border transition-all hover:scale-125",
+                                   (anno.color || "hsl(var(--primary))") === c ? "scale-125 shadow-sm ring-2 ring-primary/20 border-foreground/30" : "border-transparent"
                                  )}
                                  style={{ backgroundColor: c }}
                                />
@@ -774,18 +909,18 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                         )}
                       </div>
 
-                      {/* Replies */}
+                      {/* Replies — full width, flat */}
                       {anno.replies && anno.replies.length > 0 && (
-                        <div className="pl-11 flex flex-col gap-3 mt-2">
+                        <div className="mt-2.5 pt-2.5 border-t border-border/40 space-y-2">
                           {anno.replies.map(reply => (
-                            <div key={reply.id} className="flex gap-3">
-                              <div className="w-6 h-6 rounded-full overflow-hidden bg-muted flex items-center justify-center shrink-0 border border-border">
-                                  {reply.userPhoto ? <img src={reply.userPhoto} className="w-full h-full object-cover"/> : <UserIcon size={10} className="text-muted-foreground/40"/>}
+                            <div key={reply.id} className="flex gap-2">
+                              <div className="w-5 h-5 rounded-full overflow-hidden bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                                  {reply.userPhoto ? <img src={reply.userPhoto} className="w-full h-full object-cover"/> : <UserIcon size={9} className="text-muted-foreground/50"/>}
                               </div>
-                              <div className="flex flex-col bg-muted/40 p-3 rounded-xl rounded-tl-none flex-1 border border-border/40 hover:border-border transition-colors">
-                                <span className="text-[9px] font-black text-foreground uppercase tracking-wider mb-1">{reply.userName}</span>
-                                <p className="text-[10px] font-medium text-muted-foreground whitespace-pre-wrap">
-                                  {reply.text.split(/(@\w+)/g).map((chunk, i) => 
+                              <div className="flex-1 min-w-0">
+                                <span className="text-[9px] font-black text-foreground uppercase tracking-wider">{reply.userName}</span>
+                                <p className="text-[10px] font-medium text-muted-foreground/90 whitespace-pre-wrap break-words mt-0.5">
+                                  {reply.text.split(/(@\w+)/g).map((chunk, i) =>
                                     chunk.startsWith('@') ? <span key={i} className="text-primary font-bold">{chunk}</span> : chunk
                                   )}
                                 </p>
@@ -795,40 +930,40 @@ export const AnnotationSystem: React.FC<AnnotationSystemProps> = ({
                         </div>
                       )}
 
-                      {/* Reply Box */}
-                      {activeAnnotationId === anno.id && !isReadOnly && (
-                        <div className="pl-11 mt-3">
-                           <div className="flex items-center gap-2">
-                             <input 
-                               value={replyText[anno.id] || ''}
-                               onChange={(e) => setReplyText({ ...replyText, [anno.id]: e.target.value })}
-                               onKeyDown={(e) => {
-                                 if (e.key === 'Enter' && !e.shiftKey) {
-                                   e.preventDefault();
-                                   if (replyText[anno.id]?.trim()) {
-                                     const newReply = {
-                                       id: Math.random().toString(36).substr(2, 9),
-                                       text: replyText[anno.id].trim(),
-                                       userName: user?.displayName || user?.email || "Anonymous",
-                                       userPhoto: user?.photoURL || undefined,
-                                       createdAt: new Date().toISOString()
-                                     };
-                                     const next = annotations.map(a => 
-                                       a.id === anno.id ? { ...a, replies: [...(a.replies || []), newReply] } : a
-                                     );
-                                     onSave(next);
-                                     setReplyText({ ...replyText, [anno.id]: '' });
-                                   }
+                      {/* Reply Box — full width */}
+                      {isActive && !isReadOnly && (
+                        <div className="mt-2.5 pt-2.5 border-t border-border/40">
+                           <input
+                             value={replyText[anno.id] || ''}
+                             onClick={(e) => e.stopPropagation()}
+                             onChange={(e) => setReplyText({ ...replyText, [anno.id]: e.target.value })}
+                             onKeyDown={(e) => {
+                               if (e.key === 'Enter' && !e.shiftKey) {
+                                 e.preventDefault();
+                                 if (replyText[anno.id]?.trim()) {
+                                   const newReply = {
+                                     id: Math.random().toString(36).substr(2, 9),
+                                     text: replyText[anno.id].trim(),
+                                     userName: user?.displayName || user?.email || "Anonymous",
+                                     userPhoto: user?.photoURL || undefined,
+                                     createdAt: new Date().toISOString()
+                                   };
+                                   const next = annotations.map(a =>
+                                     a.id === anno.id ? { ...a, replies: [...(a.replies || []), newReply] } : a
+                                   );
+                                   onSave(next);
+                                   setReplyText({ ...replyText, [anno.id]: '' });
                                  }
-                               }}
-                               placeholder="Reply... (press enter to send)"
-                               className="flex-1 bg-background border border-border/60 rounded-full px-4 py-2 text-[10px] font-bold focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50 shadow-sm"
-                             />
-                           </div>
+                               }
+                             }}
+                             placeholder="Reply… ↵ to send"
+                             className="w-full bg-background border border-border rounded-lg px-3 py-1.5 text-[10px] font-bold focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50"
+                           />
                         </div>
                       )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </motion.aside>

@@ -164,6 +164,12 @@ const MainLayout: React.FC = () => {
                 active={activeModule === "accounting"} 
                 onClick={() => { setActiveModule("accounting"); alert("Accounting coming soon"); }} 
               />
+              <SidebarItem 
+                icon={<Check size={18} />} 
+                label="Tasks" 
+                active={currentPath === "/tasks"} 
+                onClick={() => { setActiveModule("documents"); navigate("/tasks"); }} 
+              />
             </nav>
           </div>
         </div>

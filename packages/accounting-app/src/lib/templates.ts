@@ -409,6 +409,19 @@ export const TEMPLATES: TemplateDefinition[] = [
       },
     },
   },
+  {
+    id: "floor-plan",
+    name: "Floor Plan",
+    description: "PDF Blueprint for zone mapping and task management",
+    color: "amber",
+    content: {
+      isPlan: true,
+      planData: {
+        pdfUrl: "",
+        zones: []
+      }
+    }
+  },
 
   // ── RECEIPT ────────────────────────────────────────────────────────────────
   {

@@ -76,6 +76,35 @@ export interface Annotation {
   pinSize?: number;     // diameter in px for pin circles
 }
 
+export interface Task {
+  id: string;
+  description: string;
+  assignee: string;
+  priority: 'low' | 'med' | 'high';
+  dueDate?: string;
+  status: 'pending' | 'progress' | 'done';
+  x?: number; // Pin position (0-100) relative to page
+  y?: number;
+  pageNumber: number;
+}
+
+export interface Zone {
+  id: string;
+  name: string;
+  color: string; // Shade color
+  borderColor?: string;
+  points: { x: number, y: number }[]; // Polygon vertices (0-100)
+  tasks: Task[];
+  pageNumber: number;
+  strokeWidth?: number;
+  opacity?: number;
+}
+
+export interface PlanData {
+  pdfUrl: string;
+  zones: Zone[];
+}
+
 export type MemberRole = 'owner' | 'editor' | 'commenter' | 'viewer';
 
 export interface DocumentMember {
@@ -140,6 +169,9 @@ export interface DocData {
   businessLetterheadUrl3?: string;
   // User assets
   userSignatureUrl?: string;
+  // Plan metadata
+  isPlan?: boolean;
+  planData?: PlanData;
   // Template metadata — stored at creation for display purposes only
   _templateColor?: string;
   _templateName?: string;
