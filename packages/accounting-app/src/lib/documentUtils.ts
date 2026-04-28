@@ -27,7 +27,10 @@ export const formatDate = (dateString: string | undefined): string => {
 export const MM_TO_PX = 3.78;
 export const PAGE_HEIGHT_PX = 297 * MM_TO_PX;
 export const PADDING_V_PX = (14 + 24) * MM_TO_PX; // 14mm top, 24mm bottom (increased for safety)
-export const USABLE_HEIGHT = PAGE_HEIGHT_PX - PADDING_V_PX - 20; // Extra 20px buffer
+// Aggressive safety buffer (~80px ≈ 21mm) so row-height estimate errors never
+// produce visual overflow inside the A4 page wrapper (which uses overflow:hidden
+// and would otherwise clip the last row when an estimate is too low).
+export const USABLE_HEIGHT = PAGE_HEIGHT_PX - PADDING_V_PX - 80;
 
 export function resolveFormula(
   rowData: TableRow | Record<string, number>,
@@ -270,9 +273,15 @@ export const calculateChunks = (
   const FOOTER_PADDING_TOP = 40;
 
   const estimateRowHeight = (row: TableRow) => {
+    // Pessimistic estimate so chunking never undershoots actual rendered height.
+    // - 38 chars/line (was 45) — accounts for narrower description columns and
+    //   long words that force early wraps.
+    // - 26px line-height (was 22) — matches default leading once padding/border
+    //   are factored in.
+    // - 56px min (was 48) — covers single-line rows with row-type chips/badges.
     const text = String(row.B || "");
-    const lines = Math.ceil(text.length / 45);
-    return Math.max(48, lines * 22);
+    const lines = Math.ceil(text.length / 38);
+    return Math.max(56, lines * 26);
   };
 
   const allRows = (docData.table.rows || []).filter(r => 

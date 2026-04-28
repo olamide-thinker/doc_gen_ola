@@ -419,10 +419,33 @@ export class WorkspacesController {
       const docList = await this.db.query.documents.findMany({
         where: and(
           eq(schema.documents.projectId, projectId),
-          // Hide receipts from the main dashboard/folder views
-          sql`NOT ((metadata->>'isReceipt')::boolean IS TRUE) AND (metadata->>'invoiceId') IS NULL`
+          // Hide any doc with a parent invoice — receipts belong inside the
+          // invoice's details page, not on the dashboard. We key off the
+          // presence of `metadata.invoiceId` alone (rather than requiring the
+          // `isReceipt` flag too) so legacy receipts with incomplete metadata
+          // are still excluded.
+          sql`(metadata->>'invoiceId') IS NULL`
         ),
       });
+
+      // Belt-and-braces: also drop any document whose id matches a row in the
+      // receipts table that has a parent invoice. Catches receipts whose
+      // documents-table metadata never got the invoiceId stamped (e.g. legacy
+      // creation paths) — the receipts table is the source of truth.
+      const linkedReceiptIds = new Set(
+        (
+          await this.db.query.receipts.findMany({
+            where: and(
+              eq(schema.receipts.projectId, projectId),
+              sql`${schema.receipts.invoiceId} IS NOT NULL`,
+            ),
+            columns: { id: true },
+          })
+        ).map((r: any) => r.id),
+      );
+      const filteredDocList = docList.filter(
+        (d: any) => !linkedReceiptIds.has(d.id),
+      );
 
       // ── 2. Invoices table (new model) ──────────────────────────────────────
       const invoiceList = await this.db.query.invoices.findMany({
@@ -444,7 +467,7 @@ export class WorkspacesController {
       }
 
       // Normalize legacy documents
-      const normalizedDocs = docList.map((d: any) => ({
+      const normalizedDocs = filteredDocList.map((d: any) => ({
         id: d.id,
         userId: d.userId,
         name: d.name,
@@ -515,6 +538,33 @@ export class WorkspacesController {
         where: eq(schema.documents.id, docId),
       });
 
+      // If we have a documents row that's a receipt or invoice "bridge", pull
+      // the canonical status AND parent-invoice id from the master table — the
+      // documents table doesn't carry status, and its metadata.invoiceId can
+      // be missing on legacy rows or unreadable when JSONB is returned as a
+      // raw string by the driver. Reading from the receipts table is reliable.
+      if (doc) {
+        const receipt = await this.db.query.receipts.findFirst({
+          where: eq(schema.receipts.id, docId),
+        });
+        if (receipt) {
+          doc.status = receipt.status;
+          // Surface the parent invoice id at the document level AND inside
+          // metadata so both access paths in the UI work.
+          const parsedMeta =
+            typeof doc.metadata === 'string'
+              ? (() => { try { return JSON.parse(doc.metadata); } catch { return {}; } })()
+              : (doc.metadata || {});
+          doc.metadata = { ...parsedMeta, invoiceId: receipt.invoiceId, isReceipt: true };
+          (doc as any).invoiceId = receipt.invoiceId;
+        } else {
+          const inv = await this.db.query.invoices.findFirst({
+            where: eq(schema.invoices.id, docId),
+          });
+          if (inv) doc.status = inv.status;
+        }
+      }
+
       // 2. Fallback: invoices table (new model — created via POST /api/invoices)
       if (!doc) {
         console.log(`[WorkspaceAPI] 🔄 Document ${docId} not in documents table. Checking invoices...`);
@@ -533,10 +583,12 @@ export class WorkspacesController {
             businessId: invoice.businessId,
             folderId: invoice.folderId ?? null,
             members: invoice.members || [],
+            status: invoice.status,
             metadata: {
               content: invoice.draft ?? invoice.content,
               invoiceId: null,
               isReceipt: false,
+              pdfUrl: (invoice.metadata as any)?.pdfUrl,
             },
             createdAt: invoice.createdAt,
             updatedAt: invoice.updatedAt,
@@ -562,6 +614,7 @@ export class WorkspacesController {
             projectId: receipt.projectId,
             businessId: receipt.businessId,
             members: [],
+            status: receipt.status,
             metadata: {
               ...(receipt.metadata as any || {}),
               content: receipt.draft,
@@ -601,6 +654,7 @@ export class WorkspacesController {
           size: doc.size,
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
+          status: doc.status ?? null,
           metadata: doc.metadata ?? {},
         },
       };

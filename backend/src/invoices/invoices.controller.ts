@@ -330,26 +330,13 @@ export class InvoicesController {
       .set({ draft: draftContent, updatedAt: new Date() })
       .where(eq(schema.receipts.id, rid));
 
-    // Resolve real business via the parent invoice's businessId
-    const parentInvoice = await this.db.query.invoices.findFirst({
-      where: eq(schema.invoices.id, receipt.invoiceId),
-    });
-    const business = parentInvoice?.businessId
-      ? await this.db.query.businesses.findFirst({
-          where: eq(schema.businesses.id, parentInvoice.businessId),
-        })
-      : null;
-
-    // 1. Generate PDF (Dedicated receipt template)
-    const pdfFileName = `receipt_${rid}_finalised_${Date.now()}.pdf`;
-    const docDef = this.pdfService.createReceiptDefinition(draftContent, {
-      name: business?.name || 'Business',
-    });
-    const pdfUrl = await this.pdfService.generateAndSave(docDef, pdfFileName);
-    
-    // Update receipt status to finalised
+    // Lock receipt status. No PDF generation here — receipts are simple
+    // record-of-payment entries; the canonical artifact is the receipt's draft
+    // data and the entry in the invoice's payment chain. (The frontend used to
+    // swap to an inline PDF view after this call returned a URL — that surface
+    // was confusing and has been removed.)
     await this.db.update(schema.receipts)
-      .set({ 
+      .set({
         status: 'finalised',
         updatedAt: new Date()
       })
@@ -363,8 +350,7 @@ export class InvoicesController {
       })
       .where(eq(schema.invoices.id, receipt.invoiceId));
 
-    const url = `${process.env.API_BASE || 'http://localhost:1234'}/${pdfUrl}`;
-    return { success: true, url };
+    return { success: true };
   }
 
   @Post('receipts/:rid/preview')

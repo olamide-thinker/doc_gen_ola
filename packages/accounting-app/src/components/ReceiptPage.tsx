@@ -343,8 +343,10 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
         <div
           className="flex items-center justify-center overflow-hidden border-b border-slate-100"
           style={{
-            margin: "-15mm -20mm 5mm -20mm",
-            width: "calc(100% + 40mm)",
+            // Bleed exactly to the A4 page edges. Page padding here is
+            // 8mm horizontal — anything beyond would overflow the page frame.
+            margin: "-8mm -8mm 5mm -8mm",
+            width: "calc(100% + 16mm)",
             height: `${headerHeight}px`,
             position: "relative",
           }}
@@ -374,7 +376,7 @@ export const ReceiptPage: React.FC<A4PageProps> = ({
             <img
               src={headerImage || "/Shan-PaymentReceipt.png"}
               alt="Logo"
-              className="object-contain object-center w-full h-full"
+              className="object-cover object-center w-full h-full"
             />
           </div>
           <div

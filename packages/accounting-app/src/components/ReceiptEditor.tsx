@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "../lib/utils";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
@@ -8,15 +8,12 @@ import {
   Check,
   Users,
   Shield,
-  FileText,
   Eye,
-  Trash2,
-  Download
+  Trash2
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { CollaboratorsSheet } from "./CollaboratorsSheet";
 import { AnnotationSystem } from "./AnnotationSystem";
-import { PdfViewer } from "./PdfViewer";
 import {
   DndContext,
   closestCenter,
@@ -47,7 +44,6 @@ import { useSyncedStore } from "@syncedstore/react";
 import { workspaceStore, authStore, editorStore, connectProject, connectEditor, authProvider } from "../store";
 import { getYjsDoc } from "@syncedstore/core";
 import { Radio, SignalIcon } from "lucide-react";
-import { API_BASE } from "../lib/workspace-persist";
 
 const ReceiptEditor: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -56,7 +52,6 @@ const ReceiptEditor: React.FC = () => {
   const location = useLocation();
   const fromFolder = location.state?.fromFolder;
   const queryClient = useQueryClient();
-  const [finalisedPdfUrl, setFinalisedPdfUrl] = useState<string | null>(null);
 
   const workspaceAction = useSyncedStore(workspaceStore);
   const authAction = useSyncedStore(authStore);
@@ -84,6 +79,19 @@ const ReceiptEditor: React.FC = () => {
     }
     return docMetadataRaw;
   }, [docMetadataRaw]);
+
+  // Once this receipt loads and it's finalised, default to Preview mode —
+  // matching the invoice editor's behavior. Once per doc id; the Preview
+  // toggle on the toolbar still works freely after that.
+  const primedDocIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!id || !docMetadata) return;
+    if (primedDocIdRef.current === id) return;
+    primedDocIdRef.current = id;
+    if (docMetadata.status === 'finalised') {
+      setIsPreview(true);
+    }
+  }, [id, docMetadata]);
 
   // active project resolved from the document's own projectId, or fallback to the one in context
   const resolvedProjectId = (docMetadata as any)?.metadata?.projectId || docMetadata?.projectId || projectId;
@@ -216,6 +224,13 @@ const ReceiptEditor: React.FC = () => {
     return () => cleanup?.();
   }, [currentUser, businessId, id, resolvedProjectId]);
 
+  // Live "is this doc currently editable?" flag for the auto-save listener.
+  // We mirror the live value into a ref so the bound listener's closure
+  // always sees the latest decision — without this, the listener captures
+  // a stale value and keeps trying to save against a now-locked doc, which
+  // the backend rejects with 403.
+  const canAutoSaveRef = useRef(true);
+
   // --- Collaborative auto-save ---------------------------------------------
   // Any Yjs update on the editor doc schedules a debounced REST save.
   useEffect(() => {
@@ -224,9 +239,10 @@ const ReceiptEditor: React.FC = () => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const scheduleSave = () => {
-      if (isReadOnly) return;
+      if (!canAutoSaveRef.current) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
+        if (!canAutoSaveRef.current) return;
         try {
           if (!editorStore.content || Object.keys(editorStore.content).length === 0) return;
           const snapshot = JSON.parse(JSON.stringify(editorStore.content));
@@ -280,6 +296,15 @@ const ReceiptEditor: React.FC = () => {
     if (docMetadata?.status === 'finalised' || docMetadata?.status === 'voided') return true;
     return !canWrite(userRole);
   }, [userRole, docMetadata?.status]);
+
+  // Keep the auto-save ref in lockstep with the latest editability decision.
+  // This is what the bound Yjs listener reads at fire-time, so any change to
+  // isReadOnly / isPreview / status takes effect immediately (no stale closure).
+  useEffect(() => {
+    canAutoSaveRef.current = !(isReadOnly || isPreview ||
+      docMetadata?.status === 'finalised' ||
+      docMetadata?.status === 'voided');
+  });
 
   // Annotation state persisted in REST metadata
   const annotations = React.useMemo(() => {
@@ -352,23 +377,6 @@ const ReceiptEditor: React.FC = () => {
     }
   }, [isSyncReady, docData, parentInvoiceData, docMetadata?.status, parentInvoiceCode]);
 
-  const handleManualSync = () => {
-    if (!docData || !parentInvoiceData) return;
-    docData.totalInvoiceAmount = parentInvoiceData.grandTotal;
-    docData.amountPaid = parentInvoiceData.outstanding;
-    
-    const invContent = parentInvoiceData.draft || parentInvoiceData.versions?.[0]?.content;
-    if (invContent?.contact) {
-      docData.contact.name = invContent.contact.name;
-      docData.contact.address1 = invContent.contact.address1 || "";
-      docData.contact.address2 = invContent.contact.address2 || "";
-    }
-    
-    if (parentInvoiceCode) {
-       docData.reference = `Ref: ${parentInvoiceCode}`;
-    }
-    alert("Synced with parent invoice stats!");
-  };
   const [headerImage, setHeaderImage] = useState<string>(
     () => localStorage.getItem("receiptHeaderImage") || "/Shan-PaymentReceipt.png",
   );
@@ -547,9 +555,11 @@ const ReceiptEditor: React.FC = () => {
       <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300 no-print">
         <button
           onClick={() => {
-            const invId = (docMetadata as any)?.metadata?.invoiceId;
+            const invId = (docMetadata as any)?.invoiceId || (docMetadata as any)?.metadata?.invoiceId;
             if (invId) {
-              navigate(`/invoice/${invId}`);
+              // Forward fromFolder so the invoice page's back-arrow can in
+              // turn return to the user's original folder, not the dashboard.
+              navigate(`/invoice/${invId}`, { state: { fromFolder } });
             } else {
               navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard");
             }
@@ -578,12 +588,14 @@ const ReceiptEditor: React.FC = () => {
         </div>
         <div className="flex-1" />
         <div className="flex items-center gap-2">
-          {/* Status Indicator */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40">
-            <RefreshCw size={10} className="text-success animate-spin-slow" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Auto Saved</span>
-          </div>
-          
+          {/* Status Indicator — only relevant while editing is possible */}
+          {docMetadata?.status !== 'finalised' && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40">
+              <RefreshCw size={10} className="text-success animate-spin-slow" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Auto Saved</span>
+            </div>
+          )}
+
           <button
              onClick={() => setIsCollaboratorsOpen(true)}
              className="flex items-center gap-2 px-3 py-1.5 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 hover:text-foreground transition-all text-[10px] font-black uppercase tracking-widest shadow-sm relative group"
@@ -593,21 +605,6 @@ const ReceiptEditor: React.FC = () => {
                <span className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border-2 border-card" />
              )}
              Collabs
-          </button>
-
-          <div className="h-6 w-px bg-border/40 mx-1" />
-
-          <button
-            onClick={() => setIsPreview(!isPreview)}
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-sm",
-              isPreview 
-                ? "bg-foreground text-background" 
-                : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
-            )}
-          > 
-             {isPreview ? <ArrowLeft size={12} /> : <FileText size={12} />}
-             {isPreview ? "Exit Preview" : "Preview"}
           </button>
 
           <div className="h-6 w-px bg-border/40 mx-1" />
@@ -627,43 +624,32 @@ const ReceiptEditor: React.FC = () => {
                 if (!confirm("Are you sure you want to delete this draft receipt?")) return;
                 try {
                   await api.deleteReceipt(id!);
-                  const invId = (docMetadata as any)?.metadata?.invoiceId;
+                  const invId = (docMetadata as any)?.invoiceId || (docMetadata as any)?.metadata?.invoiceId;
                   navigate(invId ? `/invoice/${invId}` : `/dashboard`);
                 } catch (e) {
                   alert("Deletion failed");
                 }
               }}
-              className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 text-destructive rounded-lg hover:bg-destructive/20 transition-all text-[10px] font-black uppercase tracking-widest shadow-sm"
+              className="p-1.5 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg hover:bg-destructive/20 active:scale-95 transition-all shadow-sm"
+              title="Delete Draft"
             >
-              <Trash2 size={12} /> Delete Draft
+              <Trash2 size={16} />
             </button>
           )}
 
-          {docMetadata?.status === 'draft' && parentInvoiceData && (
-            <button
-              onClick={handleManualSync}
-              className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all text-[10px] font-black uppercase tracking-widest shadow-sm border border-primary/20"
-              title="Pull latest totals and contact from parent invoice"
-            >
-              <RefreshCw size={12} /> Sync with Invoice
-            </button>
-          )}
-
-          {docMetadata?.status !== 'finalised' && docMetadata?.status !== 'voided' && !finalisedPdfUrl && (
+          {docMetadata?.status !== 'finalised' && docMetadata?.status !== 'voided' && (
             <button
               onClick={async () => {
                 const confirm = window.confirm("Finalising this receipt will freeze it, add it to the payment chain, and LOCK the parent invoice — no further edits to the invoice itself will be allowed. Proceed?");
                 if (!confirm) return;
                 try {
-                  const res = await api.finaliseReceipt(id!);
-                  const url = res.url || res.pdfUrl;
-                  if (url) {
-                    setFinalisedPdfUrl(url);
-                    queryClient.invalidateQueries({ queryKey: ['document', id] });
-                  } else {
-                    const invId = (docMetadata as any)?.metadata?.invoiceId;
-                    navigate(invId ? `/invoice/${invId}` : `/dashboard`);
-                  }
+                  await api.finaliseReceipt(id!);
+                  // Refetch — docMetadata.status flips to 'finalised', which
+                  // hides this button, shows Close, primes Preview mode, and
+                  // gates the auto-save listener. No inline PDF view here.
+                  queryClient.invalidateQueries({ queryKey: ['document', id] });
+                  const invId = (docMetadata as any)?.invoiceId || (docMetadata as any)?.metadata?.invoiceId;
+                  if (invId) queryClient.invalidateQueries({ queryKey: ['invoice-management', invId] });
                 } catch (e) {
                   alert("Finalization failed");
                 }
@@ -674,11 +660,15 @@ const ReceiptEditor: React.FC = () => {
             </button>
           )}
 
-          {(docMetadata?.status === 'finalised' || finalisedPdfUrl) && (
+          {docMetadata?.status === 'finalised' && (
             <button
               onClick={() => {
-                const invId = (docMetadata as any)?.metadata?.invoiceId;
-                navigate(invId ? `/invoice/${invId}` : `/dashboard`);
+                const invId = (docMetadata as any)?.invoiceId || (docMetadata as any)?.metadata?.invoiceId;
+                if (invId) {
+                  navigate(`/invoice/${invId}`, { state: { fromFolder } });
+                } else {
+                  navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : '/dashboard');
+                }
               }}
               className="px-3 py-1.5 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-all text-[10px] font-black uppercase tracking-widest border border-border"
             >
@@ -694,32 +684,7 @@ const ReceiptEditor: React.FC = () => {
         </div>
       )}
 
-      <div className={cn("preview-container flex-1 overflow-y-auto flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto custom-scrollbar", finalisedPdfUrl ? "bg-[#525659] p-0" : "bg-slate-100/50 p-6 lg:p-16")}>
-        {finalisedPdfUrl ? (
-          <div className="w-full h-full flex flex-col items-center">
-             <div className="w-full max-w-5xl h-full bg-card shadow-2xl overflow-hidden border border-white/5">
-               <PdfViewer 
-                 url={finalisedPdfUrl}
-                 annotations={annotations}
-                 onSaveAnnotations={handleSaveAnnotations}
-                 role={userRole}
-                 className="w-full h-full"
-               />
-             </div>
-             <div className="my-6 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700 no-print">
-                <div className="px-4 py-2 bg-success/20 border border-success/30 rounded-xl flex items-center gap-2 text-success">
-                  <Check size={16} strokeWidth={3} />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Finalized High-Fidelity PDF</span>
-                </div>
-                <button 
-                  onClick={() => setFinalisedPdfUrl(null)}
-                  className="text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-colors underline underline-offset-4"
-                >
-                  Switch to component view
-                </button>
-             </div>
-          </div>
-        ) : (
+      <div className="preview-container flex-1 overflow-y-auto flex flex-col items-center print:bg-white print:p-0 print:overflow-visible print:h-auto custom-scrollbar bg-slate-100/50 p-6 lg:p-16">
           <div ref={containerRef} className="relative w-fit flex flex-col items-center">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={(docData?.table.rows || []).map((r: any) => r.id as string)} strategy={verticalListSortingStrategy}>
@@ -833,7 +798,6 @@ const ReceiptEditor: React.FC = () => {
             userRole={userRole}
         />
           </div>
-        )}
       </div>
       <style>{`
         @media print {

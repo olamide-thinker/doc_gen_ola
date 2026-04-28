@@ -304,8 +304,12 @@ const Dashboard: React.FC = () => {
     return allDocuments.filter(d =>
       d.projectId === activeProjectId &&
       (d.folderId === currentFolderId) &&
-      // HIDE RECEIPTS LINKED TO INVOICES: Keep dashboard clean as per user requirement
-      !((d as any).metadata?.isReceipt && (d as any).metadata?.invoiceId) &&
+      // Hide ANY doc whose metadata points at a parent invoice — receipts
+      // belong inside their invoice's details page, not on the dashboard.
+      // (Some legacy receipts only have `invoiceId` set without `isReceipt`,
+      // so we key off the parent link alone for full coverage.)
+      !((d as any).metadata?.invoiceId) &&
+      !((d as any).invoiceId) &&
       (isProjectMember || normalizeMembers(d.members).some(m => m.email === userEmail))
     );
   }, [allDocuments, activeProjectId, currentFolderId, isProjectMember, userEmail]);

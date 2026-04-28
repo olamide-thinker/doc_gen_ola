@@ -237,6 +237,32 @@ export const Editor = () => {
     return allDocuments.find((d: any) => d.id === id) || localMeta;
   }, [allDocuments, id, localMeta]);
 
+  // Absolute URL for the finalised PDF — pulled from in-memory state if the
+  // user just finalised, or reconstructed from stored metadata when reopening
+  // a locked invoice. Returns null when there is no finalised PDF yet.
+  const downloadUrl = useMemo<string | null>(() => {
+    const candidate = finalisedPdfUrl || (docMetadata as any)?.metadata?.pdfUrl;
+    if (!candidate) return null;
+    if (/^https?:/i.test(candidate)) return candidate as string;
+    const origin = API_BASE.replace(/\/api\/?$/, '');
+    return `${origin}/${String(candidate).replace(/^\//, '')}`;
+  }, [finalisedPdfUrl, docMetadata]);
+
+  // Once this doc loads and it's locked, default to Preview mode — the same
+  // view the user gets from the toolbar's Preview toggle. Locked invoices
+  // shouldn't open into the editing scaffold; the user just wants to see the
+  // finished document. We do this once per doc id; the existing Preview
+  // button still toggles freely after that.
+  const primedDocIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!id || !docMetadata) return;
+    if (primedDocIdRef.current === id) return;
+    primedDocIdRef.current = id;
+    if (docMetadata.status === 'locked') {
+      setIsPreview(true);
+    }
+  }, [id, docMetadata]);
+
   // Fetch invoice management data — this is the source of truth for totals
   // and receipts (which live in the invoices table, not the documents table).
   const { data: invoiceMgmtData } = useQuery({
@@ -489,7 +515,10 @@ export const Editor = () => {
       yDoc.off('update', scheduleSave);
       if (timer) clearTimeout(timer);
     };
-  }, [id, isSyncReady]);
+    // Include isReadOnly so the listener re-binds when the invoice becomes
+    // locked — otherwise the captured closure keeps firing 403s against the
+    // now-locked document.
+  }, [id, isSyncReady, isReadOnly]);
 
 
   const useSections = docData?.useSections ?? false;
@@ -1018,7 +1047,15 @@ export const Editor = () => {
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
       <header className="h-14 border-b border-border bg-card flex items-center gap-2 px-6 shrink-0 shadow-sm z-30 transition-colors duration-300 no-print">
         <button
-          onClick={() => navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard")}
+          onClick={() => {
+            // Locked invoices open in preview from the management page —
+            // sending the user back there is more useful than the dashboard.
+            if (docMetadata?.status === 'locked' && id) {
+              navigate(`/invoice/${id}`, { state: { fromFolder } });
+              return;
+            }
+            navigate(fromFolder ? `/dashboard?folder=${fromFolder}` : "/dashboard");
+          }}
           className="p-2 hover:bg-muted rounded-xl transition-colors text-muted-foreground"
         >
           <ArrowLeft size={18} />
@@ -1040,11 +1077,13 @@ export const Editor = () => {
         </div>
         <div className="flex-1" />
         <div className="flex items-center gap-2">
-          {/* Status Indicator */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40">
-            <SignalIcon size={10} className="text-success animate-pulse" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Auto Saved</span>
-          </div>
+          {/* Status Indicator — only relevant while editing is possible */}
+          {docMetadata?.status !== 'locked' && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40">
+              <SignalIcon size={10} className="text-success animate-pulse" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Auto Saved</span>
+            </div>
+          )}
 
 
           <button
@@ -1058,20 +1097,24 @@ export const Editor = () => {
             Collabs
           </button>
 
-          <div className="h-6 w-px bg-border/40 mx-1" />
+          {docMetadata?.status !== 'locked' && (
+            <>
+              <div className="h-6 w-px bg-border/40 mx-1" />
 
-          <button
-            onClick={() => setIsPreview(!isPreview)}
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-sm",
-              isPreview 
-                ? "bg-foreground text-background" 
-                : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
-            )}
-          >
-             {isPreview ? <ArrowLeft size={12} /> : <FileText size={12} />}
-             {isPreview ? "Exit Preview" : "Preview"}
-          </button>
+              <button
+                onClick={() => setIsPreview(!isPreview)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-sm",
+                  isPreview
+                    ? "bg-foreground text-background"
+                    : "bg-muted text-muted-foreground border border-border hover:bg-muted/80"
+                )}
+              >
+                 {isPreview ? <ArrowLeft size={12} /> : <FileText size={12} />}
+                 {isPreview ? "Exit Preview" : "Preview"}
+              </button>
+            </>
+          )}
 
           <div className="h-6 w-px bg-border/40 mx-1" />
 
@@ -1084,6 +1127,19 @@ export const Editor = () => {
           >
             <Printer size={16} />
           </button>
+
+          {downloadUrl && docMetadata?.status !== 'locked' && (
+            <a
+              href={downloadUrl}
+              download={`${(docMetadata as any)?.name || 'invoice'}.pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 bg-muted text-muted-foreground border border-border rounded-lg transition-all shadow-sm hover:bg-muted/80 hover:text-foreground active:scale-95 no-print inline-flex items-center justify-center"
+              title="Download finalised PDF"
+            >
+              <Download size={16} />
+            </a>
+          )}
 
           {docMetadata?.status !== 'locked' && !finalisedPdfUrl && !hasFinalizedReceipts && (
             <button
@@ -1111,14 +1167,16 @@ export const Editor = () => {
 
 
 
-          <button
-            onClick={() => {
-              navigate(`/invoice/${id}`);
-            }}
-            className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 active:scale-95"
-          >
-            <Check size={14} /> Finish Editing
-          </button>
+          {docMetadata?.status !== 'locked' && (
+            <button
+              onClick={() => {
+                navigate(`/invoice/${id}`);
+              }}
+              className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-lg transition-all text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 active:scale-95"
+            >
+              <Check size={14} /> Finish Editing
+            </button>
+          )}
         </div>
       </header>
 
@@ -2530,7 +2588,7 @@ const A4Page: React.FC<A4PageProps> = ({
 
   return (
     <div
-      className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative shrink-0 focus-within:z-[50] focus-within:relative"
+      className="a4-page bg-white text-[#212121] shadow-2xl mb-12 relative overflow-hidden shrink-0 focus-within:z-[50] focus-within:relative"
       style={{
         width: "210mm",
         height: "297mm",
@@ -2543,8 +2601,10 @@ const A4Page: React.FC<A4PageProps> = ({
         <div
           className="flex items-center justify-center overflow-hidden border-b border-slate-100"
           style={{
-            margin: "-15mm -20mm 10mm -20mm",
-            width: "calc(100% + 40mm)",
+            // Bleed exactly to the A4 page edges. Page padding is 8mm horizontal
+            // and 14mm top — anything beyond would overflow the page frame.
+            margin: "-15mm -8mm 10mm -8mm",
+            width: "calc(100% + 16mm)",
             height: `${headerHeight}px`,
             position: "relative",
           }}
@@ -2552,7 +2612,7 @@ const A4Page: React.FC<A4PageProps> = ({
           <img
             src={data.isReceipt ? "/Shan-PaymentReceipt.png" : "/Shan-Invoice.png"}
             alt="Logo"
-            className="object-contain object-center w-full h-full"
+            className="object-cover object-center w-full h-full"
           />
           <div
             className="absolute bottom-0 left-0 right-0 z-10 h-2 bg-transparent cursor-ns-resize no-print"
