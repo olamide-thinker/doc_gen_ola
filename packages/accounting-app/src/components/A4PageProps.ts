@@ -57,4 +57,10 @@ export interface A4PageProps {
   lastUpdated?: number;
   rowsLength?: number;
   activeId?: string | null;
+  /**
+   * Optional handler — when present, the empty-state and end-of-rows
+   * footer rendered an extra "From Inventory" button next to "Add Row".
+   * Caller opens its own picker modal and inserts the resulting rows.
+   */
+  onOpenInventoryPicker?: () => void;
 }

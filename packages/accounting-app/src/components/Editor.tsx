@@ -29,7 +29,8 @@ import {
   Check,
   Eye,
   Sparkles,
-  BookOpen
+  BookOpen,
+  Boxes,
 } from "../lib/icons/lucide";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -83,6 +84,7 @@ import {
 } from "../lib/service-dictionary";
 
 import { A4PageProps } from "./A4PageProps";
+import { InventoryRowInsertModal, InventoryPick } from "./InventoryRowInsertModal";
 import { Annotation, DocumentMember, MemberRole, canWrite } from "../types";
 import { Radio, SignalIcon } from "lucide-react";
 import { API_BASE } from "../lib/workspace-persist";
@@ -191,6 +193,11 @@ export const Editor = () => {
   const [lastUpdated, setLastUpdated] = useState(0);
   const bump = () => setLastUpdated(prev => prev + 1);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Inventory-picker modal — opened by the "From Inventory" button on the
+  // empty-state / end-of-rows footer. The modal returns picks; we map them
+  // into invoice rows using simple column-label heuristics.
+  const [inventoryPickerOpen, setInventoryPickerOpen] = useState(false);
 
   const [connectedClients, setConnectedClients] = useState<any[]>([]);
   const [isSyncReady, setIsSyncReady] = useState(false);
@@ -833,6 +840,67 @@ export const Editor = () => {
       docData.table.rows.splice(i + 1, 0, newRow as any);
       bump();
     }
+  }, [docData]);
+
+  /**
+   * Insert a batch of inventory picks as new rows at the end of the table.
+   *
+   * Column-mapping heuristics (each invoice template has its own column
+   * structure — BOQ vs Procurement vs Labour all differ):
+   *   - Item name → first text column matching /description|item|scope|
+   *     stage|product|vendor/i, else the first text column
+   *   - Unit      → text column matching /unit|type|measure/i (other than
+   *     the name column above)
+   *   - Quantity  → number column matching /qty|quantity|duration/i
+   *   - Rate/cost → number column matching /rate|price|cost|amount|fee/i
+   *
+   * Anything that doesn't match keeps its default initialization. Each
+   * row also stamps `_inventoryItemId` so the catalog soft-link survives
+   * round-trips through save/load.
+   */
+  const onInsertInventoryPicks = useCallback((picks: InventoryPick[]) => {
+    if (!docData || picks.length === 0) return;
+
+    const cols: any[] = docData.table.columns || [];
+    const textCols = cols.filter((c) => c.type === "text");
+    const numberCols = cols.filter((c) => c.type === "number");
+
+    const nameCol =
+      textCols.find((c) =>
+        /description|item|scope|stage|product|vendor/i.test(c.label || ""),
+      ) || textCols[0];
+    const unitCol = textCols.find(
+      (c) => c !== nameCol && /unit|type|measure/i.test(c.label || ""),
+    );
+    const qtyCol = numberCols.find((c) =>
+      /qty|quantity|duration/i.test(c.label || ""),
+    );
+    const rateCol = numberCols.find((c) =>
+      /rate|price|cost|amount|fee/i.test(c.label || ""),
+    );
+
+    const newRows: any[] = picks.map(({ item, quantity }) => {
+      const row: any = {
+        id: crypto.randomUUID(),
+        rowType: "row",
+        _inventoryItemId: item.id,
+      };
+      // Initialize every column with its default — same as onAddRowBelow.
+      cols.forEach((col) => {
+        if (col.type === "index") return;
+        row[col.id] = col.type === "number" ? 0 : "";
+      });
+      if (nameCol) row[nameCol.id] = item.name;
+      if (unitCol && item.unit) row[unitCol.id] = item.unit;
+      if (qtyCol) row[qtyCol.id] = quantity;
+      if (rateCol && item.defaultCost != null) row[rateCol.id] = item.defaultCost;
+      return row;
+    });
+
+    // Bulk insert at the end of the rows array — same pattern as the
+    // template-load splice. SyncedStore broadcasts the change.
+    docData.table.rows.splice(docData.table.rows.length, 0, ...newRows);
+    bump();
   }, [docData]);
 
   const onAddRowAbove = useCallback((targetId: string) => {
@@ -1668,6 +1736,7 @@ export const Editor = () => {
                       onRemoveRow={onRemoveRow}
                       onAddRowBelow={onAddRowBelow}
                       onAddRowAbove={onAddRowAbove}
+                      onOpenInventoryPicker={() => setInventoryPickerOpen(true)}
                       onAddSectionBelow={onAddSectionBelow}
                       onAddSectionAbove={onAddSectionAbove}
                       onAddSubSectionBelow={onAddSubSectionBelow}
@@ -1816,7 +1885,19 @@ export const Editor = () => {
           }
         }
       `}</style>
-      
+
+      {/* Inventory picker — opened from the "From Inventory" button on
+          the table footer. Each pick becomes a new invoice line via the
+          column-heuristic mapping in onInsertInventoryPicks. */}
+      {businessId && (
+        <InventoryRowInsertModal
+          open={inventoryPickerOpen}
+          businessId={businessId}
+          onClose={() => setInventoryPickerOpen(false)}
+          onInsert={onInsertInventoryPicks}
+        />
+      )}
+
       {/* Collaborators Sheet */}
       <CollaboratorsSheet
         isOpen={isCollaboratorsOpen}
@@ -2462,6 +2543,7 @@ const A4Page: React.FC<A4PageProps> = ({
   rowsLength,
   lastUpdated,
   activeId,
+  onOpenInventoryPicker,
 }) => {
   const HEADER_DARK_BROWN = "#503D36";
   const PRIMARY_BROWN = "#8D6E63";
@@ -2774,7 +2856,7 @@ const A4Page: React.FC<A4PageProps> = ({
             </tbody>
           </table>
           {!isReadOnly && isEndOfRows && (
-            <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center no-print">
+            <div className="p-4 border-t border-slate-50 bg-[#FBFBFB]/50 flex justify-center items-center gap-2 no-print">
               <button
                 onClick={() => {
                   const lastRow = rows[rows.length - 1];
@@ -2795,6 +2877,16 @@ const A4Page: React.FC<A4PageProps> = ({
                 />
                 Add New Row
               </button>
+              {onOpenInventoryPicker && (
+                <button
+                  onClick={onOpenInventoryPicker}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Pick items from your inventory catalog and insert them as rows"
+                >
+                  <Boxes size={14} />
+                  From Inventory
+                </button>
+              )}
             </div>
           )}
         </div>
