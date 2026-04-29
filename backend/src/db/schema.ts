@@ -648,9 +648,64 @@ export const inventoryCategories = pgTable('inventory_categories', {
   };
 });
 
-export const inventoryCategoriesRelations = relations(inventoryCategories, ({ one }) => ({
+export const inventoryCategoriesRelations = relations(inventoryCategories, ({ one, many }) => ({
   business: one(businesses, {
     fields: [inventoryCategories.businessId],
     references: [businesses.id],
+  }),
+  items: many(inventoryItems),
+}));
+
+// 9. Inventory items — the actual things crews request and invoices line.
+//
+// Categories are the high-level bucket (Materials, Labour, Fuel…); items
+// are the granular, requestable, trackable thing — "Dangote Cement",
+// "1.5mm cable", "Chandelier", "Paint (small bucket)". Every item
+// belongs to exactly one category.
+//
+// Cost / supplier are V2-friendly defaults on the item record. Specific
+// transactions can override them (an invoice line item can charge a
+// different price than the catalog default — the default is just a
+// hint when typing fresh).
+export const inventoryItems = pgTable('inventory_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  businessId: text('business_id')
+    .notNull()
+    .references(() => businesses.id, { onDelete: 'cascade' }),
+  // When a category is deleted, items go with it. The InventoryPage
+  // delete flow warns about item count so this is never a surprise.
+  categoryId: uuid('category_id')
+    .notNull()
+    .references(() => inventoryCategories.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  sku: text('sku'), // optional business-defined SKU / code
+  unit: text('unit').notNull().default('piece'), // bag, ton, m, m², litre, piece…
+  // Default per-unit cost in the smallest currency unit (kobo for NGN).
+  // Optional — items don't have to be priced in advance.
+  defaultCost: integer('default_cost'),
+  description: text('description'),
+  position: integer('position').notNull().default(0),
+  metadata: jsonb('metadata'),
+  ...timestamps,
+}, (table) => {
+  return {
+    invItemBusinessIdx: index('inv_item_business_idx').on(table.businessId),
+    invItemCategoryIdx: index('inv_item_category_idx').on(table.categoryId),
+    // One name per business — duplicate "Dangote Cement" entries across
+    // categories would be confusing for crew search/typing. Picker
+    // dropdowns stay clean.
+    uniqueInvItemNamePerBusiness: uniqueIndex('unique_inv_item_name_per_business')
+      .on(table.businessId, table.name),
+  };
+});
+
+export const inventoryItemsRelations = relations(inventoryItems, ({ one }) => ({
+  business: one(businesses, {
+    fields: [inventoryItems.businessId],
+    references: [businesses.id],
+  }),
+  category: one(inventoryCategories, {
+    fields: [inventoryItems.categoryId],
+    references: [inventoryCategories.id],
   }),
 }));
