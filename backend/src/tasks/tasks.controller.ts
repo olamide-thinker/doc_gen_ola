@@ -30,6 +30,12 @@ interface MaterialRow {
   quantity?: number | string;
   unit?: string;
   note?: string;
+  /**
+   * Optional soft-link to an inventory_items row. Snapshot of name/unit
+   * is still captured so that a future rename or delete of the catalog
+   * entry doesn't mutate or wipe historical task records.
+   */
+  inventoryItemId?: string;
 }
 
 @Controller('api/tasks')
@@ -124,6 +130,14 @@ export class TasksController {
               : undefined,
         unit: typeof row.unit === 'string' ? row.unit : undefined,
         note: typeof row.note === 'string' ? row.note : undefined,
+        // Catalog soft-link. We don't validate it points at a real
+        // inventory_items row here — it's just metadata, and the picker
+        // UI controls how it gets set. The frontend can resolve it for
+        // display; orphans are tolerated.
+        inventoryItemId:
+          typeof row.inventoryItemId === 'string' && row.inventoryItemId
+            ? row.inventoryItemId
+            : undefined,
       }))
       .filter(r => r.name && r.name.trim().length > 0);
     return rows.length > 0 ? rows : null;

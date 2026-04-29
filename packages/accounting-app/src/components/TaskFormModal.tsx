@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "../context/AuthContext";
 import {
   X,
   Plus,
@@ -37,7 +39,17 @@ export interface TaskRecord {
   supervisorId?: string | null;
   assigneeId?: string | null;
   crewIds?: string[] | null;
-  materials?: Array<{ name: string; quantity?: number | string; unit?: string; note?: string }> | null;
+  materials?: Array<{
+    name: string;
+    quantity?: number | string;
+    unit?: string;
+    note?: string;
+    /** Optional soft-link to an inventory_items row. Set when the user
+        picks the material from the inventory typeahead (vs typing
+        free-text). Frontends can render a small "catalog" pill when
+        present. */
+    inventoryItemId?: string;
+  }> | null;
   budget?: number | null;
   locationType?: LocationType;
   locationDocId?: string | null;
@@ -112,11 +124,37 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   const [locationType, setLocationType] = useState<LocationType>(null);
   const [locationText, setLocationText] = useState("");
   const [materials, setMaterials] = useState<
-    Array<{ name: string; quantity: string; unit: string; note: string }>
+    Array<{ name: string; quantity: string; unit: string; note: string; inventoryItemId?: string }>
   >([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+
+  // Inventory items for the typeahead on the materials editor. Pulls
+  // from the user's business — items are business-scoped, so this works
+  // anywhere TaskFormModal mounts. Only fetched when the modal is open
+  // to keep idle render cost down.
+  const { businessId: ctxBusinessId } = useAuth();
+  const { data: inventoryItems = [] } = useQuery({
+    queryKey: ["inventory-items", ctxBusinessId, "all"],
+    queryFn: () => api.listInventoryItems(ctxBusinessId!),
+    enabled: !!ctxBusinessId && open,
+  });
+  // Quick id → item map for resolving inventoryItemId to a unit/cost
+  // preview without re-scanning the array on every keystroke.
+  const itemById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const i of inventoryItems as any[]) m.set(i.id, i);
+    return m;
+  }, [inventoryItems]);
+  // Same items keyed by name (lowercase) for the auto-match logic when
+  // a user types a known name without going through the dropdown.
+  const itemByName = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const i of inventoryItems as any[])
+      m.set((i.name || "").toLowerCase(), i);
+    return m;
+  }, [inventoryItems]);
 
   // Overview has two modes: "view" (read-only display, default for existing
   // tasks) and "edit" (the writable form). New tasks open straight in edit
@@ -147,6 +185,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           quantity: m.quantity != null ? String(m.quantity) : "",
           unit: m.unit || "",
           note: m.note || "",
+          inventoryItemId: m.inventoryItemId,
         })),
       );
     } else {
@@ -169,6 +208,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           quantity: m?.quantity != null ? String(m.quantity) : "",
           unit: m?.unit || "",
           note: m?.note || "",
+          inventoryItemId: typeof m?.inventoryItemId === "string" ? m.inventoryItemId : undefined,
         })),
       );
     }
@@ -221,6 +261,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           quantity: m.quantity ? Number(m.quantity) || m.quantity : undefined,
           unit: m.unit.trim() || undefined,
           note: m.note.trim() || undefined,
+          inventoryItemId: m.inventoryItemId || undefined,
         }))
         .filter((m) => m.name),
     };
@@ -528,53 +569,92 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               {/* Materials */}
               <Field label="Materials Required">
                 <div className="space-y-2">
-                  {materials.map((m, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        value={m.name}
-                        onChange={(e) =>
-                          setMaterials((arr) =>
-                            arr.map((row, idx) =>
-                              idx === i ? { ...row, name: e.target.value } : row,
-                            ),
-                          )
-                        }
-                        placeholder="Item"
-                        className="flex-1 px-2.5 py-1.5 bg-muted/40 border border-transparent rounded-lg text-xs focus:outline-none focus:border-border focus:bg-background"
-                      />
-                      <input
-                        value={m.quantity}
-                        onChange={(e) =>
-                          setMaterials((arr) =>
-                            arr.map((row, idx) =>
-                              idx === i ? { ...row, quantity: e.target.value } : row,
-                            ),
-                          )
-                        }
-                        placeholder="Qty"
-                        className="w-20 px-2.5 py-1.5 bg-muted/40 border border-transparent rounded-lg text-xs focus:outline-none focus:border-border focus:bg-background"
-                      />
-                      <input
-                        value={m.unit}
-                        onChange={(e) =>
-                          setMaterials((arr) =>
-                            arr.map((row, idx) =>
-                              idx === i ? { ...row, unit: e.target.value } : row,
-                            ),
-                          )
-                        }
-                        placeholder="Unit"
-                        className="w-20 px-2.5 py-1.5 bg-muted/40 border border-transparent rounded-lg text-xs focus:outline-none focus:border-border focus:bg-background"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setMaterials((arr) => arr.filter((_, idx) => idx !== i))}
-                        className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  ))}
+                  {materials.map((m, i) => {
+                    const linkedItem = m.inventoryItemId ? itemById.get(m.inventoryItemId) : null;
+                    return (
+                      <div key={i} className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <input
+                            list="task-material-suggestions"
+                            value={m.name}
+                            onChange={(e) => {
+                              const newName = e.target.value;
+                              const matched = itemByName.get(newName.toLowerCase());
+                              setMaterials((arr) =>
+                                arr.map((row, idx) =>
+                                  idx === i
+                                    ? matched
+                                      ? {
+                                          ...row,
+                                          name: matched.name,
+                                          // Auto-fill unit only when the row's unit
+                                          // is empty — don't clobber a custom unit
+                                          // the user already typed.
+                                          unit: row.unit || matched.unit || "",
+                                          inventoryItemId: matched.id,
+                                        }
+                                      : { ...row, name: newName, inventoryItemId: undefined }
+                                    : row,
+                                ),
+                              );
+                            }}
+                            placeholder="Item — pick from inventory or type fresh"
+                            className="w-full px-2.5 py-1.5 bg-muted/40 border border-transparent rounded-lg text-xs focus:outline-none focus:border-border focus:bg-background"
+                          />
+                          {linkedItem && (
+                            <div className="text-[9px] font-bold text-emerald-600 mt-1 inline-flex items-center gap-1">
+                              <Check size={9} className="text-current" />
+                              From inventory
+                              {linkedItem.defaultCost != null && (
+                                <span className="text-muted-foreground/70 ml-1 font-mono tabular-nums">
+                                  · default ₦{Math.round(linkedItem.defaultCost).toLocaleString()}/{linkedItem.unit}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <input
+                          value={m.quantity}
+                          onChange={(e) =>
+                            setMaterials((arr) =>
+                              arr.map((row, idx) =>
+                                idx === i ? { ...row, quantity: e.target.value } : row,
+                              ),
+                            )
+                          }
+                          placeholder="Qty"
+                          className="w-20 px-2.5 py-1.5 bg-muted/40 border border-transparent rounded-lg text-xs focus:outline-none focus:border-border focus:bg-background"
+                        />
+                        <input
+                          value={m.unit}
+                          onChange={(e) =>
+                            setMaterials((arr) =>
+                              arr.map((row, idx) =>
+                                idx === i ? { ...row, unit: e.target.value } : row,
+                              ),
+                            )
+                          }
+                          placeholder="Unit"
+                          className="w-20 px-2.5 py-1.5 bg-muted/40 border border-transparent rounded-lg text-xs focus:outline-none focus:border-border focus:bg-background"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setMaterials((arr) => arr.filter((_, idx) => idx !== i))}
+                          className="p-1.5 mt-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md shrink-0"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <datalist id="task-material-suggestions">
+                    {(inventoryItems as any[]).map((i) => (
+                      <option key={i.id} value={i.name}>
+                        {i.unit ? `${i.unit}` : ""}
+                        {i.sku ? ` · ${i.sku}` : ""}
+                      </option>
+                    ))}
+                  </datalist>
                   <button
                     type="button"
                     onClick={() => setMaterials((arr) => [...arr, { name: "", quantity: "", unit: "", note: "" }])}
@@ -582,6 +662,15 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                   >
                     <Plus size={12} /> Add material
                   </button>
+                  {(inventoryItems as any[]).length === 0 && (
+                    <p className="text-[10px] text-muted-foreground/70 font-medium">
+                      Tip: build your{" "}
+                      <a href="/inventory" className="text-primary font-black underline hover:opacity-80">
+                        inventory catalog
+                      </a>{" "}
+                      so picking materials is one click instead of typing.
+                    </p>
+                  )}
                 </div>
               </Field>
 
@@ -723,7 +812,7 @@ const ViewModeBody: React.FC<{
   assigneeUser?: { id: string; fullName: string | null; email: string } | null;
   locationType: LocationType;
   locationText: string;
-  materials: Array<{ name: string; quantity: string; unit: string; note: string }>;
+  materials: Array<{ name: string; quantity: string; unit: string; note: string; inventoryItemId?: string }>;
   members: Array<{ email: string; userId?: string; role?: string }>;
 }> = ({
   title,
@@ -832,7 +921,17 @@ const ViewModeBody: React.FC<{
                 key={i}
                 className="flex items-center justify-between gap-3 px-3 py-2 bg-muted/10 text-[12px]"
               >
-                <span className="font-medium truncate flex-1">{m.name}</span>
+                <span className="font-medium truncate flex-1 inline-flex items-center gap-1.5">
+                  {m.name}
+                  {m.inventoryItemId && (
+                    <span
+                      className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 shrink-0"
+                      title="Linked to your inventory catalog"
+                    >
+                      catalog
+                    </span>
+                  )}
+                </span>
                 {(m.quantity || m.unit) && (
                   <span className="text-muted-foreground font-mono text-[11px] tabular-nums shrink-0">
                     {m.quantity}
