@@ -890,6 +890,78 @@ export const api = {
     if (!json.success) throw new Error(json.message || json.error || 'Failed to delete task');
   },
 
+  /**
+   * Read-time rollup of invoices/receipts linked to a task. Returns
+   * { totalCost, totalPaid, balance, invoices[], receipts[] }. Backend
+   * filters by `metadata.taskId` so this is always live — no eager
+   * bookkeeping table behind it.
+   */
+  getTaskFinancials: async (taskId: string): Promise<{
+    task: { id: string; taskCode: string; title: string; budget: number | null };
+    totalCost: number;
+    totalPaid: number;
+    balance: number;
+    linkedInvoiceTotal: number;
+    invoices: Array<{
+      id: string;
+      name: string;
+      status: string | null;
+      templateType: string | null;
+      total: number;
+      totalPaid: number;
+      createdAt: string;
+    }>;
+    receipts: Array<{
+      id: string;
+      invoiceId: string;
+      status: string | null;
+      amountPaid: number;
+      createdAt: string;
+      linkedVia: 'invoice' | 'direct';
+    }>;
+  }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/tasks/${taskId}/financials`, { headers });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load financials');
+    return json.data;
+  },
+
+  /**
+   * Stamp (or clear with `taskId: null`) the link from an invoice → task.
+   * Bypasses the content lock since metadata is workflow, not content.
+   */
+  linkInvoiceToTask: async (
+    invoiceId: string,
+    taskId: string | null,
+  ): Promise<{ taskId: string | null }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/invoices/${invoiceId}/task-link`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to link invoice');
+    return json.data;
+  },
+
+  /** Same as linkInvoiceToTask but for a receipt. */
+  linkReceiptToTask: async (
+    receiptId: string,
+    taskId: string | null,
+  ): Promise<{ taskId: string | null }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/invoices/receipts/${receiptId}/task-link`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to link receipt');
+    return json.data;
+  },
+
   // ─── Execution: Stages, Milestones, Plan ────────────────────────────────
   // Hierarchy: project → stages (phases) → milestones → tasks.
 

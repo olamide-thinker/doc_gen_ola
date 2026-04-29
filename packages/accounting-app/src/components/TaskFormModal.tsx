@@ -17,6 +17,7 @@ import {
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
+import { TaskFinancialsTab } from "./TaskFinancialsTab";
 
 // ── Types ────────────────────────────────────────────────────────────────
 type TaskStatus = "pending" | "progress" | "done" | "cancelled";
@@ -584,7 +585,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               </>
             )}
 
-            {tab === "financials" && <FinancialsTabStub />}
+            {tab === "financials" &&
+              (editing ? (
+                <TaskFinancialsTab projectId={projectId} taskId={editing.id} />
+              ) : (
+                <FinancialsTabStub />
+              ))}
             {tab === "reports" && <ReportsTabStub />}
             </div>
 

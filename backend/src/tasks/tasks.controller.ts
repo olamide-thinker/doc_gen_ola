@@ -16,9 +16,10 @@ import {
 } from '@nestjs/common';
 import { DRIZZLE_PROVIDER } from '../database/database.provider';
 import * as schema from '../db/schema';
-import { eq, and, or, desc } from 'drizzle-orm';
+import { eq, and, or, desc, sql } from 'drizzle-orm';
 import { FirebaseGuard } from '../auth/firebase.guard';
 import { TasksService } from './tasks.service';
+import { InvoicesService } from '../invoices/invoices.service';
 
 const ALLOWED_STATUS = new Set(['pending', 'progress', 'done', 'cancelled']);
 const ALLOWED_PRIORITY = new Set(['low', 'med', 'high']);
@@ -37,6 +38,7 @@ export class TasksController {
   constructor(
     @Inject(DRIZZLE_PROVIDER) private db: any,
     private tasks: TasksService,
+    private invoicesService: InvoicesService,
   ) {}
 
   /** Project-membership gate. Mirrors the WorkspacesController helper. */
@@ -195,6 +197,166 @@ export class TasksController {
     if (!row) throw new NotFoundException('Task not found');
     if (row.projectId) await this.assertProjectAccess(row.projectId, req);
     return { success: true, data: row };
+  }
+
+  /** ─── FINANCIALS (rollup of linked invoices/receipts) ─────────────
+   * Read-time aggregation. Invoices and receipts are stamped with
+   * `metadata.taskId` when linked, so we filter by that JSONB key and
+   * sum amounts. No bookkeeping table — the totals are always live.
+   *
+   * Returns:
+   *   - task: { id, taskCode, title, budget }
+   *   - totalCost: budget if set, else sum of linked-invoice grand totals
+   *   - totalPaid: sum of finalised receipts' amountPaid
+   *   - balance:  totalCost - totalPaid
+   *   - invoices[]: { id, name, status, total, totalPaid }
+   *   - receipts[]: { id, invoiceId, status, amountPaid, createdAt }
+   */
+  @Get(':id/financials')
+  async financials(@Param('id') id: string, @Req() req: any) {
+    const task = await this.db.query.tasks.findFirst({
+      where: eq(schema.tasks.id, id),
+    });
+    if (!task) throw new NotFoundException('Task not found');
+    if (task.projectId) await this.assertProjectAccess(task.projectId, req);
+
+    // ── Linked invoices ──────────────────────────────────────────────
+    // Filter by both projectId (cheap) and metadata->>'taskId' so we
+    // never cross-leak across projects even if metadata gets duplicated.
+    const linkedInvoices = await this.db
+      .select()
+      .from(schema.invoices)
+      .where(
+        and(
+          eq(schema.invoices.projectId, task.projectId),
+          sql`${schema.invoices.metadata}->>'taskId' = ${id}`,
+        ),
+      );
+
+    const invoiceRows: any[] = [];
+    const receiptRows: any[] = [];
+    const seenReceiptIds = new Set<string>(); // de-dupe across cascade + direct link
+    let totalLinkedInvoiceAmount = 0;
+    let totalPaidRollup = 0;
+
+    for (const inv of linkedInvoices) {
+      let total = 0;
+      try {
+        total = this.invoicesService.calculateInvoiceTotals(inv.draft);
+      } catch {
+        total = 0;
+      }
+      // Fallback: pre-calculated values frontends sometimes stash on draft.
+      if (!total && inv.draft) {
+        const d: any = inv.draft;
+        total =
+          Number(d.grandTotal) ||
+          Number(d?.totalPrice?.grandTotal) ||
+          Number(d?.totalInvoiceAmount) ||
+          Number(d?.table?.totalPrice?.grandTotal) ||
+          0;
+      }
+      totalLinkedInvoiceAmount += total;
+
+      // Cascade: any finalised receipt on a linked invoice counts toward
+      // the task's paid total. Linking an invoice carries its payments
+      // along — this matches the user's mental model that "the money
+      // that flowed through this invoice was for this task".
+      const recs = await this.db.query.receipts.findMany({
+        where: and(
+          eq(schema.receipts.invoiceId, inv.id),
+          eq(schema.receipts.status, 'finalised'),
+        ),
+      });
+      let invPaid = 0;
+      for (const r of recs) {
+        const d: any = r.draft || {};
+        const amt = Number(d.amountPaid) || 0;
+        invPaid += amt;
+        if (!seenReceiptIds.has(r.id)) {
+          seenReceiptIds.add(r.id);
+          totalPaidRollup += amt;
+          receiptRows.push({
+            id: r.id,
+            invoiceId: r.invoiceId,
+            status: r.status,
+            amountPaid: amt,
+            createdAt: r.createdAt,
+            linkedVia: 'invoice', // surfaced via parent invoice's task link
+          });
+        }
+      }
+
+      invoiceRows.push({
+        id: inv.id,
+        name: inv.name,
+        status: inv.status,
+        templateType: (inv.draft as any)?.templateType || null,
+        total,
+        totalPaid: invPaid,
+        createdAt: inv.createdAt,
+      });
+    }
+
+    // ── Directly-linked receipts (parent invoice not linked) ─────────
+    // A receipt can be earmarked to a task even if its parent invoice
+    // isn't — useful when one big invoice covers multiple tasks, or
+    // when spend came in via a receipt-first flow.
+    const linkedReceipts = await this.db
+      .select()
+      .from(schema.receipts)
+      .where(
+        and(
+          eq(schema.receipts.projectId, task.projectId),
+          sql`${schema.receipts.metadata}->>'taskId' = ${id}`,
+        ),
+      );
+
+    for (const r of linkedReceipts) {
+      if (seenReceiptIds.has(r.id)) continue; // already counted via cascade
+      const d: any = r.draft || {};
+      const amt = Number(d.amountPaid) || 0;
+      // Only finalised receipts contribute to totalPaid; drafts still
+      // surface in the list but flagged so the user sees them.
+      if (r.status === 'finalised') totalPaidRollup += amt;
+      seenReceiptIds.add(r.id);
+      receiptRows.push({
+        id: r.id,
+        invoiceId: r.invoiceId,
+        status: r.status,
+        amountPaid: amt,
+        createdAt: r.createdAt,
+        linkedVia: 'direct',
+      });
+    }
+
+    // ── Roll up ──────────────────────────────────────────────────────
+    // totalCost preference: explicit task.budget if set, else the sum
+    // of the linked invoices (so even unbudgeted tasks show a number).
+    const totalCost =
+      typeof task.budget === 'number' && Number.isFinite(task.budget)
+        ? task.budget
+        : totalLinkedInvoiceAmount;
+    const totalPaid = totalPaidRollup;
+    const balance = totalCost - totalPaid;
+
+    return {
+      success: true,
+      data: {
+        task: {
+          id: task.id,
+          taskCode: task.taskCode,
+          title: task.title,
+          budget: task.budget,
+        },
+        totalCost,
+        totalPaid,
+        balance,
+        linkedInvoiceTotal: totalLinkedInvoiceAmount,
+        invoices: invoiceRows,
+        receipts: receiptRows,
+      },
+    };
   }
 
   /** ─── UPDATE ────────────────────────────────────────────────────── */

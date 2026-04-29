@@ -237,6 +237,159 @@ export class InvoicesController {
     return { success: true, data: { boqTaskSource: draft.boqTaskSource } };
   }
 
+  /**
+   * Link this invoice to a task (or unlink with `taskId: null`). Stamps
+   * `metadata.taskId` so the task's Financials tab can roll it up. This
+   * is workflow metadata, not document content, so it works on locked
+   * invoices — same precedent as the boqTaskSource toggle above.
+   *
+   * Body: { taskId: string | null }
+   */
+  @Patch(':id/task-link')
+  @UseGuards(FirebaseGuard)
+  async linkInvoiceToTask(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Req() req: any,
+  ) {
+    const invoice = await this.db.query.invoices.findFirst({
+      where: eq(schema.invoices.id, id),
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    // Project gate — same shape as the read endpoint above. We don't
+    // accept cross-project links because metadata is the only signal
+    // and a stray link in another project would be a footgun.
+    if (invoice.projectId) {
+      const userId = req.user.uid;
+      const project = await this.db.query.projects.findFirst({
+        where: eq(schema.projects.id, invoice.projectId),
+      });
+      if (!project) throw new NotFoundException('Parent project not found');
+      if (project.ownerId !== userId) {
+        const member = await this.db.query.projectMembers.findFirst({
+          where: and(
+            eq(schema.projectMembers.projectId, invoice.projectId),
+            or(
+              eq(schema.projectMembers.userId, userId),
+              ...(req.user.email
+                ? [eq(schema.projectMembers.email, req.user.email)]
+                : []),
+            ),
+          ),
+        });
+        if (!member) throw new ForbiddenException('Not a project member');
+      }
+    }
+
+    const taskId =
+      body && (body.taskId === null || typeof body.taskId === 'string')
+        ? body.taskId
+        : undefined;
+    if (taskId === undefined) {
+      throw new NotFoundException('taskId is required (use null to unlink)');
+    }
+
+    if (taskId) {
+      // Validate the task exists and belongs to the same project so we
+      // never stamp a link that points across project boundaries.
+      const task = await this.db.query.tasks.findFirst({
+        where: eq(schema.tasks.id, taskId),
+      });
+      if (!task) throw new NotFoundException('Task not found');
+      if (task.projectId !== invoice.projectId) {
+        throw new ForbiddenException(
+          'Task and invoice must belong to the same project',
+        );
+      }
+    }
+
+    const meta: any = (invoice.metadata as any) || {};
+    if (taskId) meta.taskId = taskId;
+    else delete meta.taskId;
+
+    await this.db
+      .update(schema.invoices)
+      .set({ metadata: meta, updatedAt: new Date() })
+      .where(eq(schema.invoices.id, id));
+
+    return { success: true, data: { taskId: taskId || null } };
+  }
+
+  /**
+   * Same as the invoice variant but for receipts. A receipt can be
+   * linked to a task independently of its parent invoice — useful when
+   * a single big receipt covers multiple tasks, or when the spend came
+   * in via a receipt-first flow with no invoice in sight.
+   *
+   * Body: { taskId: string | null }
+   */
+  @Patch('receipts/:receiptId/task-link')
+  @UseGuards(FirebaseGuard)
+  async linkReceiptToTask(
+    @Param('receiptId') receiptId: string,
+    @Body() body: any,
+    @Req() req: any,
+  ) {
+    const receipt = await this.db.query.receipts.findFirst({
+      where: eq(schema.receipts.id, receiptId),
+    });
+    if (!receipt) throw new NotFoundException('Receipt not found');
+
+    if (receipt.projectId) {
+      const userId = req.user.uid;
+      const project = await this.db.query.projects.findFirst({
+        where: eq(schema.projects.id, receipt.projectId),
+      });
+      if (!project) throw new NotFoundException('Parent project not found');
+      if (project.ownerId !== userId) {
+        const member = await this.db.query.projectMembers.findFirst({
+          where: and(
+            eq(schema.projectMembers.projectId, receipt.projectId),
+            or(
+              eq(schema.projectMembers.userId, userId),
+              ...(req.user.email
+                ? [eq(schema.projectMembers.email, req.user.email)]
+                : []),
+            ),
+          ),
+        });
+        if (!member) throw new ForbiddenException('Not a project member');
+      }
+    }
+
+    const taskId =
+      body && (body.taskId === null || typeof body.taskId === 'string')
+        ? body.taskId
+        : undefined;
+    if (taskId === undefined) {
+      throw new NotFoundException('taskId is required (use null to unlink)');
+    }
+
+    if (taskId) {
+      const task = await this.db.query.tasks.findFirst({
+        where: eq(schema.tasks.id, taskId),
+      });
+      if (!task) throw new NotFoundException('Task not found');
+      if (task.projectId !== receipt.projectId) {
+        throw new ForbiddenException(
+          'Task and receipt must belong to the same project',
+        );
+      }
+    }
+
+    const meta: any = (receipt.metadata as any) || {};
+    if (taskId) meta.taskId = taskId;
+    else delete meta.taskId;
+
+    await this.db
+      .update(schema.receipts)
+      .set({ metadata: meta, updatedAt: new Date() })
+      .where(eq(schema.receipts.id, receiptId));
+
+    return { success: true, data: { taskId: taskId || null } };
+  }
+
   @Post(':id/finalise')
   @UseGuards(FirebaseGuard)
   async finaliseInvoice(@Param('id') id: string, @Req() req: any) {
