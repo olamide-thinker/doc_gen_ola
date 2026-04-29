@@ -56,30 +56,48 @@ export class FieldReportsController {
 
   /**
    * Batched user lookup. Pulls the slim public profile (id, fullName,
-   * email) for every authorId across the given rows and decorates each
-   * row with an `author` object. Single SQL roundtrip regardless of how
-   * many rows we hand it.
+   * email) for every authorId — and any `resolution.resolvedById` (jsonb
+   * field) — across the given rows. Single SQL roundtrip.
    *
-   * Keeps `authorId` intact for backward compat — frontends can read
-   * `row.author?.fullName ?? row.authorId` and ride out the migration.
+   * Decorates each row with an `author` object, and when the row has a
+   * resolved confirmation_request, lifts `resolution.resolvedBy` (the
+   * resolver's profile) onto the resolution object too.
+   *
+   * Keeps original *Id columns intact for backward compat — frontends
+   * can read `row.author?.fullName ?? row.authorId` and ride out the
+   * migration.
    */
-  private async hydrateAuthors<T extends { authorId?: string | null }>(
+  private async hydrateAuthors<T extends {
+    authorId?: string | null;
+    resolution?: any;
+  }>(
     rows: T[],
   ): Promise<Array<T & { author: { id: string; fullName: string | null; email: string } | null }>> {
-    const ids = Array.from(new Set(rows.map(r => r.authorId).filter(Boolean))) as string[];
-    if (ids.length === 0) {
+    const ids = new Set<string>();
+    for (const r of rows) {
+      if (r.authorId) ids.add(r.authorId);
+      const rid = r.resolution?.resolvedById;
+      if (typeof rid === 'string' && rid) ids.add(rid);
+    }
+    if (ids.size === 0) {
       return rows.map(r => ({ ...r, author: null }));
     }
     const users = await this.db.query.users.findMany({
-      where: inArray(schema.users.id, ids),
+      where: inArray(schema.users.id, Array.from(ids)),
       columns: { id: true, fullName: true, email: true },
     });
     const userMap = new Map<string, any>();
     for (const u of users) userMap.set(u.id, u);
-    return rows.map(r => ({
-      ...r,
-      author: r.authorId ? userMap.get(r.authorId) || null : null,
-    }));
+
+    return rows.map(r => {
+      const author = r.authorId ? userMap.get(r.authorId) || null : null;
+      let resolution = r.resolution;
+      if (resolution && typeof resolution === 'object' && resolution.resolvedById) {
+        const resolvedBy = userMap.get(resolution.resolvedById) || null;
+        resolution = { ...resolution, resolvedBy };
+      }
+      return { ...r, author, resolution };
+    });
   }
 
   /** Coerce attachments into a clean array shape. */
@@ -377,7 +395,8 @@ export class FieldReportsController {
       .where(eq(schema.fieldReports.id, id))
       .returning();
 
-    return { success: true, data: updated };
+    const [hydrated] = await this.hydrateAuthors([updated]);
+    return { success: true, data: hydrated };
   }
 
   // ── THREAD: list messages ──────────────────────────────────────────

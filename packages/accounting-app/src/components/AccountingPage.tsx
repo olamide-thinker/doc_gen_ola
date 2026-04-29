@@ -14,6 +14,7 @@ import {
   Briefcase,
   Info as AlertCircle,
   CheckCircle2,
+  ChevronRight,
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
@@ -62,6 +63,9 @@ const AccountingPage: React.FC = () => {
   const search = ui.settings.searchQuery || "";
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  // "log" = chronological transaction list (default)
+  // "byCounterparty" = grouped by who you paid, sorted by total paid desc
+  const [view, setView] = useState<"log" | "byCounterparty">("log");
 
   const { data, isLoading } = useQuery({
     queryKey: ["accounting", projectId],
@@ -104,6 +108,41 @@ const AccountingPage: React.FC = () => {
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [data]);
+
+  // Group filtered transactions by counterparty (with an "Unassigned" bucket
+  // for ones that haven't been tagged). Sorted by total paid descending so
+  // the biggest spenders bubble to the top — that's the question this
+  // ledger answers.
+  const counterpartyGroups = useMemo(() => {
+    type Group = {
+      key: string; // counterpartyMemberId or "__unassigned__"
+      name: string;
+      kind: string | null; // 'user' | 'company' | 'vendor' | null
+      totalPaid: number;
+      totalBudget: number;
+      txns: typeof filteredTransactions;
+    };
+    const map = new Map<string, Group>();
+    for (const t of filteredTransactions) {
+      const key = t.counterpartyMemberId || "__unassigned__";
+      const name = t.counterpartyName || "Unassigned";
+      const kind = t.counterpartyKind || null;
+      let g = map.get(key);
+      if (!g) {
+        g = { key, name, kind, totalPaid: 0, totalBudget: 0, txns: [] };
+        map.set(key, g);
+      }
+      g.totalPaid += t.amountPaid;
+      g.totalBudget += t.invoiceTotal;
+      g.txns.push(t);
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      // Unassigned always at the bottom — it's noise, not a counterparty.
+      if (a.key === "__unassigned__") return 1;
+      if (b.key === "__unassigned__") return -1;
+      return b.totalPaid - a.totalPaid;
+    });
+  }, [filteredTransactions]);
 
   if (!projectId) {
     return (
@@ -178,28 +217,47 @@ const AccountingPage: React.FC = () => {
               />
             </div>
 
-            {/* Category filter strip */}
-            {categoryOptions.length > 0 && (
-              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-                <Filter size={12} className="text-muted-foreground/60 text-current shrink-0" />
-                <FilterChip
-                  active={categoryFilter === "all"}
-                  onClick={() => setCategoryFilter("all")}
-                  label="All"
-                  count={data.transactionCount}
+            {/* View toggle + category filter row */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              {/* View toggle */}
+              <div className="inline-flex items-center bg-muted/40 rounded-lg p-1 gap-1">
+                <ViewToggleButton
+                  active={view === "log"}
+                  onClick={() => setView("log")}
+                  icon={Calculator}
+                  label="Transaction Log"
                 />
-                {categoryOptions.map((c) => (
-                  <FilterChip
-                    key={c.id}
-                    active={categoryFilter === c.id}
-                    onClick={() => setCategoryFilter(c.id)}
-                    label={c.name}
-                    count={c.count}
-                    colorKey={c.color || undefined}
-                  />
-                ))}
+                <ViewToggleButton
+                  active={view === "byCounterparty"}
+                  onClick={() => setView("byCounterparty")}
+                  icon={Briefcase}
+                  label="By Counterparty"
+                />
               </div>
-            )}
+
+              {/* Category filter strip */}
+              {categoryOptions.length > 0 && (
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                  <Filter size={12} className="text-muted-foreground/60 text-current shrink-0" />
+                  <FilterChip
+                    active={categoryFilter === "all"}
+                    onClick={() => setCategoryFilter("all")}
+                    label="All"
+                    count={data.transactionCount}
+                  />
+                  {categoryOptions.map((c) => (
+                    <FilterChip
+                      key={c.id}
+                      active={categoryFilter === c.id}
+                      onClick={() => setCategoryFilter(c.id)}
+                      label={c.name}
+                      count={c.count}
+                      colorKey={c.color || undefined}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Transactions */}
             {data.transactions.length === 0 ? (
@@ -223,7 +281,7 @@ const AccountingPage: React.FC = () => {
                   Try a different filter or clear the search.
                 </p>
               </div>
-            ) : (
+            ) : view === "log" ? (
               <div className="bg-card border border-border rounded-2xl overflow-hidden divide-y divide-border">
                 <div className="px-5 py-3 bg-muted/20 flex items-center justify-between">
                   <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground inline-flex items-center gap-1.5">
@@ -239,6 +297,26 @@ const AccountingPage: React.FC = () => {
                     key={t.id}
                     transaction={t}
                     onClick={() => navigate(`/invoice/${t.invoiceId}`)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground inline-flex items-center gap-1.5">
+                    <Briefcase size={11} className="text-current" />
+                    Counterparty Ledger
+                  </h3>
+                  <span className="text-[9px] font-mono font-bold text-muted-foreground/70 tabular-nums">
+                    {counterpartyGroups.length} {counterpartyGroups.length === 1 ? "party" : "parties"}
+                  </span>
+                </div>
+                {counterpartyGroups.map((g) => (
+                  <CounterpartyCard
+                    key={g.key}
+                    group={g}
+                    totalSpent={data.totalSpent}
+                    onTransactionClick={(invoiceId) => navigate(`/invoice/${invoiceId}`)}
                   />
                 ))}
               </div>
@@ -462,6 +540,169 @@ const TransactionRow: React.FC<{
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+// ── View toggle ──────────────────────────────────────────────────────────
+
+const ViewToggleButton: React.FC<{
+  active: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<any>;
+  label: string;
+}> = ({ active, onClick, icon: Icon, label }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all",
+      active
+        ? "bg-card text-foreground shadow-sm"
+        : "text-muted-foreground hover:text-foreground",
+    )}
+  >
+    <Icon size={11} className="text-current" /> {label}
+  </button>
+);
+
+// ── Counterparty Ledger card ─────────────────────────────────────────────
+//
+// Each card represents one counterparty's slice of the project's spend.
+// Collapsed: name + type pill + totalPaid + share-of-total bar +
+// transaction count. Click to expand and see every transaction with
+// that counterparty (uses the same TransactionRow as the chronological
+// log so the visual language stays consistent).
+
+const CounterpartyCard: React.FC<{
+  group: {
+    key: string;
+    name: string;
+    kind: string | null;
+    totalPaid: number;
+    totalBudget: number;
+    txns: any[];
+  };
+  /** Total project spend — used to render the share-of-total bar. */
+  totalSpent: number;
+  onTransactionClick: (invoiceId: string) => void;
+}> = ({ group, totalSpent, onTransactionClick }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isCompany = group.kind === "company" || group.kind === "vendor";
+  const isUnassigned = group.key === "__unassigned__";
+  const sharePct = totalSpent > 0 ? Math.round((group.totalPaid / totalSpent) * 100) : 0;
+  const saved = group.totalBudget - group.totalPaid;
+
+  return (
+    <div className="bg-card border border-border rounded-2xl overflow-hidden">
+      {/* Card header — always visible */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-4 px-5 py-4 hover:bg-muted/20 transition-colors text-left"
+      >
+        <div
+          className={cn(
+            "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border",
+            isUnassigned
+              ? "bg-muted border-border text-muted-foreground"
+              : isCompany
+                ? "bg-violet-500/10 border-violet-500/20 text-violet-600"
+                : "bg-sky-500/10 border-sky-500/20 text-sky-600",
+          )}
+        >
+          {isCompany ? (
+            <Briefcase size={16} className="text-current" />
+          ) : (
+            <UserIcon size={16} className="text-current" />
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4
+              className={cn(
+                "text-sm font-black truncate",
+                isUnassigned && "italic text-muted-foreground",
+              )}
+            >
+              {group.name}
+            </h4>
+            {!isUnassigned && (
+              <span
+                className={cn(
+                  "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shrink-0",
+                  isCompany
+                    ? "bg-violet-500/10 text-violet-600"
+                    : "bg-sky-500/10 text-sky-600",
+                )}
+              >
+                {group.kind}
+              </span>
+            )}
+            {sharePct > 0 && !isUnassigned && (
+              <span className="text-[9px] font-mono font-bold text-muted-foreground/70 tabular-nums">
+                {sharePct}% of project spend
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 mt-1 text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">
+            <span>{group.txns.length} txn{group.txns.length === 1 ? "" : "s"}</span>
+            <span>•</span>
+            <span>budget {fmtNaira(group.totalBudget)}</span>
+            {saved !== 0 && (
+              <>
+                <span>•</span>
+                <span
+                  className={cn(
+                    saved > 0 ? "text-emerald-600" : "text-red-500",
+                  )}
+                >
+                  {saved > 0 ? "saved" : "over"} {fmtNaira(Math.abs(saved))}
+                </span>
+              </>
+            )}
+          </div>
+          {/* Share-of-total bar */}
+          {!isUnassigned && totalSpent > 0 && (
+            <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full",
+                  isCompany ? "bg-violet-500" : "bg-sky-500",
+                )}
+                style={{ width: `${Math.min(100, sharePct)}%` }}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="text-right shrink-0">
+          <div className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/70 mb-0.5">
+            Paid
+          </div>
+          <div className="text-lg font-black tabular-nums">
+            {fmtNaira(group.totalPaid)}
+          </div>
+        </div>
+
+        <div className={cn("transition-transform shrink-0", expanded && "rotate-90")}>
+          <ChevronRight size={16} className="text-muted-foreground/40 text-current" />
+        </div>
+      </button>
+
+      {/* Expanded — transactions */}
+      {expanded && (
+        <div className="border-t border-border divide-y divide-border bg-muted/5">
+          {group.txns.map((t) => (
+            <TransactionRow
+              key={t.id}
+              transaction={t}
+              onClick={() => onTransactionClick(t.invoiceId)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

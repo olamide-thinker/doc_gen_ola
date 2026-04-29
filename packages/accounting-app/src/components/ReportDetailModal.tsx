@@ -384,7 +384,10 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({
                             <span className="font-black uppercase tracking-widest opacity-70">
                               Resolved by:
                             </span>{" "}
-                            {report.resolution?.resolvedById || "—"}
+                            {report.resolution?.resolvedBy?.fullName ||
+                              report.resolution?.resolvedBy?.email ||
+                              report.resolution?.resolvedById ||
+                              "—"}
                           </div>
                           {report.resolution?.resolvedAt && (
                             <div>
