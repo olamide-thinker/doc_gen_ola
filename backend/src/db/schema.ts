@@ -597,3 +597,44 @@ export const fieldReportMessagesRelations = relations(fieldReportMessages, ({ on
     references: [users.id],
   }),
 }));
+
+// 8. Inventory — V1: just resource categories.
+//
+// Categories are the high-level resource groupings used across the
+// business (Fuel, Labour, Materials, Equipment, Subcontractors…). They
+// live at the business level so every project shares the same vocabulary
+// — fewer "Materials" vs "materials" duplicates, and a single source of
+// truth for the Accounting transaction log to render.
+//
+// V2 will layer in inventory_items inside each category (specific things
+// like "Diesel · litres" or "Cement · 50kg bag"), but for now categories
+// alone are enough for the Accounting page to group transactions.
+export const inventoryCategories = pgTable('inventory_categories', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  businessId: text('business_id')
+    .notNull()
+    .references(() => businesses.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  description: text('description'),
+  // Optional visual marker for the Accounting log pills. Free-form so
+  // the frontend can use a tailwind class, a hex, an emoji — whatever.
+  color: text('color'),
+  position: integer('position').notNull().default(0),
+  metadata: jsonb('metadata'),
+  ...timestamps,
+}, (table) => {
+  return {
+    invCatBusinessIdx: index('inv_cat_business_idx').on(table.businessId),
+    // Names are unique within a business so picker dropdowns never show
+    // ambiguous duplicates.
+    uniqueInvCatNamePerBusiness: uniqueIndex('unique_inv_cat_name_per_business')
+      .on(table.businessId, table.name),
+  };
+});
+
+export const inventoryCategoriesRelations = relations(inventoryCategories, ({ one }) => ({
+  business: one(businesses, {
+    fields: [inventoryCategories.businessId],
+    references: [businesses.id],
+  }),
+}));

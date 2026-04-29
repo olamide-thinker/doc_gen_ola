@@ -12,6 +12,7 @@ import { PdfModule } from './pdf/pdf.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ExecutionModule } from './execution/execution.module';
 import { FieldReportsModule } from './field-reports/field-reports.module';
+import { InventoryModule } from './inventory/inventory.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { FieldReportsModule } from './field-reports/field-reports.module';
     TasksModule,
     ExecutionModule,
     FieldReportsModule,
+    InventoryModule,
   ],
   controllers: [],
   providers: [],

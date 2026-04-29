@@ -19,6 +19,7 @@ import { PlanEditor } from "./components/PlanEditor";
 import { TasksDashboard } from "./components/TasksDashboard";
 import ExecutionPage from "./components/ExecutionPage";
 import ReportsPage from "./components/ReportsPage";
+import InventoryPage from "./components/InventoryPage";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, businessId, loading } = useAuth();
@@ -76,6 +77,7 @@ const AppContent: React.FC = () => {
         <Route path="crdt-test" element={<CrdtTest />} />
         <Route path="tasks" element={<TasksDashboard />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="inventory" element={<InventoryPage />} />
         <Route path="project/:id/execution" element={<ExecutionPage />} />
       </Route>
 

@@ -962,6 +962,74 @@ export const api = {
     return json.data;
   },
 
+  // ─── Inventory: Resource Categories ─────────────────────────────────────
+  // Business-scoped categories used by Accounting (and later by Invoices)
+  // to tag spend with a resource type (Materials, Labour, Fuel, etc).
+
+  listInventoryCategories: async (businessId: string): Promise<any[]> => {
+    const headers = await authHeaders();
+    const res = await fetch(
+      `${API_BASE}/inventory/categories?businessId=${encodeURIComponent(businessId)}`,
+      { headers },
+    );
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load categories');
+    return json.data || [];
+  },
+
+  createInventoryCategory: async (input: {
+    businessId: string;
+    name: string;
+    description?: string;
+    color?: string;
+    position?: number;
+  }): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/inventory/categories`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to create category');
+    return json.data;
+  },
+
+  updateInventoryCategory: async (id: string, patch: Record<string, any>): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/inventory/categories/${id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to update category');
+    return json.data;
+  },
+
+  deleteInventoryCategory: async (id: string): Promise<void> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/inventory/categories/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to delete category');
+  },
+
+  /** Idempotent — seeds the canonical default categories for a business. */
+  seedDefaultCategories: async (businessId: string): Promise<{ created: any[]; skipped: number }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/inventory/categories/seed-defaults`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to seed categories');
+    return json.data;
+  },
+
   // ─── Field Reports ──────────────────────────────────────────────────────
   // Reports = workflow + dialogue layer over tasks. They can stand alone or
   // attach to a task. A confirmation_request kind carries a request payload

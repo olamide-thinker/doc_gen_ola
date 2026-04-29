@@ -153,11 +153,11 @@ const MainLayout: React.FC = () => {
                 active={activeModule === "documents" && currentPath === "/dashboard"} 
                 onClick={() => { setActiveModule("documents"); navigate("/dashboard"); }} 
               />
-              <SidebarItem 
-                icon={<LayoutGrid size={18} />} 
-                label="Inventory" 
-                active={activeModule === "inventory"} 
-                onClick={() => { setActiveModule("inventory"); alert("Inventory coming soon"); }} 
+              <SidebarItem
+                icon={<LayoutGrid size={18} />}
+                label="Inventory"
+                active={currentPath === "/inventory"}
+                onClick={() => { setActiveModule("inventory"); navigate("/inventory"); }}
               />
               <SidebarItem 
                 icon={<Calculator size={18} />} 
@@ -349,6 +349,7 @@ const MainLayout: React.FC = () => {
                   placeholder={
                     currentPath.startsWith('/tasks') ? 'Search tasks...' :
                     currentPath.startsWith('/reports') ? 'Search reports...' :
+                    currentPath.startsWith('/inventory') ? 'Search categories...' :
                     currentPath.startsWith('/projects') ? 'Search repositories...' :
                     currentPath.startsWith('/team') ? 'Search team...' :
                     'Search...'
