@@ -20,7 +20,17 @@ import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import { FirebaseGuard } from '../auth/firebase.guard';
 import { FieldReportsService } from './field-reports.service';
 
-const ALLOWED_KIND = new Set(['note', 'incident', 'update', 'confirmation_request']);
+const ALLOWED_KIND = new Set([
+  'note',
+  'incident',
+  'update',
+  'confirmation_request',
+  // Crew asks the supervisor for materials. Request payload carries an
+  // items array; each item is a soft-link to an inventory_items row
+  // (when the picker matched) plus a snapshot of name/quantity/unit so
+  // the request reads cleanly even if the catalog entry later changes.
+  'material_request',
+]);
 const ALLOWED_TASK_STATUS = new Set(['pending', 'progress', 'done', 'cancelled']);
 
 @Controller('api/field-reports')
@@ -214,6 +224,37 @@ export class FieldReportsController {
         requestedStatus,
         note: typeof body?.request?.note === 'string' ? body.request.note : undefined,
       };
+    } else if (kind === 'material_request') {
+      // Items: array of { inventoryItemId?, name, quantity, unit? }. We
+      // require a non-empty name + quantity per row; everything else is
+      // optional. inventoryItemId is a soft link, not validated.
+      const rawItems = Array.isArray(body?.request?.items) ? body.request.items : [];
+      const items = rawItems
+        .filter((row: any) => row && typeof row === 'object')
+        .map((row: any) => ({
+          name: typeof row.name === 'string' ? row.name.trim() : '',
+          quantity:
+            typeof row.quantity === 'number'
+              ? row.quantity
+              : typeof row.quantity === 'string'
+                ? row.quantity.trim()
+                : '',
+          unit: typeof row.unit === 'string' ? row.unit : undefined,
+          inventoryItemId:
+            typeof row.inventoryItemId === 'string' && row.inventoryItemId
+              ? row.inventoryItemId
+              : undefined,
+        }))
+        .filter((row: any) => row.name && row.quantity);
+      if (items.length === 0) {
+        throw new BadRequestException(
+          'material_request needs at least one item with a name and quantity',
+        );
+      }
+      request = {
+        items,
+        note: typeof body?.request?.note === 'string' ? body.request.note : undefined,
+      };
     }
 
     // taskId on the report itself (subject of the report) — independent of
@@ -350,9 +391,12 @@ export class FieldReportsController {
     if (!report) throw new NotFoundException('Report not found');
     if (report.projectId) await this.assertProjectAccess(report.projectId, req);
 
-    if (report.kind !== 'confirmation_request') {
+    if (
+      report.kind !== 'confirmation_request' &&
+      report.kind !== 'material_request'
+    ) {
       throw new BadRequestException(
-        'Only confirmation_request reports can be resolved',
+        'Only confirmation_request or material_request reports can be resolved',
       );
     }
     if (report.resolution) {
@@ -368,9 +412,11 @@ export class FieldReportsController {
     const note = typeof body?.note === 'string' ? body.note : undefined;
     const userId = req.user.uid;
 
-    if (action === 'accept') {
-      // Apply the requested status to the target task. If it's gone, we
-      // still record the resolution but flag it — the request is moot.
+    // Side effects only fire for confirmation_request — that's the kind
+    // that has a structured "apply this change" payload. material_request
+    // is just an acknowledge/deny — fulfilling the actual materials is a
+    // separate workflow (typically a procurement invoice).
+    if (action === 'accept' && report.kind === 'confirmation_request') {
       const target = await this.db.query.tasks.findFirst({
         where: eq(schema.tasks.id, request.targetTaskId),
       });
@@ -382,8 +428,12 @@ export class FieldReportsController {
       }
     }
 
+    // Status word reads more naturally per kind. confirmation_request →
+    // accepted/declined. material_request → fulfilled/declined.
+    const acceptedStatus =
+      report.kind === 'material_request' ? 'fulfilled' : 'accepted';
     const resolution = {
-      status: action === 'accept' ? 'accepted' : 'declined',
+      status: action === 'accept' ? acceptedStatus : 'declined',
       resolvedById: userId,
       resolvedAt: new Date().toISOString(),
       note,

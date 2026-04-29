@@ -14,12 +14,13 @@ import {
   User as UserIcon,
   Trash2,
   MessageSquare,
+  Boxes,
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
-type Kind = "note" | "incident" | "update" | "confirmation_request";
+type Kind = "note" | "incident" | "update" | "confirmation_request" | "material_request";
 
 interface ReportDetailModalProps {
   reportId: string;
@@ -42,6 +43,11 @@ const KIND_META: Record<Kind, { label: string; icon: React.ComponentType<any>; t
     label: "Request",
     icon: CheckCircle2,
     tint: "bg-emerald-500/10 text-emerald-600",
+  },
+  material_request: {
+    label: "Material Request",
+    icon: Boxes,
+    tint: "bg-violet-500/10 text-violet-600",
   },
 };
 
@@ -126,6 +132,7 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({
   const meta = report ? KIND_META[report.kind as Kind] || KIND_META.note : KIND_META.note;
   const ResolutionStatus = report?.resolution?.status as
     | "accepted"
+    | "fulfilled"
     | "declined"
     | undefined;
 
@@ -162,15 +169,16 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({
 
   const handleResolve = async (action: "accept" | "decline") => {
     if (action === "accept") {
-      const targetCode = requestTask?.taskCode || "this task";
-      const newStatus = report?.request?.requestedStatus;
-      if (
-        !confirm(
-          `Accept this request? ${targetCode} will be set to "${newStatus}".`,
-        )
-      ) {
-        return;
+      let msg: string;
+      if (report?.kind === "material_request") {
+        const itemCount = report?.request?.items?.length || 0;
+        msg = `Mark this material request as fulfilled? ${itemCount} item${itemCount === 1 ? "" : "s"} will be flagged as supplied.`;
+      } else {
+        const targetCode = requestTask?.taskCode || "this task";
+        const newStatus = report?.request?.requestedStatus;
+        msg = `Accept this request? ${targetCode} will be set to "${newStatus}".`;
       }
+      if (!confirm(msg)) return;
     }
     setResolveBusy(action);
     try {
@@ -380,6 +388,139 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({
 
                       {ResolutionStatus && (
                         <div className="text-[10px] text-muted-foreground space-y-1 pt-2 border-t border-emerald-500/20">
+                          <div>
+                            <span className="font-black uppercase tracking-widest opacity-70">
+                              Resolved by:
+                            </span>{" "}
+                            {report.resolution?.resolvedBy?.fullName ||
+                              report.resolution?.resolvedBy?.email ||
+                              report.resolution?.resolvedById ||
+                              "—"}
+                          </div>
+                          {report.resolution?.resolvedAt && (
+                            <div>
+                              <span className="font-black uppercase tracking-widest opacity-70">
+                                When:
+                              </span>{" "}
+                              {fmtDateTime(report.resolution.resolvedAt)}
+                            </div>
+                          )}
+                          {report.resolution?.note && (
+                            <div className="italic mt-1.5">
+                              “{report.resolution.note}”
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Material-request panel */}
+                  {report.kind === "material_request" && report.request && (
+                    <div className="border border-violet-500/30 bg-violet-500/5 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Boxes size={14} className="text-violet-600 text-current" />
+                          <h4 className="text-[11px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-400">
+                            Items requested
+                          </h4>
+                        </div>
+                        {ResolutionStatus ? (
+                          <span
+                            className={cn(
+                              "text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded inline-flex items-center gap-1",
+                              ResolutionStatus === "fulfilled"
+                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                : "bg-red-500/10 text-red-500",
+                            )}
+                          >
+                            {ResolutionStatus === "fulfilled" ? (
+                              <Check size={9} className="text-current" />
+                            ) : (
+                              <Ban size={9} className="text-current" />
+                            )}
+                            {ResolutionStatus}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 inline-flex items-center gap-1">
+                            <Clock size={9} className="text-current" /> Awaiting
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Items table — bag, ton, m, etc. Each row shows the
+                          requested quantity + unit, with a small "catalog"
+                          pill when soft-linked to inventory. */}
+                      <div className="bg-card border border-border rounded-lg overflow-hidden divide-y divide-border">
+                        {(report.request.items || []).map((it: any, i: number) => (
+                          <div
+                            key={i}
+                            className="flex items-center justify-between gap-3 px-3 py-2 text-[12px]"
+                          >
+                            <span className="font-bold truncate flex-1 inline-flex items-center gap-1.5">
+                              {it.name}
+                              {it.inventoryItemId && (
+                                <span
+                                  className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 shrink-0"
+                                  title="Linked to your inventory catalog"
+                                >
+                                  catalog
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-muted-foreground font-mono text-[11px] tabular-nums shrink-0">
+                              {it.quantity}
+                              {it.unit ? ` ${it.unit}` : ""}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {report.request.note && (
+                        <p className="text-[11px] italic text-muted-foreground leading-relaxed">
+                          “{report.request.note}”
+                        </p>
+                      )}
+
+                      {/* Resolve actions — only if pending and viewer is not author */}
+                      {!ResolutionStatus && (
+                        <div className="space-y-2 pt-2 border-t border-violet-500/20">
+                          {report.authorId === user?.uid ? (
+                            <p className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest text-center">
+                              Awaiting a supervisor's decision
+                            </p>
+                          ) : (
+                            <>
+                              <input
+                                value={resolveNote}
+                                onChange={(e) => setResolveNote(e.target.value)}
+                                placeholder="Optional note for the requester…"
+                                className="w-full px-3 py-1.5 bg-card border border-border rounded-md text-[11px] focus:outline-none focus:border-foreground"
+                              />
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleResolve("accept")}
+                                  disabled={resolveBusy !== null}
+                                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-50 transition-all"
+                                >
+                                  <Check size={11} className="text-current" />
+                                  {resolveBusy === "accept" ? "Marking…" : "Mark fulfilled"}
+                                </button>
+                                <button
+                                  onClick={() => handleResolve("decline")}
+                                  disabled={resolveBusy !== null}
+                                  className="px-3 py-2 bg-card border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/5 rounded-lg text-[10px] font-black uppercase tracking-widest disabled:opacity-50 transition-all"
+                                >
+                                  Decline
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {ResolutionStatus && (
+                        <div className="text-[10px] text-muted-foreground space-y-1 pt-2 border-t border-violet-500/20">
                           <div>
                             <span className="font-black uppercase tracking-widest opacity-70">
                               Resolved by:

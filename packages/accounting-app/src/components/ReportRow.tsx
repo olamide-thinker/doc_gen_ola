@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Trash2,
   MessageSquare,
+  Boxes,
+  Check,
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 
@@ -16,7 +18,12 @@ import { cn } from "../lib/utils";
 // Extracted so ReportsPage and the task modal's Reports tab render rows
 // identically without duplicating the badge/icon/tint logic.
 
-export type ReportKind = "note" | "incident" | "update" | "confirmation_request";
+export type ReportKind =
+  | "note"
+  | "incident"
+  | "update"
+  | "confirmation_request"
+  | "material_request";
 
 export const KIND_META: Record<
   ReportKind,
@@ -30,11 +37,17 @@ export const KIND_META: Record<
     icon: CheckCircle2,
     tint: "bg-emerald-500/10 text-emerald-600",
   },
+  material_request: {
+    label: "Materials",
+    icon: Boxes,
+    tint: "bg-violet-500/10 text-violet-600",
+  },
 };
 
 const RESOLUTION_TINT: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-600",
   accepted: "bg-emerald-500/10 text-emerald-600",
+  fulfilled: "bg-emerald-500/10 text-emerald-600",
   declined: "bg-red-500/10 text-red-500",
 };
 
@@ -89,8 +102,9 @@ export const ReportRow: React.FC<ReportRowProps> = ({
   const Icon = meta.icon;
   const task = !hideTaskRef ? tasks.find((t) => t.id === report.taskId) : null;
   const resolution = report.resolution?.status as string | undefined;
-  const isPendingRequest =
-    report.kind === "confirmation_request" && !resolution;
+  const isResolvable =
+    report.kind === "confirmation_request" || report.kind === "material_request";
+  const isPendingRequest = isResolvable && !resolution;
 
   return (
     <div
@@ -123,7 +137,7 @@ export const ReportRow: React.FC<ReportRowProps> = ({
               <span className="opacity-60">Ref:</span> {task.taskCode}
             </span>
           )}
-          {report.kind === "confirmation_request" && (
+          {isResolvable && (
             <span
               className={cn(
                 "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shrink-0",
@@ -133,6 +147,10 @@ export const ReportRow: React.FC<ReportRowProps> = ({
               {resolution === "accepted" ? (
                 <span className="inline-flex items-center gap-1">
                   <CheckCircle2 size={9} className="text-current" /> Accepted
+                </span>
+              ) : resolution === "fulfilled" ? (
+                <span className="inline-flex items-center gap-1">
+                  <Check size={9} className="text-current" /> Fulfilled
                 </span>
               ) : resolution === "declined" ? (
                 <span className="inline-flex items-center gap-1">

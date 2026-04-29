@@ -16,7 +16,13 @@ import { ReportComposeModal } from "./ReportComposeModal";
 import { ReportDetailModal } from "./ReportDetailModal";
 import { ReportRow } from "./ReportRow";
 
-type KindFilter = "all" | "note" | "incident" | "update" | "confirmation_request";
+type KindFilter =
+  | "all"
+  | "note"
+  | "incident"
+  | "update"
+  | "confirmation_request"
+  | "material_request";
 
 export const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -61,6 +67,7 @@ export const ReportsPage: React.FC = () => {
       incident: 0,
       update: 0,
       confirmation_request: 0,
+      material_request: 0,
     };
     (reports as any[]).forEach((r) => {
       c[r.kind] = (c[r.kind] || 0) + 1;
@@ -128,6 +135,7 @@ export const ReportsPage: React.FC = () => {
         <FilterButton active={filter === "update"} onClick={() => setFilter("update")} label="Updates" count={counts.update || 0} dot="bg-amber-500" />
         <FilterButton active={filter === "incident"} onClick={() => setFilter("incident")} label="Incidents" count={counts.incident || 0} dot="bg-red-500" />
         <FilterButton active={filter === "confirmation_request"} onClick={() => setFilter("confirmation_request")} label="Requests" count={counts.confirmation_request || 0} dot="bg-emerald-500" />
+        <FilterButton active={filter === "material_request"} onClick={() => setFilter("material_request")} label="Materials" count={counts.material_request || 0} dot="bg-violet-500" />
       </div>
 
       {/* List */}

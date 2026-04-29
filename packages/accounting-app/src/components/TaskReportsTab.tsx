@@ -6,6 +6,7 @@ import {
   Sparkles,
   AlertTriangle,
   CheckCircle2,
+  Boxes,
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
@@ -13,7 +14,13 @@ import { ReportRow } from "./ReportRow";
 import { ReportComposeModal } from "./ReportComposeModal";
 import { ReportDetailModal } from "./ReportDetailModal";
 
-type KindFilter = "all" | "note" | "incident" | "update" | "confirmation_request";
+type KindFilter =
+  | "all"
+  | "note"
+  | "incident"
+  | "update"
+  | "confirmation_request"
+  | "material_request";
 
 interface TaskReportsTabProps {
   projectId: string;
@@ -60,6 +67,7 @@ export const TaskReportsTab: React.FC<TaskReportsTabProps> = ({ projectId, taskI
       incident: 0,
       update: 0,
       confirmation_request: 0,
+      material_request: 0,
     };
     (reports as any[]).forEach((r) => {
       c[r.kind] = (c[r.kind] || 0) + 1;
@@ -106,6 +114,14 @@ export const TaskReportsTab: React.FC<TaskReportsTabProps> = ({ projectId, taskI
             label="Requests"
             count={counts.confirmation_request || 0}
             tint="text-emerald-600"
+          />
+          <ChipFilter
+            active={filter === "material_request"}
+            onClick={() => setFilter("material_request")}
+            icon={Boxes}
+            label="Materials"
+            count={counts.material_request || 0}
+            tint="text-violet-600"
           />
           <ChipFilter
             active={filter === "note"}

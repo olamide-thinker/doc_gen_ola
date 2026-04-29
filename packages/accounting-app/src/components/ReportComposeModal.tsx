@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import {
   X,
   Check,
@@ -8,11 +9,15 @@ import {
   Sparkles,
   CheckCircle2,
   Search,
+  Boxes,
+  Plus,
+  Trash2,
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
-type Kind = "note" | "incident" | "update" | "confirmation_request";
+type Kind = "note" | "incident" | "update" | "confirmation_request" | "material_request";
 type TaskStatus = "pending" | "progress" | "done" | "cancelled";
 
 interface ReportComposeModalProps {
@@ -52,6 +57,13 @@ const KIND_OPTIONS: Array<{
     icon: CheckCircle2,
     tint: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   },
+  {
+    id: "material_request",
+    label: "Material Request",
+    description: "Ask for items the crew needs on site",
+    icon: Boxes,
+    tint: "bg-violet-500/10 text-violet-600 border-violet-500/30",
+  },
 ];
 
 const TASK_STATUSES: TaskStatus[] = ["pending", "progress", "done", "cancelled"];
@@ -75,6 +87,28 @@ export const ReportComposeModal: React.FC<ReportComposeModalProps> = ({
   const [reqStatus, setReqStatus] = useState<TaskStatus>("done");
   const [reqNote, setReqNote] = useState("");
 
+  // Material-request fields — list of { name, quantity, unit, inventoryItemId? }
+  // Uses the same shape as the task materials editor for consistency.
+  const [materialItems, setMaterialItems] = useState<
+    Array<{ name: string; quantity: string; unit: string; inventoryItemId?: string }>
+  >([]);
+  const [materialNote, setMaterialNote] = useState("");
+
+  // Inventory items for the typeahead. Pulled lazily — only when the
+  // modal is open and the active business has a catalog.
+  const { businessId } = useAuth();
+  const { data: inventoryItems = [] } = useQuery({
+    queryKey: ["inventory-items", businessId, "all"],
+    queryFn: () => api.listInventoryItems(businessId!),
+    enabled: !!businessId && open,
+  });
+  const itemByName = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const i of inventoryItems as any[])
+      m.set((i.name || "").toLowerCase(), i);
+    return m;
+  }, [inventoryItems]);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,6 +124,8 @@ export const ReportComposeModal: React.FC<ReportComposeModalProps> = ({
     setReqTaskId(defaults?.taskId || "");
     setReqStatus("done");
     setReqNote("");
+    setMaterialItems([]);
+    setMaterialNote("");
   }, [open, defaults?.taskId, defaults?.kind]);
 
   const filteredTasks = (() => {
@@ -104,11 +140,19 @@ export const ReportComposeModal: React.FC<ReportComposeModalProps> = ({
       .slice(0, 8);
   })();
 
+  const validMaterialItems = useMemo(
+    () => materialItems.filter((m) => m.name.trim() && m.quantity.toString().trim()),
+    [materialItems],
+  );
+
   const canSubmit = (() => {
     if (!body.trim()) return false;
     if (kind === "confirmation_request") {
       if (!reqTaskId) return false;
       if (!TASK_STATUSES.includes(reqStatus)) return false;
+    }
+    if (kind === "material_request") {
+      if (validMaterialItems.length === 0) return false;
     }
     return true;
   })();
@@ -118,7 +162,9 @@ export const ReportComposeModal: React.FC<ReportComposeModalProps> = ({
       setError(
         kind === "confirmation_request" && !reqTaskId
           ? "Pick a task to update"
-          : "Body is required",
+          : kind === "material_request" && validMaterialItems.length === 0
+            ? "Add at least one item with a name and quantity"
+            : "Body is required",
       );
       return;
     }
@@ -137,6 +183,22 @@ export const ReportComposeModal: React.FC<ReportComposeModalProps> = ({
           targetTaskId: reqTaskId,
           requestedStatus: reqStatus,
           note: reqNote.trim() || undefined,
+        };
+      }
+      if (kind === "material_request") {
+        payload.request = {
+          items: validMaterialItems.map((m) => ({
+            name: m.name.trim(),
+            // Send numeric quantity when it parses; else string (handles
+            // "3 trips" or "1.5" for cement bags equally well).
+            quantity:
+              m.quantity && !isNaN(Number(m.quantity))
+                ? Number(m.quantity)
+                : m.quantity.trim(),
+            unit: m.unit.trim() || undefined,
+            inventoryItemId: m.inventoryItemId || undefined,
+          })),
+          note: materialNote.trim() || undefined,
         };
       }
       const created = await api.createFieldReport(payload);
@@ -312,6 +374,131 @@ export const ReportComposeModal: React.FC<ReportComposeModalProps> = ({
                       value={reqNote}
                       onChange={(e) => setReqNote(e.target.value)}
                       placeholder="e.g. completed ahead of schedule"
+                      className="w-full px-3 py-2 bg-card border border-border rounded-lg text-sm focus:outline-none focus:border-foreground"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Material-request sub-form */}
+              {kind === "material_request" && (
+                <div className="border border-violet-500/30 bg-violet-500/5 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Boxes size={14} className="text-violet-600 text-current" />
+                    <h4 className="text-[11px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-400">
+                      Items requested
+                    </h4>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    List what the crew needs. Type to search the inventory catalog —
+                    matches auto-fill the unit and stamp a soft-link so the
+                    supervisor can fulfill in one click.
+                  </p>
+
+                  <div className="space-y-2">
+                    {materialItems.length === 0 && (
+                      <p className="text-[10px] font-bold text-muted-foreground/60 italic px-2 py-3 text-center border border-dashed border-border rounded-md">
+                        No items yet — add at least one
+                      </p>
+                    )}
+                    {materialItems.map((m, i) => {
+                      const isLinked = !!m.inventoryItemId;
+                      return (
+                        <div key={i} className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <input
+                              list="report-material-suggestions"
+                              value={m.name}
+                              onChange={(e) => {
+                                const newName = e.target.value;
+                                const matched = itemByName.get(newName.toLowerCase());
+                                setMaterialItems((arr) =>
+                                  arr.map((row, idx) =>
+                                    idx === i
+                                      ? matched
+                                        ? {
+                                            ...row,
+                                            name: matched.name,
+                                            unit: row.unit || matched.unit || "",
+                                            inventoryItemId: matched.id,
+                                          }
+                                        : { ...row, name: newName, inventoryItemId: undefined }
+                                      : row,
+                                  ),
+                                );
+                              }}
+                              placeholder="e.g. Dangote Cement"
+                              className="w-full px-2.5 py-1.5 bg-card border border-border rounded-md text-xs focus:outline-none focus:border-foreground/40"
+                            />
+                            {isLinked && (
+                              <div className="text-[9px] font-bold text-emerald-600 mt-1 inline-flex items-center gap-1">
+                                <Check size={9} className="text-current" /> From inventory
+                              </div>
+                            )}
+                          </div>
+                          <input
+                            value={m.quantity}
+                            onChange={(e) =>
+                              setMaterialItems((arr) =>
+                                arr.map((row, idx) =>
+                                  idx === i ? { ...row, quantity: e.target.value } : row,
+                                ),
+                              )
+                            }
+                            placeholder="Qty"
+                            className="w-20 px-2.5 py-1.5 bg-card border border-border rounded-md text-xs focus:outline-none focus:border-foreground/40"
+                          />
+                          <input
+                            value={m.unit}
+                            onChange={(e) =>
+                              setMaterialItems((arr) =>
+                                arr.map((row, idx) =>
+                                  idx === i ? { ...row, unit: e.target.value } : row,
+                                ),
+                              )
+                            }
+                            placeholder="Unit"
+                            className="w-20 px-2.5 py-1.5 bg-card border border-border rounded-md text-xs focus:outline-none focus:border-foreground/40"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMaterialItems((arr) => arr.filter((_, idx) => idx !== i))
+                            }
+                            className="p-1.5 mt-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md shrink-0"
+                          >
+                            <Trash2 size={12} className="text-current" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <datalist id="report-material-suggestions">
+                      {(inventoryItems as any[]).map((i) => (
+                        <option key={i.id} value={i.name} />
+                      ))}
+                    </datalist>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMaterialItems((arr) => [
+                          ...arr,
+                          { name: "", quantity: "", unit: "" },
+                        ])
+                      }
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-400 hover:opacity-80"
+                    >
+                      <Plus size={11} className="text-current" /> Add item
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1 block">
+                      Note (optional)
+                    </label>
+                    <input
+                      value={materialNote}
+                      onChange={(e) => setMaterialNote(e.target.value)}
+                      placeholder="e.g. needed by tomorrow morning"
                       className="w-full px-3 py-2 bg-card border border-border rounded-lg text-sm focus:outline-none focus:border-foreground"
                     />
                   </div>

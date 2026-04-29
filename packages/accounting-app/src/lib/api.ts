@@ -1199,7 +1199,7 @@ export const api = {
   createFieldReport: async (input: {
     projectId: string;
     body: string;
-    kind?: 'note' | 'incident' | 'update' | 'confirmation_request';
+    kind?: 'note' | 'incident' | 'update' | 'confirmation_request' | 'material_request';
     taskId?: string | null;
     title?: string;
     voiceUrl?: string;
