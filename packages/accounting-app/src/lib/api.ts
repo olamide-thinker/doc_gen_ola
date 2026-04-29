@@ -813,6 +813,26 @@ export const api = {
     return json;
   },
 
+  /**
+   * Add a non-user member (company / vendor) to a project. They have no
+   * firebase account — just a display name so they can be picked as a
+   * counterparty on invoices and receipts in the Accounting log.
+   */
+  addCompanyMember: async (
+    projectId: string,
+    input: { displayName: string; kind?: 'company' | 'vendor'; role?: string },
+  ): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/projects/${projectId}/members/company`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to add company');
+    return json.data;
+  },
+
   // ─── Tasks (Phase 1) ────────────────────────────────────────────────────
   // The rich Task entity lives at /api/tasks. Tasks are project-scoped; the
   // backend stamps a `taskCode` (e.g. TSK-001) per project on insert.

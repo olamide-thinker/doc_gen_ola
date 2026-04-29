@@ -111,23 +111,99 @@ export class ProjectsController {
     }
 
     try {
-      await this.db.insert(schema.projectMembers).values({
-        projectId: id,
-        userId: user.id,
-        email: user.email,
-        role: safeRole,
-        updatedAt: new Date(),
-        createdAt: new Date(),
-      }).onConflictDoUpdate({
-        target: [schema.projectMembers.projectId, schema.projectMembers.userId],
-        set: { role: safeRole, email: user.email, updatedAt: new Date() }
+      // Soft-uniqueness — check first, then upsert. The previous
+      // implementation used onConflictDoUpdate against a unique index on
+      // (projectId, userId), but that index was dropped when userId
+      // became nullable for company/vendor members. We do the check in
+      // application code now (cheap — single row by FK).
+      const existing = await this.db.query.projectMembers.findFirst({
+        where: and(
+          eq(schema.projectMembers.projectId, id),
+          eq(schema.projectMembers.userId, user.id),
+        ),
       });
+
+      if (existing) {
+        await this.db
+          .update(schema.projectMembers)
+          .set({ role: safeRole, email: user.email, updatedAt: new Date() })
+          .where(eq(schema.projectMembers.id, existing.id));
+      } else {
+        await this.db.insert(schema.projectMembers).values({
+          projectId: id,
+          userId: user.id,
+          email: user.email,
+          kind: 'user',
+          role: safeRole,
+          updatedAt: new Date(),
+          createdAt: new Date(),
+        });
+      }
 
       return { success: true, data: { email: user.email, role: safeRole } };
     } catch (err: any) {
       console.error('[ProjectsController] Error adding member:', err);
       return { success: false, error: err.message || 'Unknown database error' };
     }
+  }
+
+  /**
+   * Add a non-user member to the project — companies, vendors, suppliers.
+   * They have no firebase account; they just need a display name so they
+   * can be picked as a counterparty on invoices and receipts.
+   *
+   * Body: { displayName: string, kind?: 'company'|'vendor', role?: string }
+   */
+  @Post(':id/members/company')
+  async addCompanyMember(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Req() req: any,
+  ) {
+    const callerRole = await this.getCallerRole(id, req);
+    if (callerRole !== 'owner') {
+      throw new ForbiddenException('Only the project owner can add members');
+    }
+
+    const displayName = String(body?.displayName || '').trim();
+    if (!displayName) {
+      throw new BadRequestException('displayName is required');
+    }
+
+    const kind = body?.kind === 'vendor' ? 'vendor' : 'company';
+    const nextRole = normalizeRole(body?.role) || 'viewer';
+    // Companies/vendors are never owners.
+    const safeRole = nextRole === 'owner' ? 'viewer' : nextRole;
+
+    // Soft-uniqueness — one display name per project for the company/vendor
+    // bucket. We don't fight existing user members on the same name.
+    const existing = await this.db.query.projectMembers.findFirst({
+      where: and(
+        eq(schema.projectMembers.projectId, id),
+        eq(schema.projectMembers.displayName, displayName),
+      ),
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `A member named "${displayName}" already exists on this project`,
+      );
+    }
+
+    const [created] = await this.db
+      .insert(schema.projectMembers)
+      .values({
+        projectId: id,
+        userId: null,
+        email: null,
+        kind,
+        displayName,
+        role: safeRole,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    return { success: true, data: created };
   }
 
   /**
@@ -185,13 +261,19 @@ export class ProjectsController {
     }
 
     // Resolve the target row so we can guard against removing the owner.
+    // Identifier can be: an email (real user), a userId, or a member-row
+    // uuid (the only reliable handle for company/vendor members which
+    // have no email or userId).
     const decoded = decodeURIComponent(identifier);
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(decoded);
     const target = await this.db.query.projectMembers.findFirst({
       where: and(
         eq(schema.projectMembers.projectId, id),
-        decoded.includes('@')
-          ? eq(schema.projectMembers.email, decoded)
-          : eq(schema.projectMembers.userId, decoded),
+        isUuid
+          ? eq(schema.projectMembers.id, decoded)
+          : decoded.includes('@')
+            ? eq(schema.projectMembers.email, decoded)
+            : eq(schema.projectMembers.userId, decoded),
       ),
     });
     if (!target) return { success: true }; // idempotent

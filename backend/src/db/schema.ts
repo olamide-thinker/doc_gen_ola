@@ -93,8 +93,20 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 export const projectMembers = pgTable('project_members', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id),
-  userId: text('user_id').notNull().references(() => users.id),
-  email: text('email').notNull(),
+  // userId/email are nullable so we can store company/vendor entries that
+  // don't have a firebase account behind them. For real users, both are
+  // populated as before.
+  userId: text('user_id').references(() => users.id),
+  email: text('email'),
+  // kind decides how the row is rendered + which uniqueness rule applies.
+  // 'user'    — real platform user (has userId + email)
+  // 'company' — vendor / supplier / sub-contractor company
+  // 'vendor'  — alias for company (kept distinct in case we want to split)
+  kind: text('kind').notNull().default('user'),
+  // For company/vendor entries, displayName is the human label ("Steel &
+  // Sand Co."). For real users we leave it null and render email/full
+  // name from the users table.
+  displayName: text('display_name'),
   role: text('role').default('viewer'),
   members: text('members').array(),
   metadata: jsonb('metadata'),
@@ -103,7 +115,11 @@ export const projectMembers = pgTable('project_members', {
   return {
     projIdIdx: index('project_id_idx').on(table.projectId),
     userIdIdx: index('user_id_idx').on(table.userId),
-    uniqueMember: uniqueIndex('unique_project_member').on(table.projectId, table.userId),
+    // Old unique on (projectId, userId) is dropped — userId is now
+    // nullable, and the constraint can't be enforced against null in
+    // postgres anyway. We do a soft uniqueness check in the controller
+    // for both shapes (one user per project, one display-name per
+    // project for non-user kinds).
   };
 });
 
