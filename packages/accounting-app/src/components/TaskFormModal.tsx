@@ -46,6 +46,12 @@ interface TaskFormModalProps {
   projectId: string;
   /** When set, the modal opens in edit mode for this task. */
   editing?: TaskRecord | null;
+  /**
+   * Initial values applied in CREATE mode (when `editing` is not set). Lets
+   * callers pre-fill things like stageId / milestoneId — these aren't part of
+   * the form's UI yet but are sent through to the backend on save.
+   */
+  defaults?: Partial<TaskRecord> & { stageId?: string; milestoneId?: string };
   /** Called after a successful create or update with the resulting record. */
   onSaved?: (task: TaskRecord) => void;
   /** List of project members for assignee/supervisor pickers. */
@@ -69,6 +75,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   onClose,
   projectId,
   editing,
+  defaults,
   onSaved,
   members = [],
 }) => {
@@ -112,19 +119,29 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         })),
       );
     } else {
-      setTitle("");
-      setDetails("");
-      setStatus("pending");
-      setPriority("med");
-      setDeadlineLocal("");
-      setSupervisorId("");
-      setAssigneeId("");
-      setBudget("");
-      setLocationType(null);
-      setLocationText("");
-      setMaterials([]);
+      // Create mode — start blank, then layer in any caller-provided defaults
+      // (e.g. when opened from a milestone, the parent passes a stageId +
+      // milestoneId + a sensible title prefix).
+      setTitle(defaults?.title || "");
+      setDetails(defaults?.details || "");
+      setStatus(defaults?.status || "pending");
+      setPriority(defaults?.priority || "med");
+      setDeadlineLocal(toLocalDateTimeInput(defaults?.deadline));
+      setSupervisorId(defaults?.supervisorId || "");
+      setAssigneeId(defaults?.assigneeId || "");
+      setBudget(defaults?.budget != null ? String(defaults.budget) : "");
+      setLocationType(defaults?.locationType ?? null);
+      setLocationText(defaults?.locationText || "");
+      setMaterials(
+        (defaults?.materials || []).map((m: any) => ({
+          name: m?.name || "",
+          quantity: m?.quantity != null ? String(m.quantity) : "",
+          unit: m?.unit || "",
+          note: m?.note || "",
+        })),
+      );
     }
-  }, [open, editing?.id]);
+  }, [open, editing?.id, defaults?.stageId, defaults?.milestoneId]);
 
   const memberOptions = useMemo(
     () =>
@@ -166,6 +183,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         }))
         .filter((m) => m.name),
     };
+
+    // Forward stage/milestone IDs (in create mode the parent passes them via
+    // `defaults`; in edit mode they're already on the task and we don't touch
+    // them unless the caller explicitly overrides).
+    if (!editing) {
+      if (defaults?.stageId) payload.stageId = defaults.stageId;
+      if (defaults?.milestoneId) payload.milestoneId = defaults.milestoneId;
+    }
 
     try {
       const result = editing

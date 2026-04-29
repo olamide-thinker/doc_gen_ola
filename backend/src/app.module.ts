@@ -10,6 +10,7 @@ import { UsersModule } from './users/users.module';
 import { ProjectsModule } from './projects/projects.module';
 import { PdfModule } from './pdf/pdf.module';
 import { TasksModule } from './tasks/tasks.module';
+import { ExecutionModule } from './execution/execution.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { TasksModule } from './tasks/tasks.module';
     ProjectsModule,
     PdfModule,
     TasksModule,
+    ExecutionModule,
   ],
   controllers: [],
   providers: [],

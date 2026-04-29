@@ -87,6 +87,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   documents: many(documents),
   invoices: many(invoices),
   tasks: many(tasks),
+  stages: many(stages),
 }));
 
 export const projectMembers = pgTable('project_members', {
@@ -391,6 +392,74 @@ export const tasks = pgTable('tasks', {
     uniqueTaskCodePerProject: uniqueIndex('unique_task_code_per_project').on(table.projectId, table.taskCode),
   };
 });
+
+// 6. Execution Plan — Stages (Phases) and Milestones
+//
+// A project's execution module: ordered stages, each containing ordered
+// milestones, each containing tasks (linked via tasks.stageId / tasks.milestoneId).
+// Status rolls up: all tasks done → milestone done → all milestones done →
+// stage done → all stages done → project done.
+export const stages = pgTable('stages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+  position: integer('position').notNull().default(0),
+  // Free-form timeline string ("Week 1", "Weeks 4–6") so the user picks the
+  // unit. Hard dates are added later if/when scheduling needs them.
+  timeline: text('timeline'),
+  description: text('description'),
+  note: text('note'),
+  status: text('status').notNull().default('pending'), // pending | active | done | cancelled
+  metadata: jsonb('metadata'),
+  ...projectContext,
+  ...timestamps,
+}, (table) => {
+  return {
+    stageProjectIdx: index('stage_project_idx').on(table.projectId),
+    stageStatusIdx: index('stage_status_idx').on(table.status),
+  };
+});
+
+export const stagesRelations = relations(stages, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [stages.projectId],
+    references: [projects.id],
+  }),
+  business: one(businesses, {
+    fields: [stages.businessId],
+    references: [businesses.id],
+  }),
+  milestones: many(milestones),
+}));
+
+export const milestones = pgTable('milestones', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  stageId: uuid('stage_id').notNull().references(() => stages.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  position: integer('position').notNull().default(0),
+  description: text('description'),
+  note: text('note'),
+  status: text('status').notNull().default('pending'), // pending | active | done | cancelled
+  metadata: jsonb('metadata'),
+  ...projectContext,
+  ...timestamps,
+}, (table) => {
+  return {
+    milestoneStageIdx: index('milestone_stage_idx').on(table.stageId),
+    milestoneProjectIdx: index('milestone_project_idx').on(table.projectId),
+    milestoneStatusIdx: index('milestone_status_idx').on(table.status),
+  };
+});
+
+export const milestonesRelations = relations(milestones, ({ one }) => ({
+  stage: one(stages, {
+    fields: [milestones.stageId],
+    references: [stages.id],
+  }),
+  project: one(projects, {
+    fields: [milestones.projectId],
+    references: [projects.id],
+  }),
+}));
 
 export const tasksRelations = relations(tasks, ({ one }) => ({
   project: one(projects, {

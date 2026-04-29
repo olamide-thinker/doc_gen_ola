@@ -888,5 +888,134 @@ export const api = {
     });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || json.error || 'Failed to delete task');
-  }
+  },
+
+  // ─── Execution: Stages, Milestones, Plan ────────────────────────────────
+  // Hierarchy: project → stages (phases) → milestones → tasks.
+
+  listStages: async (projectId: string): Promise<any[]> => {
+    const headers = await authHeaders();
+    const res = await fetch(
+      `${API_BASE}/execution/stages?projectId=${encodeURIComponent(projectId)}`,
+      { headers },
+    );
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load stages');
+    return json.data || [];
+  },
+
+  createStage: async (input: {
+    projectId: string;
+    name: string;
+    timeline?: string | null;
+    description?: string | null;
+    note?: string | null;
+    position?: number;
+    status?: 'pending' | 'active' | 'done' | 'cancelled';
+  }): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/stages`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to create stage');
+    return json.data;
+  },
+
+  updateStage: async (id: string, patch: Record<string, any>): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/stages/${id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to update stage');
+    return json.data;
+  },
+
+  deleteStage: async (id: string): Promise<void> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/stages/${id}`, { method: 'DELETE', headers });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to delete stage');
+  },
+
+  createMilestone: async (input: {
+    stageId: string;
+    name: string;
+    description?: string | null;
+    note?: string | null;
+    position?: number;
+    status?: 'pending' | 'active' | 'done' | 'cancelled';
+  }): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/milestones`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to create milestone');
+    return json.data;
+  },
+
+  updateMilestone: async (id: string, patch: Record<string, any>): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/milestones/${id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to update milestone');
+    return json.data;
+  },
+
+  deleteMilestone: async (id: string): Promise<void> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/milestones/${id}`, { method: 'DELETE', headers });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to delete milestone');
+  },
+
+  getExecutionPlan: async (projectId: string): Promise<{ estimatedTimeline?: string; conditions?: string }> => {
+    const headers = await authHeaders();
+    const res = await fetch(
+      `${API_BASE}/execution/plan?projectId=${encodeURIComponent(projectId)}`,
+      { headers },
+    );
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load execution plan');
+    return json.data || {};
+  },
+
+  updateExecutionPlan: async (
+    projectId: string,
+    patch: { estimatedTimeline?: string; conditions?: string },
+  ): Promise<{ estimatedTimeline?: string; conditions?: string }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/plan`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, ...patch }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to update execution plan');
+    return json.data || {};
+  },
+
+  applyExecutionTemplate: async (projectId: string, force = false): Promise<{ stages: number }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/execution/template/apply`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, force }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to apply template');
+    return json.data || { stages: 0 };
+  },
 };

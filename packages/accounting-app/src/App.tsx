@@ -17,6 +17,7 @@ import SettingsPage from "./components/SettingsPage";
 import { PlanEditor } from "./components/PlanEditor";
 // Unified task dashboard for all plans
 import { TasksDashboard } from "./components/TasksDashboard";
+import ExecutionPage from "./components/ExecutionPage";
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, businessId, loading } = useAuth();
@@ -73,6 +74,7 @@ const AppContent: React.FC = () => {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="crdt-test" element={<CrdtTest />} />
         <Route path="tasks" element={<TasksDashboard />} />
+        <Route path="project/:id/execution" element={<ExecutionPage />} />
       </Route>
 
       <Route path="/invoice/:id" element={<ProtectedRoute><InvoiceManagementPage /></ProtectedRoute>} />

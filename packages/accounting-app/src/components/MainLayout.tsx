@@ -35,7 +35,8 @@ import {
   Image as ImageIcon,
   Video,
   ChevronDown,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Layers
 } from "../lib/icons/lucide";
 import { ServiceDictionaryModal } from "./ServiceDictionaryModal";
 import { cn } from "../lib/utils";
@@ -164,11 +165,24 @@ const MainLayout: React.FC = () => {
                 active={activeModule === "accounting"} 
                 onClick={() => { setActiveModule("accounting"); alert("Accounting coming soon"); }} 
               />
-              <SidebarItem 
-                icon={<Check size={18} />} 
-                label="Tasks" 
-                active={currentPath === "/tasks"} 
-                onClick={() => { setActiveModule("documents"); navigate("/tasks"); }} 
+              <SidebarItem
+                icon={<Check size={18} />}
+                label="Tasks"
+                active={currentPath === "/tasks"}
+                onClick={() => { setActiveModule("documents"); navigate("/tasks"); }}
+              />
+              <SidebarItem
+                icon={<Layers size={18} />}
+                label="Execution"
+                active={currentPath.startsWith("/project/") && currentPath.endsWith("/execution")}
+                onClick={() => {
+                  if (!activeProjectId) {
+                    alert("Pick a project first");
+                    return;
+                  }
+                  setActiveModule("documents");
+                  navigate(`/project/${activeProjectId}/execution`);
+                }}
               />
             </nav>
           </div>

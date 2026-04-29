@@ -8,6 +8,13 @@
       "when": 1777438098102,
       "tag": "0000_absent_crusher_hogan",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1777458438462,
+      "tag": "0001_magical_maelstrom",
+      "breakpoints": true
     }
   ]
 }
