@@ -318,14 +318,23 @@ const ExecutionPage: React.FC = () => {
                             </span>
                           </div>
                         </div>
-                        <Edit
-                          size={11}
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity shrink-0 mt-0.5 text-current cursor-pointer"
+                        <span
+                          role="button"
+                          tabIndex={0}
                           onClick={(e) => {
                             e.stopPropagation();
                             setMsForm({ stageId: focusedStage.id, editing: m });
                           }}
-                        />
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.stopPropagation();
+                              setMsForm({ stageId: focusedStage.id, editing: m });
+                            }
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity shrink-0 mt-0.5 cursor-pointer"
+                        >
+                          <Edit size={11} className="text-current" />
+                        </span>
                       </div>
                     </button>
                   );

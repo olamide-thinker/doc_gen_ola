@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -8,6 +8,12 @@ import {
   Calendar,
   User as UserIcon,
   Check,
+  Calculator,
+  ScrollText,
+  Layout,
+  Sparkles,
+  Edit2,
+  Lock,
 } from "../lib/icons/lucide";
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
@@ -61,6 +67,14 @@ interface TaskFormModalProps {
 const STATUSES: TaskStatus[] = ["pending", "progress", "done", "cancelled"];
 const PRIORITIES: TaskPriority[] = ["low", "med", "high"];
 
+type Tab = "overview" | "financials" | "reports";
+
+const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<any> }> = [
+  { id: "overview", label: "Overview", icon: Layout },
+  { id: "financials", label: "Financials", icon: Calculator },
+  { id: "reports", label: "Field Reports", icon: ScrollText },
+];
+
 // Convert ISO timestamp into <input type="datetime-local"> value (yyyy-MM-ddTHH:mm).
 const toLocalDateTimeInput = (iso?: string | null): string => {
   if (!iso) return "";
@@ -94,10 +108,19 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   >([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("overview");
 
-  // Reset form when (re)opened or when target changes
-  useEffect(() => {
-    if (!open) return;
+  // Overview has two modes: "view" (read-only display, default for existing
+  // tasks) and "edit" (the writable form). New tasks open straight in edit
+  // mode since there's nothing to view yet. The split sets us up for
+  // permission-gating later — e.g. crew can only ever land on view, while
+  // supervisors get the edit affordance.
+  const [mode, setMode] = useState<"view" | "edit">(editing ? "view" : "edit");
+
+  // Snapshot the form back to the source-of-truth (editing record or caller
+  // defaults). Called on open and on Cancel-from-edit so unsaved changes
+  // don't bleed across sessions.
+  const populateForm = useCallback(() => {
     setError(null);
     if (editing) {
       setTitle(editing.title || "");
@@ -141,6 +164,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         })),
       );
     }
+  }, [editing, defaults]);
+
+  // Reset form (and mode + tab) when (re)opened or when target changes.
+  useEffect(() => {
+    if (!open) return;
+    // Always land back on Overview when (re)opening — financials/reports are
+    // contextual peeks, not where you start a session.
+    setTab("overview");
+    setMode(editing ? "view" : "edit");
+    populateForm();
   }, [open, editing?.id, defaults?.stageId, defaults?.milestoneId]);
 
   const memberOptions = useMemo(
@@ -197,7 +230,15 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         ? await api.updateTask(editing.id, payload)
         : await api.createTask(payload);
       onSaved?.(result as TaskRecord);
-      onClose();
+      // For an existing task, drop back into view mode with the freshly
+      // saved values still in form state — the modal stays open so the user
+      // can keep browsing tabs / re-entering edit. Only new-task creates
+      // close the modal (the parent typically reopens with the new record).
+      if (editing) {
+        setMode("view");
+      } else {
+        onClose();
+      }
     } catch (e: any) {
       setError(e?.message || "Failed to save");
     } finally {
@@ -225,25 +266,128 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-              <div className="min-w-0">
-                <h2 className="text-sm font-black uppercase tracking-widest">
-                  {editing ? `Edit ${editing.taskCode}` : "New Task"}
-                </h2>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">
-                  {editing ? "Update fields and save" : "Code is generated on save"}
-                </p>
+              <div className="flex items-center gap-3 min-w-0">
+                {editing && (
+                  <span className="text-[10px] font-mono font-black px-2 py-1 bg-muted text-muted-foreground rounded-md shrink-0 tracking-tight">
+                    {editing.taskCode}
+                  </span>
+                )}
+                <div className="min-w-0">
+                  <h2 className="text-sm font-black uppercase tracking-widest truncate">
+                    {editing ? "Task Overview" : "New Task"}
+                  </h2>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5 truncate">
+                    {editing ? editing.title || "Untitled" : "Code is generated on save"}
+                  </p>
+                </div>
               </div>
               <button
                 onClick={onClose}
-                className="p-2 rounded-lg hover:bg-muted text-muted-foreground"
+                className="p-2 rounded-lg hover:bg-muted text-muted-foreground shrink-0"
                 title="Close"
               >
-                <X size={16} />
+                <X size={16} className="text-current" />
               </button>
             </div>
 
+            {/* Tabs — only meaningful in edit mode (you can't link financials
+                or reports to a task that doesn't exist yet). */}
+            {editing && (
+              <div className="flex items-center gap-1 px-3 pt-2 border-b border-border shrink-0 bg-muted/10">
+                {TABS.map((t) => {
+                  const Icon = t.icon;
+                  const isActive = tab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTab(t.id)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-widest rounded-t-lg transition-all relative",
+                        isActive
+                          ? "text-foreground bg-card"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                      )}
+                    >
+                      <Icon size={12} className="text-current" />
+                      {t.label}
+                      {isActive && (
+                        <span className="absolute -bottom-px left-2 right-2 h-0.5 bg-primary rounded-full" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Body */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5 space-y-5">
+            <div className={cn(
+              "flex-1 overflow-y-auto custom-scrollbar px-6 py-5",
+              tab === "overview" && "space-y-5",
+            )}>
+            {tab === "overview" && (
+              <>
+              {/* View ↔ Edit toggle — only meaningful for existing tasks. New
+                  tasks live in edit mode the entire time. */}
+              {editing && (
+                <div className="flex items-center justify-between gap-3 -mb-1">
+                  <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground/70">
+                    {mode === "view" ? (
+                      <>
+                        <Lock size={10} className="text-current" /> Read-only
+                      </>
+                    ) : (
+                      <>
+                        <Edit2 size={10} className="text-current" /> Editing
+                      </>
+                    )}
+                  </div>
+                  {mode === "view" ? (
+                    <button
+                      type="button"
+                      onClick={() => setMode("edit")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-foreground text-background rounded-lg text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-sm"
+                      title="Edit this task"
+                    >
+                      <Edit2 size={11} className="text-current" /> Edit
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Revert any unsaved changes and pop back to view.
+                        populateForm();
+                        setMode("view");
+                      }}
+                      disabled={saving}
+                      className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      Discard changes
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* View-mode body — clean read-only display of the task. */}
+              {mode === "view" && editing && (
+                <ViewModeBody
+                  title={title}
+                  details={details}
+                  status={status}
+                  priority={priority}
+                  deadline={editing.deadline}
+                  budget={budget}
+                  supervisorId={supervisorId}
+                  assigneeId={assigneeId}
+                  locationType={locationType}
+                  locationText={locationText}
+                  materials={materials}
+                  members={members}
+                />
+              )}
+
+              {/* Edit-mode body — the writable form. */}
+              {mode === "edit" && (<>
               {/* Title */}
               <Field label="Title" required>
                 <input
@@ -436,24 +580,54 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                   {error}
                 </div>
               )}
+              </>)}
+              </>
+            )}
+
+            {tab === "financials" && <FinancialsTabStub />}
+            {tab === "reports" && <ReportsTabStub />}
             </div>
 
-            {/* Footer */}
+            {/* Footer — view mode and the read-only tab stubs collapse to
+                a single Close button. Edit mode keeps the Cancel + Save
+                pair. */}
             <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
-              <button
-                onClick={onClose}
-                disabled={saving}
-                className="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-muted disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 disabled:opacity-60 active:scale-95 transition-all"
-              >
-                <Check size={12} /> {saving ? "Saving..." : editing ? "Save changes" : "Create task"}
-              </button>
+              {tab === "overview" && mode === "edit" ? (
+                <>
+                  <button
+                    onClick={() => {
+                      // For an existing task, Cancel reverts unsaved edits and
+                      // returns to view — the modal stays open. For a new
+                      // task there's no view state to fall back to, so we
+                      // close the modal.
+                      if (editing) {
+                        populateForm();
+                        setMode("view");
+                      } else {
+                        onClose();
+                      }
+                    }}
+                    disabled={saving}
+                    className="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:bg-muted disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md hover:opacity-90 disabled:opacity-60 active:scale-95 transition-all"
+                  >
+                    <Check size={12} className="text-current" /> {saving ? "Saving..." : editing ? "Save changes" : "Create task"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground transition-all border border-border"
+                >
+                  Close
+                </button>
+              )}
             </div>
           </motion.div>
         </motion.div>
@@ -474,6 +648,286 @@ const Field: React.FC<{ label: string; required?: boolean; children: React.React
     </label>
     {children}
   </div>
+);
+
+// ── View-mode body ───────────────────────────────────────────────────────
+// Read-only rendering of the Overview fields. Mirrors the data the form
+// captures so the layout is one-to-one — no surprises when toggling between
+// modes.
+
+const STATUS_TINT: Record<TaskStatus, string> = {
+  pending: "bg-red-500/10 text-red-500",
+  progress: "bg-amber-500/10 text-amber-500",
+  done: "bg-emerald-500/10 text-emerald-500",
+  cancelled: "bg-muted text-muted-foreground",
+};
+
+const PRIORITY_TINT: Record<TaskPriority, string> = {
+  low: "bg-blue-500/10 text-blue-500",
+  med: "bg-amber-500/10 text-amber-500",
+  high: "bg-red-500/10 text-red-500",
+};
+
+const formatDeadline = (iso?: string | null): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const memberLabel = (
+  id: string,
+  members: Array<{ email: string; userId?: string; role?: string }>,
+): string => {
+  const m = members.find((x) => (x.userId || x.email) === id);
+  return m?.email || id;
+};
+
+const ViewModeBody: React.FC<{
+  title: string;
+  details: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  deadline?: string | null;
+  budget: string;
+  supervisorId: string;
+  assigneeId: string;
+  locationType: LocationType;
+  locationText: string;
+  materials: Array<{ name: string; quantity: string; unit: string; note: string }>;
+  members: Array<{ email: string; userId?: string; role?: string }>;
+}> = ({
+  title,
+  details,
+  status,
+  priority,
+  deadline,
+  budget,
+  supervisorId,
+  assigneeId,
+  locationType,
+  locationText,
+  materials,
+  members,
+}) => {
+  const deadlineDisplay = formatDeadline(deadline);
+  const budgetDisplay =
+    budget && !isNaN(Number(budget))
+      ? `₦${Number(budget).toLocaleString()}`
+      : null;
+
+  return (
+    <div className="space-y-5">
+      {/* Title block */}
+      <div>
+        <h3 className="text-lg font-black leading-tight text-foreground">
+          {title || <span className="text-muted-foreground/60 italic">Untitled</span>}
+        </h3>
+        <div className="flex items-center gap-1.5 flex-wrap mt-2">
+          <span
+            className={cn(
+              "text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded",
+              STATUS_TINT[status],
+            )}
+          >
+            {status}
+          </span>
+          <span
+            className={cn(
+              "text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded",
+              PRIORITY_TINT[priority],
+            )}
+          >
+            {priority} priority
+          </span>
+          {budgetDisplay && (
+            <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+              {budgetDisplay}
+            </span>
+          )}
+        </div>
+        {deadlineDisplay && (
+          <div className="flex items-center gap-1.5 mt-2 text-[11px] font-bold text-muted-foreground">
+            <Calendar size={11} className="text-current" /> Due {deadlineDisplay}
+          </div>
+        )}
+      </div>
+
+      {/* Details */}
+      {details && (
+        <ViewSection label="Details">
+          <p className="text-[12px] text-foreground/80 leading-relaxed whitespace-pre-wrap">
+            {details}
+          </p>
+        </ViewSection>
+      )}
+
+      {/* People */}
+      {(supervisorId || assigneeId) && (
+        <ViewSection label="People">
+          <div className="grid grid-cols-2 gap-3">
+            <ViewPerson role="Supervisor" id={supervisorId} members={members} />
+            <ViewPerson role="Assignee" id={assigneeId} members={members} />
+          </div>
+        </ViewSection>
+      )}
+
+      {/* Location */}
+      {locationType === "text" && locationText && (
+        <ViewSection label="Location">
+          <div className="flex items-start gap-2 text-[12px] font-medium text-foreground/80">
+            <MapPin size={12} className="mt-0.5 text-muted-foreground/70 text-current shrink-0" />
+            <span>{locationText}</span>
+          </div>
+        </ViewSection>
+      )}
+
+      {/* Materials */}
+      {materials.length > 0 && (
+        <ViewSection label={`Materials (${materials.length})`}>
+          <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+            {materials.map((m, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-3 px-3 py-2 bg-muted/10 text-[12px]"
+              >
+                <span className="font-medium truncate flex-1">{m.name}</span>
+                {(m.quantity || m.unit) && (
+                  <span className="text-muted-foreground font-mono text-[11px] tabular-nums shrink-0">
+                    {m.quantity}
+                    {m.unit ? ` ${m.unit}` : ""}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </ViewSection>
+      )}
+
+      {/* Empty hint when there's barely anything filled in. Helps signal
+          this is read-only, not "the task is empty". */}
+      {!details &&
+        !supervisorId &&
+        !assigneeId &&
+        !(locationType === "text" && locationText) &&
+        materials.length === 0 && (
+          <div className="text-[11px] font-medium text-muted-foreground/60 italic border border-dashed border-border rounded-lg px-4 py-6 text-center">
+            No additional details. Switch to Edit to fill them in.
+          </div>
+        )}
+    </div>
+  );
+};
+
+const ViewSection: React.FC<{ label: string; children: React.ReactNode }> = ({
+  label,
+  children,
+}) => (
+  <div className="flex flex-col gap-1.5">
+    <div className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/70">
+      {label}
+    </div>
+    {children}
+  </div>
+);
+
+const ViewPerson: React.FC<{
+  role: string;
+  id: string;
+  members: Array<{ email: string; userId?: string; role?: string }>;
+}> = ({ role, id, members }) => (
+  <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 rounded-lg border border-border/50">
+    <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0">
+      <UserIcon size={12} className="text-muted-foreground text-current" />
+    </div>
+    <div className="min-w-0">
+      <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/70">
+        {role}
+      </div>
+      {id ? (
+        <div className="text-[11px] font-bold truncate">{memberLabel(id, members)}</div>
+      ) : (
+        <div className="text-[11px] font-medium text-muted-foreground/60 italic">
+          Unassigned
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// ── Tab stubs ────────────────────────────────────────────────────────────
+// These are intentional "coming soon" placeholders so the tab layout is
+// locked in before we build the underlying data flow.
+//
+// • Financials  → invoices/receipts get a `metadata.taskId` link, then this
+//                 tab rolls up totalCost / totalPaid / balance and lists the
+//                 linked documents with a "+ Link Invoice" picker.
+// • Reports     → a separate field_reports module (sibling of Tasks) holds
+//                 the data; this tab just filters that list by taskId.
+
+const TabStubShell: React.FC<{
+  icon: React.ComponentType<any>;
+  title: string;
+  description: string;
+  bullets: string[];
+}> = ({ icon: Icon, title, description, bullets }) => (
+  <div className="h-full min-h-[320px] flex flex-col items-center justify-center text-center px-8 py-10">
+    <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4">
+      <Icon size={22} className="text-current" />
+    </div>
+    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 text-amber-600 rounded-full text-[9px] font-black uppercase tracking-widest mb-3">
+      <Sparkles size={10} className="text-current" /> Coming next
+    </div>
+    <h3 className="text-sm font-black uppercase tracking-widest text-foreground mb-2">
+      {title}
+    </h3>
+    <p className="text-[11px] font-medium text-muted-foreground leading-relaxed max-w-sm mb-4">
+      {description}
+    </p>
+    <ul className="space-y-1.5 max-w-sm text-left">
+      {bullets.map((b, i) => (
+        <li
+          key={i}
+          className="flex items-start gap-2 text-[11px] font-medium text-muted-foreground/80 leading-relaxed"
+        >
+          <span className="mt-1 w-1 h-1 rounded-full bg-primary/60 shrink-0" />
+          <span>{b}</span>
+        </li>
+      ))}
+    </ul>
+  </div>
+);
+
+const FinancialsTabStub: React.FC = () => (
+  <TabStubShell
+    icon={Calculator}
+    title="Financials & Payments"
+    description="Track every naira tied to this task — what was budgeted, what's been paid, and what's still outstanding."
+    bullets={[
+      "Total cost vs total paid vs balance, rolled up live",
+      "Link any invoice (BOQ, Procurement, Labour, Variation, Final…) or receipt to this task",
+      "Spend timeline so you can see financial damage build up over time",
+    ]}
+  />
+);
+
+const ReportsTabStub: React.FC = () => (
+  <TabStubShell
+    icon={ScrollText}
+    title="Associate Field Reports"
+    description="Field reports live in their own module. This tab will surface the ones written about this task — incidents, strategies applied, photos from site."
+    bullets={[
+      "Search and filter reports tied to this task",
+      "Pull in incident tags + strategies so post-mortems are one click away",
+      "See assignment history so you know who was on it when each report was filed",
+    ]}
+  />
 );
 
 const MemberSelect: React.FC<{
