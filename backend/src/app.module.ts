@@ -13,6 +13,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { ExecutionModule } from './execution/execution.module';
 import { FieldReportsModule } from './field-reports/field-reports.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { AccountingModule } from './accounting/accounting.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { InventoryModule } from './inventory/inventory.module';
     ExecutionModule,
     FieldReportsModule,
     InventoryModule,
+    AccountingModule,
   ],
   controllers: [],
   providers: [],

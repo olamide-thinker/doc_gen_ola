@@ -992,6 +992,49 @@ export const api = {
     return json.data;
   },
 
+  // ─── Accounting: project-wide transaction log ───────────────────────────
+  // Read-time rollup. Each row is one finalised receipt with its parent
+  // invoice, linked task, resource category, and counterparty resolved
+  // for rendering the transaction-log table.
+
+  getProjectAccounting: async (projectId: string): Promise<{
+    project: { id: string; name: string; ownerId: string };
+    totalBudget: number;
+    totalSpent: number;
+    totalSaved: number;
+    transactionCount: number;
+    transactions: Array<{
+      id: string;
+      invoiceId: string;
+      invoiceCode: string;
+      invoiceName: string;
+      invoiceTemplateType: string | null;
+      amountPaid: number;
+      invoiceTotal: number;
+      percentPaid: number;
+      taskId: string | null;
+      taskCode: string | null;
+      taskTitle: string | null;
+      taskStatus: string | null;
+      taskBudget: number | null;
+      categoryId: string | null;
+      categoryName: string | null;
+      categoryColor: string | null;
+      counterpartyMemberId: string | null;
+      counterpartyName: string | null;
+      counterpartyKind: string | null;
+      receiptUrl: string | null;
+      createdAt: string;
+      autoApplied: boolean;
+    }>;
+  }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/accounting/${projectId}`, { headers });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load accounting');
+    return json.data;
+  },
+
   // ─── Inventory: Resource Categories ─────────────────────────────────────
   // Business-scoped categories used by Accounting (and later by Invoices)
   // to tag spend with a resource type (Materials, Labour, Fuel, etc).

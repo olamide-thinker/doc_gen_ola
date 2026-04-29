@@ -159,11 +159,11 @@ const MainLayout: React.FC = () => {
                 active={currentPath === "/inventory"}
                 onClick={() => { setActiveModule("inventory"); navigate("/inventory"); }}
               />
-              <SidebarItem 
-                icon={<Calculator size={18} />} 
-                label="Accounting" 
-                active={activeModule === "accounting"} 
-                onClick={() => { setActiveModule("accounting"); alert("Accounting coming soon"); }} 
+              <SidebarItem
+                icon={<Calculator size={18} />}
+                label="Accounting"
+                active={currentPath === "/accounting"}
+                onClick={() => { setActiveModule("accounting"); navigate("/accounting"); }}
               />
               <SidebarItem
                 icon={<Check size={18} />}
@@ -350,6 +350,7 @@ const MainLayout: React.FC = () => {
                     currentPath.startsWith('/tasks') ? 'Search tasks...' :
                     currentPath.startsWith('/reports') ? 'Search reports...' :
                     currentPath.startsWith('/inventory') ? 'Search categories...' :
+                    currentPath.startsWith('/accounting') ? 'Search transactions...' :
                     currentPath.startsWith('/projects') ? 'Search repositories...' :
                     currentPath.startsWith('/team') ? 'Search team...' :
                     'Search...'
