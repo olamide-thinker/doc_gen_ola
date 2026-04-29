@@ -442,7 +442,7 @@ const ExecutionPage: React.FC = () => {
                           <div className="flex items-center gap-1.5 mt-0.5">
                             <UserIcon size={10} className="text-muted-foreground/60 text-current" />
                             <span className="text-[10px] font-bold text-muted-foreground truncate">
-                              {t.assigneeId}
+                              {(t as any).assignee?.fullName || (t as any).assignee?.email || t.assigneeId}
                             </span>
                           </div>
                         )}

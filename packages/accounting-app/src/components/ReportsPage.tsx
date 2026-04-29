@@ -76,7 +76,9 @@ export const ReportsPage: React.FC = () => {
         (r.title || "").toLowerCase().includes(q) ||
         (r.body || "").toLowerCase().includes(q) ||
         (r.reportCode || "").toLowerCase().includes(q) ||
-        (r.authorId || "").toLowerCase().includes(q)
+        (r.authorId || "").toLowerCase().includes(q) ||
+        (r.author?.fullName || "").toLowerCase().includes(q) ||
+        (r.author?.email || "").toLowerCase().includes(q)
       );
     });
   }, [reports, search]);

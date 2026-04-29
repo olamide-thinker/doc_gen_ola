@@ -163,7 +163,9 @@ export const ReportRow: React.FC<ReportRowProps> = ({
           {report.body}
         </p>
         <div className="flex items-center gap-3 mt-2 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest">
-          <span className="truncate max-w-[140px]">{report.authorId || "Unknown"}</span>
+          <span className="truncate max-w-[140px]">
+            {report.author?.fullName || report.author?.email || report.authorId || "Unknown"}
+          </span>
           <span>•</span>
           <span>{fmtRelative(report.createdAt)}</span>
           {(report.replyCount || 0) > 0 && (

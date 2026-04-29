@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import { DRIZZLE_PROVIDER } from '../database/database.provider';
 import * as schema from '../db/schema';
-import { eq, and, or, desc } from 'drizzle-orm';
+import { eq, and, or, desc, inArray } from 'drizzle-orm';
 import { FirebaseGuard } from '../auth/firebase.guard';
 import { FieldReportsService } from './field-reports.service';
 
@@ -52,6 +52,34 @@ export class FieldReportsController {
       ),
     });
     if (!member) throw new ForbiddenException('Not a member of this project');
+  }
+
+  /**
+   * Batched user lookup. Pulls the slim public profile (id, fullName,
+   * email) for every authorId across the given rows and decorates each
+   * row with an `author` object. Single SQL roundtrip regardless of how
+   * many rows we hand it.
+   *
+   * Keeps `authorId` intact for backward compat — frontends can read
+   * `row.author?.fullName ?? row.authorId` and ride out the migration.
+   */
+  private async hydrateAuthors<T extends { authorId?: string | null }>(
+    rows: T[],
+  ): Promise<Array<T & { author: { id: string; fullName: string | null; email: string } | null }>> {
+    const ids = Array.from(new Set(rows.map(r => r.authorId).filter(Boolean))) as string[];
+    if (ids.length === 0) {
+      return rows.map(r => ({ ...r, author: null }));
+    }
+    const users = await this.db.query.users.findMany({
+      where: inArray(schema.users.id, ids),
+      columns: { id: true, fullName: true, email: true },
+    });
+    const userMap = new Map<string, any>();
+    for (const u of users) userMap.set(u.id, u);
+    return rows.map(r => ({
+      ...r,
+      author: r.authorId ? userMap.get(r.authorId) || null : null,
+    }));
   }
 
   /** Coerce attachments into a clean array shape. */
@@ -106,7 +134,8 @@ export class FieldReportsController {
       }),
     );
 
-    return { success: true, data: withCounts };
+    const hydrated = await this.hydrateAuthors(withCounts);
+    return { success: true, data: hydrated };
   }
 
   // ── DETAIL (with thread) ────────────────────────────────────────────
@@ -123,7 +152,12 @@ export class FieldReportsController {
       orderBy: [schema.fieldReportMessages.createdAt],
     });
 
-    return { success: true, data: { ...report, messages } };
+    // Hydrate the report itself + every message author in one pass so
+    // the modal renders names instead of raw firebase uids.
+    const [hydratedReport] = await this.hydrateAuthors([report]);
+    const hydratedMessages = await this.hydrateAuthors(messages);
+
+    return { success: true, data: { ...hydratedReport, messages: hydratedMessages } };
   }
 
   // ── CREATE ──────────────────────────────────────────────────────────
@@ -210,7 +244,8 @@ export class FieldReportsController {
       .values(insert)
       .returning();
 
-    return { success: true, data: { ...created, messages: [] } };
+    const [hydrated] = await this.hydrateAuthors([created]);
+    return { success: true, data: { ...hydrated, messages: [] } };
   }
 
   // ── UPDATE ──────────────────────────────────────────────────────────
@@ -361,7 +396,8 @@ export class FieldReportsController {
       orderBy: [schema.fieldReportMessages.createdAt],
     });
 
-    return { success: true, data: messages };
+    const hydrated = await this.hydrateAuthors(messages);
+    return { success: true, data: hydrated };
   }
 
   // ── THREAD: post message ───────────────────────────────────────────
@@ -410,7 +446,8 @@ export class FieldReportsController {
       .set({ updatedAt: new Date() })
       .where(eq(schema.fieldReports.id, id));
 
-    return { success: true, data: created };
+    const [hydrated] = await this.hydrateAuthors([created]);
+    return { success: true, data: hydrated };
   }
 
   // ── THREAD: delete message ─────────────────────────────────────────

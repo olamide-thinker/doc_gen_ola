@@ -104,6 +104,10 @@ export const TasksDashboard: React.FC = () => {
         t.title?.toLowerCase().includes(q) ||
         t.taskCode?.toLowerCase().includes(q) ||
         t.assigneeId?.toLowerCase().includes(q) ||
+        // Match the hydrated assignee fullName/email so users can search
+        // by human name, not just by uid.
+        (t as any).assignee?.fullName?.toLowerCase().includes(q) ||
+        (t as any).assignee?.email?.toLowerCase().includes(q) ||
         t.locationText?.toLowerCase().includes(q)
       );
     });
@@ -253,7 +257,7 @@ export const TasksDashboard: React.FC = () => {
                       <UserIcon size={12} className="text-muted-foreground/50 text-current" />
                     </div>
                     <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[120px]">
-                      {t.assigneeId || "Unassigned"}
+                      {t.assignee?.fullName || t.assignee?.email || t.assigneeId || "Unassigned"}
                     </span>
                   </div>
                   <button
@@ -301,7 +305,7 @@ export const TasksDashboard: React.FC = () => {
                         <UserIcon size={12} className="text-muted-foreground/50 text-current" />
                       </div>
                       <span className="text-[10px] font-bold text-foreground/70 truncate max-w-[110px]">
-                        {t.assigneeId || "Unassigned"}
+                        {t.assignee?.fullName || t.assignee?.email || t.assigneeId || "Unassigned"}
                       </span>
                     </div>
                     <div className={cn("w-2 h-2 rounded-full", t.priority === "high" ? "bg-red-500" : t.priority === "med" ? "bg-amber-500" : "bg-blue-500")} />

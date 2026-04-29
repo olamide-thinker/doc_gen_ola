@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import { DRIZZLE_PROVIDER } from '../database/database.provider';
 import * as schema from '../db/schema';
-import { eq, and, or, desc, sql } from 'drizzle-orm';
+import { eq, and, or, desc, sql, inArray } from 'drizzle-orm';
 import { FirebaseGuard } from '../auth/firebase.guard';
 import { TasksService } from './tasks.service';
 import { InvoicesService } from '../invoices/invoices.service';
@@ -67,6 +67,48 @@ export class TasksController {
     if (!member) throw new ForbiddenException('Not a member of this project');
   }
 
+  /**
+   * Batched user lookup for the three FK columns on tasks (createdById,
+   * supervisorId, assigneeId). Single SQL roundtrip regardless of how
+   * many rows we hand it. Decorates each row with `createdBy`,
+   * `supervisor`, `assignee` objects (slim public profiles).
+   *
+   * Original ID columns stay intact for backward compat — frontends can
+   * read `task.assignee?.fullName ?? task.assigneeId` and ride out the
+   * migration without breaking on rows that haven't been hydrated yet.
+   */
+  private async hydrateUsers<T extends {
+    createdById?: string | null;
+    supervisorId?: string | null;
+    assigneeId?: string | null;
+  }>(rows: T[]): Promise<Array<T & {
+    createdBy: { id: string; fullName: string | null; email: string } | null;
+    supervisor: { id: string; fullName: string | null; email: string } | null;
+    assignee: { id: string; fullName: string | null; email: string } | null;
+  }>> {
+    const ids = new Set<string>();
+    for (const r of rows) {
+      if (r.createdById) ids.add(r.createdById);
+      if (r.supervisorId) ids.add(r.supervisorId);
+      if (r.assigneeId) ids.add(r.assigneeId);
+    }
+    if (ids.size === 0) {
+      return rows.map(r => ({ ...r, createdBy: null, supervisor: null, assignee: null }));
+    }
+    const users = await this.db.query.users.findMany({
+      where: inArray(schema.users.id, Array.from(ids)),
+      columns: { id: true, fullName: true, email: true },
+    });
+    const userMap = new Map<string, any>();
+    for (const u of users) userMap.set(u.id, u);
+    return rows.map(r => ({
+      ...r,
+      createdBy: r.createdById ? userMap.get(r.createdById) || null : null,
+      supervisor: r.supervisorId ? userMap.get(r.supervisorId) || null : null,
+      assignee: r.assigneeId ? userMap.get(r.assigneeId) || null : null,
+    }));
+  }
+
   /** Coerce/validate the materials field. Returns null when empty/invalid. */
   private normalizeMaterials(input: unknown): MaterialRow[] | null {
     if (!Array.isArray(input)) return null;
@@ -111,7 +153,8 @@ export class TasksController {
       orderBy: [desc(schema.tasks.createdAt)],
     });
 
-    return { success: true, data: rows };
+    const hydrated = await this.hydrateUsers(rows);
+    return { success: true, data: hydrated };
   }
 
   /** ─── CREATE ────────────────────────────────────────────────────── */
@@ -185,7 +228,8 @@ export class TasksController {
       .values(insert)
       .returning();
 
-    return { success: true, data: created };
+    const [hydrated] = await this.hydrateUsers([created]);
+    return { success: true, data: hydrated };
   }
 
   /** ─── DETAIL ────────────────────────────────────────────────────── */
@@ -196,7 +240,8 @@ export class TasksController {
     });
     if (!row) throw new NotFoundException('Task not found');
     if (row.projectId) await this.assertProjectAccess(row.projectId, req);
-    return { success: true, data: row };
+    const [hydrated] = await this.hydrateUsers([row]);
+    return { success: true, data: hydrated };
   }
 
   /** ─── FINANCIALS (rollup of linked invoices/receipts) ─────────────
@@ -420,7 +465,8 @@ export class TasksController {
       .where(eq(schema.tasks.id, id))
       .returning();
 
-    return { success: true, data: updated };
+    const [hydrated] = await this.hydrateUsers([updated]);
+    return { success: true, data: hydrated };
   }
 
   /** ─── DELETE ────────────────────────────────────────────────────── */

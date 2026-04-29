@@ -82,7 +82,9 @@ export const TaskPickerModal: React.FC<TaskPickerModalProps> = ({
       !q ||
       (t.title || "").toLowerCase().includes(q) ||
       (t.taskCode || "").toLowerCase().includes(q) ||
-      (t.assigneeId || "").toLowerCase().includes(q);
+      (t.assigneeId || "").toLowerCase().includes(q) ||
+      (t.assignee?.fullName || "").toLowerCase().includes(q) ||
+      (t.assignee?.email || "").toLowerCase().includes(q);
 
     const linked: TaskRecord[] = [];
     const available: TaskRecord[] = [];
@@ -322,7 +324,9 @@ const Row: React.FC<{
         {(note || task.assigneeId) && (
           <p className="text-[9px] font-bold text-muted-foreground/70 uppercase tracking-widest mt-0.5 truncate">
             {note ? <span className="text-amber-500/80 mr-1.5">⚠ {note}</span> : null}
-            {task.assigneeId ? `· ${task.assigneeId}` : ""}
+            {task.assigneeId
+              ? `· ${(task as any).assignee?.fullName || (task as any).assignee?.email || task.assigneeId}`
+              : ""}
           </p>
         )}
       </div>

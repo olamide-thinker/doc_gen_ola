@@ -46,6 +46,12 @@ export interface TaskRecord {
   projectId: string;
   createdAt?: string;
   updatedAt?: string;
+  // Hydrated user objects from the backend — present on list/detail/
+  // create/update responses. Frontends should prefer these over the
+  // raw *Id fields when rendering names.
+  createdBy?: { id: string; fullName: string | null; email: string } | null;
+  supervisor?: { id: string; fullName: string | null; email: string } | null;
+  assignee?: { id: string; fullName: string | null; email: string } | null;
 }
 
 interface TaskFormModalProps {
@@ -381,6 +387,8 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                   budget={budget}
                   supervisorId={supervisorId}
                   assigneeId={assigneeId}
+                  supervisorUser={editing.supervisor}
+                  assigneeUser={editing.assignee}
                   locationType={locationType}
                   locationText={locationText}
                   materials={materials}
@@ -710,6 +718,9 @@ const ViewModeBody: React.FC<{
   budget: string;
   supervisorId: string;
   assigneeId: string;
+  /** Hydrated user objects from the backend (preferred over id lookup). */
+  supervisorUser?: { id: string; fullName: string | null; email: string } | null;
+  assigneeUser?: { id: string; fullName: string | null; email: string } | null;
   locationType: LocationType;
   locationText: string;
   materials: Array<{ name: string; quantity: string; unit: string; note: string }>;
@@ -723,6 +734,8 @@ const ViewModeBody: React.FC<{
   budget,
   supervisorId,
   assigneeId,
+  supervisorUser,
+  assigneeUser,
   locationType,
   locationText,
   materials,
@@ -784,8 +797,18 @@ const ViewModeBody: React.FC<{
       {(supervisorId || assigneeId) && (
         <ViewSection label="People">
           <div className="grid grid-cols-2 gap-3">
-            <ViewPerson role="Supervisor" id={supervisorId} members={members} />
-            <ViewPerson role="Assignee" id={assigneeId} members={members} />
+            <ViewPerson
+              role="Supervisor"
+              id={supervisorId}
+              hydrated={supervisorUser}
+              members={members}
+            />
+            <ViewPerson
+              role="Assignee"
+              id={assigneeId}
+              hydrated={assigneeUser}
+              members={members}
+            />
           </div>
         </ViewSection>
       )}
@@ -852,26 +875,37 @@ const ViewSection: React.FC<{ label: string; children: React.ReactNode }> = ({
 const ViewPerson: React.FC<{
   role: string;
   id: string;
+  hydrated?: { id: string; fullName: string | null; email: string } | null;
   members: Array<{ email: string; userId?: string; role?: string }>;
-}> = ({ role, id, members }) => (
-  <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 rounded-lg border border-border/50">
-    <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0">
-      <UserIcon size={12} className="text-muted-foreground text-current" />
-    </div>
-    <div className="min-w-0">
-      <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/70">
-        {role}
+}> = ({ role, id, hydrated, members }) => {
+  // Prefer the hydrated user from the backend (real fullName/email), fall
+  // back to the project members lookup, then to the raw id as a last
+  // resort so we never render a blank cell.
+  const label = hydrated
+    ? hydrated.fullName || hydrated.email
+    : id
+      ? memberLabel(id, members)
+      : "";
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 bg-muted/20 rounded-lg border border-border/50">
+      <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0">
+        <UserIcon size={12} className="text-muted-foreground text-current" />
       </div>
-      {id ? (
-        <div className="text-[11px] font-bold truncate">{memberLabel(id, members)}</div>
-      ) : (
-        <div className="text-[11px] font-medium text-muted-foreground/60 italic">
-          Unassigned
+      <div className="min-w-0">
+        <div className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/70">
+          {role}
         </div>
-      )}
+        {id ? (
+          <div className="text-[11px] font-bold truncate">{label}</div>
+        ) : (
+          <div className="text-[11px] font-medium text-muted-foreground/60 italic">
+            Unassigned
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ── Tab stubs ────────────────────────────────────────────────────────────
 // These are intentional "coming soon" placeholders so the tab layout is

@@ -245,7 +245,7 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-black truncate">
-                          {report.authorId || "Unknown"}
+                          {report.author?.fullName || report.author?.email || report.authorId || "Unknown"}
                         </span>
                         <span className={cn("text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shrink-0", meta.tint)}>
                           <Icon size={9} className="inline mr-1 -mt-0.5 text-current" />
@@ -472,7 +472,7 @@ export const ReportDetailModal: React.FC<ReportDetailModalProps> = ({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[11px] font-black truncate">
-                            {m.authorId || "Unknown"}
+                            {m.author?.fullName || m.author?.email || m.authorId || "Unknown"}
                           </span>
                           <span className="text-[9px] font-bold text-muted-foreground/60 uppercase tracking-widest">
                             {fmtRelative(m.createdAt)}
