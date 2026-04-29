@@ -150,6 +150,9 @@ export interface DocData {
   invoiceCode?: InvoiceCode;
   useSections?: boolean;
   showBOQSummary?: boolean;
+  /** When true (and the invoice is at least partially paid), this BOQ shows
+   *  up in the Tasks page's "Generate from BOQ" picker. */
+  boqTaskSource?: boolean;
   isReceipt?: boolean;
   paymentMethod?: string;
   transactionId?: string;

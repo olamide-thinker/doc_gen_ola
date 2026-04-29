@@ -9,6 +9,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { UsersModule } from './users/users.module';
 import { ProjectsModule } from './projects/projects.module';
 import { PdfModule } from './pdf/pdf.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PdfModule } from './pdf/pdf.module';
     UsersModule,
     ProjectsModule,
     PdfModule,
+    TasksModule,
   ],
   controllers: [],
   providers: [],

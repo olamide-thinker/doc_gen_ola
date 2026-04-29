@@ -769,6 +769,26 @@ export const api = {
     return json;
   },
 
+  /**
+   * Update workflow flags on an invoice (e.g. boqTaskSource). Bypasses the
+   * lock that gates content edits, since these are project-management
+   * controls, not document content.
+   */
+  updateInvoiceSettings: async (
+    id: string,
+    settings: { boqTaskSource?: boolean },
+  ): Promise<{ boqTaskSource?: boolean }> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/invoices/${id}/settings`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to update invoice settings');
+    return json.data || {};
+  },
+
   createInvoice: async (name: string, content: any, projectId: string, userId: string): Promise<any> => {
     const headers = await authHeaders();
     const res = await fetch(`${API_BASE}/invoices`, {
@@ -791,5 +811,82 @@ export const api = {
     const json = await res.json();
     if (!json.success) throw new Error(json.message || json.error || 'Failed to add member');
     return json;
+  },
+
+  // ─── Tasks (Phase 1) ────────────────────────────────────────────────────
+  // The rich Task entity lives at /api/tasks. Tasks are project-scoped; the
+  // backend stamps a `taskCode` (e.g. TSK-001) per project on insert.
+
+  listTasks: async (
+    projectId: string,
+    filters: { status?: string; priority?: string; assigneeId?: string } = {}
+  ): Promise<any[]> => {
+    const headers = await authHeaders();
+    const qs = new URLSearchParams({ projectId });
+    if (filters.status) qs.set('status', filters.status);
+    if (filters.priority) qs.set('priority', filters.priority);
+    if (filters.assigneeId) qs.set('assigneeId', filters.assigneeId);
+    const res = await fetch(`${API_BASE}/tasks?${qs.toString()}`, { headers });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load tasks');
+    return json.data || [];
+  },
+
+  getTask: async (id: string): Promise<any | null> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/tasks/${id}`, { headers });
+    const json = await res.json();
+    return json.success ? json.data : null;
+  },
+
+  createTask: async (input: {
+    projectId: string;
+    title: string;
+    details?: string;
+    status?: 'pending' | 'progress' | 'done' | 'cancelled';
+    priority?: 'low' | 'med' | 'high';
+    deadline?: string | null;
+    supervisorId?: string | null;
+    assigneeId?: string | null;
+    crewIds?: string[];
+    materials?: Array<{ name: string; quantity?: number | string; unit?: string; note?: string }>;
+    budget?: number | null;
+    locationType?: 'zone' | 'text' | null;
+    locationDocId?: string | null;
+    locationZoneId?: string | null;
+    locationText?: string | null;
+    metadata?: Record<string, any>;
+  }): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/tasks`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to create task');
+    return json.data;
+  },
+
+  updateTask: async (id: string, patch: Record<string, any>): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/tasks/${id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to update task');
+    return json.data;
+  },
+
+  deleteTask: async (id: string): Promise<void> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/tasks/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to delete task');
   }
 };

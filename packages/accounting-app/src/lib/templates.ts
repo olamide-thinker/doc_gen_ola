@@ -18,6 +18,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     color: "blue",
     content: {
       title: "Design Fee Invoice",
+      useSections: true,
       table: {
         columns: [
           { id: "A", label: "S/N",              type: "index",   width: "50px"  },
@@ -61,6 +62,9 @@ export const TEMPLATES: TemplateDefinition[] = [
     color: "green",
     content: {
       title: "Bill of Quantities (BOQ)",
+      useSections: true,
+      showBOQSummary: true,
+      boqTaskSource: true,
       table: {
         columns: [
           { id: "A", label: "S/N",         type: "index",   width: "50px"  },

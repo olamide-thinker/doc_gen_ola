@@ -321,12 +321,17 @@ const MainLayout: React.FC = () => {
           <div className="h-4 w-px bg-border/50" />
 
           <div className="flex items-center gap-6">
-             {/* Global Search */}
-             <div className="hidden lg:flex items-center gap-2 px-4 py-2 bg-muted/30 rounded-2xl border border-transparent focus-within:border-border focus-within:bg-card transition-all w-[320px]">
+             {/* Global Search — visible on every module (md+) with a context-aware placeholder */}
+             <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-muted/30 rounded-2xl border border-transparent focus-within:border-border focus-within:bg-card transition-all w-[200px] lg:w-[320px]">
                 <Search size={14} className="text-muted-foreground" />
-                <input 
+                <input
                   type="text"
-                  placeholder="Search repository..."
+                  placeholder={
+                    currentPath.startsWith('/tasks') ? 'Search tasks...' :
+                    currentPath.startsWith('/projects') ? 'Search repositories...' :
+                    currentPath.startsWith('/team') ? 'Search team...' :
+                    'Search...'
+                  }
                   value={localSearch}
                   onChange={(e) => setLocalSearch(e.target.value)}
                   className="bg-transparent border-none outline-none text-[11px] font-bold text-foreground placeholder:text-muted-foreground/50 w-full"

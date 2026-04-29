@@ -86,6 +86,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   folders: many(folders),
   documents: many(documents),
   invoices: many(invoices),
+  tasks: many(tasks),
 }));
 
 export const projectMembers = pgTable('project_members', {
@@ -334,5 +335,89 @@ export const commentsRelations = relations(comments, ({ one }) => ({
   user: one(users, {
     fields: [comments.userId],
     references: [users.id],
+  }),
+}));
+
+// 5. Tasks (project work items — Phase 1; stage/milestone wiring is Phase 3)
+//
+// Each task is scoped to a project. The taskCode (e.g. "TSK-001") is unique
+// per project and computed from MAX(taskCode) at insert time in the service.
+//
+// Location is polymorphic-light: when locationType === 'zone', the pair
+// (locationDocId, locationZoneId) points at a zone polygon inside a plan
+// document's planData.zones array. When 'text', locationText is used.
+export const tasks = pgTable('tasks', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  taskCode: text('task_code').notNull(),
+
+  // Identity / context
+  title: text('title').notNull(),
+  details: text('details'),
+  status: text('status').notNull().default('pending'), // pending | progress | done | cancelled
+  priority: text('priority').notNull().default('med'), // low | med | high
+
+  deadline: timestamp('deadline'),
+
+  // People
+  createdById: text('created_by_id').references(() => users.id),
+  supervisorId: text('supervisor_id').references(() => users.id),
+  assigneeId: text('assignee_id').references(() => users.id),
+  crewIds: text('crew_ids').array(),
+
+  // Resources
+  materials: jsonb('materials'), // [{ name, quantity, unit, note }]
+  budget: integer('budget'), // smallest currency unit (kobo for NGN)
+
+  // Location (zone reference OR free text)
+  locationType: text('location_type'), // 'zone' | 'text' | null
+  locationDocId: text('location_doc_id').references(() => documents.id),
+  locationZoneId: text('location_zone_id'),
+  locationText: text('location_text'),
+
+  // Stage/milestone wiring — left nullable, populated in Phase 3
+  stageId: text('stage_id'),
+  milestoneId: text('milestone_id'),
+
+  // Free-form metadata bag for forward compatibility
+  metadata: jsonb('metadata'),
+
+  ...projectContext,
+  ...timestamps,
+}, (table) => {
+  return {
+    taskProjectIdx: index('task_project_idx').on(table.projectId),
+    taskAssigneeIdx: index('task_assignee_idx').on(table.assigneeId),
+    taskStatusIdx: index('task_status_idx').on(table.status),
+    uniqueTaskCodePerProject: uniqueIndex('unique_task_code_per_project').on(table.projectId, table.taskCode),
+  };
+});
+
+export const tasksRelations = relations(tasks, ({ one }) => ({
+  project: one(projects, {
+    fields: [tasks.projectId],
+    references: [projects.id],
+  }),
+  business: one(businesses, {
+    fields: [tasks.businessId],
+    references: [businesses.id],
+  }),
+  createdBy: one(users, {
+    fields: [tasks.createdById],
+    references: [users.id],
+    relationName: 'taskCreatedBy',
+  }),
+  supervisor: one(users, {
+    fields: [tasks.supervisorId],
+    references: [users.id],
+    relationName: 'taskSupervisor',
+  }),
+  assignee: one(users, {
+    fields: [tasks.assigneeId],
+    references: [users.id],
+    relationName: 'taskAssignee',
+  }),
+  locationDoc: one(documents, {
+    fields: [tasks.locationDocId],
+    references: [documents.id],
   }),
 }));

@@ -7,7 +7,10 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push"
   },
   "keywords": [],
   "author": "",

@@ -44,6 +44,7 @@ import { type InvoiceCode } from "../types";
 import { motion, AnimatePresence } from "framer-motion";
 import { DocumentThumbnail } from "./Thumbnail";
 import { CardDocumentPreview } from "./CardDocumentPreview";
+import { PdfThumbnail, resolvePdfUrl } from "./PdfThumbnail";
 import { useSyncedStore } from "@syncedstore/react";
 import { workspaceStore, authStore, uiStore, connectProject, workspaceProvider, authProvider } from "../store";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -404,7 +405,11 @@ const Dashboard: React.FC = () => {
     const invoiceCode = isReceipt ? undefined : api.getNextInvoiceNumber();
     const name = formData.projectName.trim() || (invoiceCode?.text ?? "New Invoice");
     
+    // Start with the template's full content so flags like `useSections` and
+    // `showBOQSummary` (and any future doc-type config) pass through to the
+    // new doc — then override with the user's form data + computed fields.
     const content: any = {
+      ...(createModal.template?.content || {}),
       contact: {
         name: formData.clientName || "Client Name",
         address1: formData.street || "",
@@ -1069,6 +1074,56 @@ const DroppableBreadcrumb = ({ id, children, onClick, className }: { id: string,
   );
 };
 
+/**
+ * Renders the first page of a plan PDF inside its parent card. Measures the
+ * container width via ResizeObserver so the page scales naturally to the
+ * card's grid cell size — no hard-coded width, no overflow surprises.
+ *
+ * Falls back gracefully when the plan has no PDF yet.
+ */
+const PlanCardThumbnail: React.FC<{ pdfUrl?: string | null }> = ({ pdfUrl }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState<number>(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect?.width;
+      if (w && Math.abs(w - width) > 1) setWidth(Math.floor(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [width]);
+
+  const url = useMemo(() => resolvePdfUrl(pdfUrl ?? null), [pdfUrl]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0 overflow-hidden flex items-start justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-muted/30 dark:to-muted/10"
+    >
+      {url && width > 0 ? (
+        <PdfThumbnail
+          url={url}
+          width={width}
+          aspect={4 / 3 /* most blueprints are wider than tall — but our card is taller, so lean portrait via aspect prop on the wrapper instead */}
+          className="border-0 rounded-none shadow-none w-full h-full"
+        />
+      ) : (
+        // Subtle blueprint-style placeholder
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-primary/30">
+          <div className="grid grid-cols-6 gap-1.5 opacity-40 px-6">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <div key={i} className="h-2 bg-primary/20 rounded-sm" />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SortableItem = (props: any) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.item.id });
   return (
@@ -1117,9 +1172,18 @@ const ItemCard = ({
   const receiptCount = item.receiptCount || 0;
   const memberCount = (item.members || []).length;
 
-  const subtitle = isFolder ? (folderStats || "Folder") : (item.content?._type === 'resource' || item.content?._isResource) ? `${item.content.resourceType?.toUpperCase() || 'FILE'} Resource` : (item.content?.title ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title) : "Invoice");
   const isResource = item.content?._isResource;
+  const isPlan = !!item.content?.isPlan;
+  const isReceipt = !!item.content?.isReceipt;
   const resourceType = item.content?.resourceType;
+  const defaultDocLabel = isPlan ? "Plan" : isReceipt ? "Receipt" : "Invoice";
+  const subtitle = isFolder
+    ? (folderStats || "Folder")
+    : (item.content?._type === 'resource' || isResource)
+      ? `${item.content.resourceType?.toUpperCase() || 'FILE'} Resource`
+      : (item.content?.title
+          ? (item.content.title.length > 26 ? item.content.title.slice(0, 24) + "…" : item.content.title)
+          : defaultDocLabel);
   const badgeLabel: string | undefined = !isFolder && !isResource ? (item.content?._templateName as string | undefined) : undefined;
   const badgeClass = templateBadgeClass(item.content?._templateColor);
 
@@ -1268,6 +1332,17 @@ const ItemCard = ({
                   </div>
                 )}
              </div>
+          </div>
+        ) : item.content?.isPlan ? (
+          // Plan card — show the blueprint PDF preview with a small "Plan"
+          // pill in the bottom-left, matching the invoice template-badge style.
+          <div className="relative w-full h-full overflow-hidden rounded-md bg-white">
+            <PlanCardThumbnail pdfUrl={item.content?.planData?.pdfUrl} />
+            <div className="absolute bottom-3 left-3 pointer-events-none">
+              <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none shadow-sm bg-blue-600 text-white">
+                Plan
+              </span>
+            </div>
           </div>
         ) : (
           <div className={cn("w-full h-full rounded-md overflow-hidden relative bg-white")}>

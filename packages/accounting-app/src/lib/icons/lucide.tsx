@@ -90,7 +90,8 @@ import {
   Palette as LucidePalette,
   Layers as LucideLayers,
   Square as LucideSquare,
-  Wand2 as LucideWand2
+  Wand2 as LucideWand2,
+  Paintbrush as LucidePaintbrush
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -190,3 +191,4 @@ export const Palette = wrapIcon(LucidePalette);
 export const Layers = wrapIcon(LucideLayers);
 export const Wand2 = wrapIcon(LucideWand2);
 export const Square = wrapIcon(LucideSquare);
+export const Paintbrush = wrapIcon(LucidePaintbrush);

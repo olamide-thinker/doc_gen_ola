@@ -210,6 +210,33 @@ export class InvoicesController {
     return { success: true, id };
   }
 
+  /**
+   * Updates project-management-only flags on an invoice's draft. Currently
+   * exposes `boqTaskSource` (whether this BOQ shows up in the Tasks page's
+   * "Generate from BOQ" picker) — that's a workflow toggle, not document
+   * content, so it works on locked invoices unlike the regular upsert path.
+   */
+  @Patch(':id/settings')
+  @UseGuards(FirebaseGuard)
+  async updateInvoiceSettings(@Param('id') id: string, @Body() body: any) {
+    const invoice = await this.db.query.invoices.findFirst({
+      where: eq(schema.invoices.id, id),
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    const draft: any = (invoice.draft as any) || {};
+    if (typeof body.boqTaskSource === 'boolean') {
+      draft.boqTaskSource = body.boqTaskSource;
+    }
+
+    await this.db
+      .update(schema.invoices)
+      .set({ draft, updatedAt: new Date() })
+      .where(eq(schema.invoices.id, id));
+
+    return { success: true, data: { boqTaskSource: draft.boqTaskSource } };
+  }
+
   @Post(':id/finalise')
   @UseGuards(FirebaseGuard)
   async finaliseInvoice(@Param('id') id: string, @Req() req: any) {

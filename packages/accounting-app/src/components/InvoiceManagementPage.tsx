@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from "react";
-import { API_BASE } from "../lib/workspace-persist";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
@@ -24,29 +23,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "../lib/utils";
 import { formatDate, computeTotalPrice, resolveFormula, resolveSectionTotal, resolveSectionTotalBackward, calculateChunks, getRowNumbering } from "../lib/documentUtils";
 import { InvoicePage } from "./InvoicePage";
-import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/esm/Page/AnnotationLayer.css";
-import "react-pdf/dist/esm/Page/TextLayer.css";
-
-// Worker setup — mirrors PdfViewer.tsx so react-pdf works on this page even if
-// PdfViewer hasn't been mounted yet during this session.
-const CDN_WORKER = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
-try {
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url,
-  ).toString();
-} catch {
-  pdfjs.GlobalWorkerOptions.workerSrc = CDN_WORKER;
-}
-
-// Convert a possibly-relative pdfUrl from doc metadata into an absolute URL.
-const resolvePdfUrl = (raw: string | null | undefined): string | null => {
-  if (!raw) return null;
-  if (/^https?:/i.test(raw)) return raw;
-  const origin = API_BASE.replace(/\/api\/?$/, '');
-  return `${origin}/${String(raw).replace(/^\//, '')}`;
-};
+import { PdfThumbnail, resolvePdfUrl } from "./PdfThumbnail";
 
 const InvoiceManagementPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -298,6 +275,9 @@ const InvoiceManagementPage: React.FC = () => {
           </div>
         </section>
 
+        {/* Task-source toggle — only shown for BOQ-shaped invoices */}
+        <BoqTaskSourceToggle invoiceId={id!} invoiceDoc={invoiceDoc} />
+
         {/* Receipts Section */}
         <section>
           <div className="flex items-center justify-between mb-4">
@@ -429,66 +409,6 @@ const InvoiceManagementPage: React.FC = () => {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-interface PdfThumbnailProps {
-  url: string | null;
-  width?: number;
-  onClick?: () => void;
-  emptyText?: string;
-  hoverLabel?: string;
-}
-
-/** Renders the first page of a PDF as a small thumbnail card. Shows a
- * placeholder when the URL isn't available yet (e.g. unfinalised). */
-const PdfThumbnail: React.FC<PdfThumbnailProps> = ({ url, width = 140, onClick, emptyText = 'Not finalised', hoverLabel = 'View' }) => {
-  const height = Math.round(width * 1.414); // A4-ish ratio
-
-  if (!url) {
-    return (
-      <div
-        onClick={onClick}
-        style={{ width, height }}
-        className={cn(
-          "rounded-lg border border-dashed border-border bg-muted/30 flex flex-col items-center justify-center text-muted-foreground/60 text-[8px] font-black uppercase tracking-widest p-2 text-center",
-          onClick && "cursor-pointer hover:bg-muted/50 transition-all"
-        )}
-      >
-        <FileText size={Math.max(16, Math.round(width * 0.18))} className="mb-1.5 opacity-60" />
-        {emptyText}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      onClick={onClick}
-      style={{ width, height }}
-      className={cn(
-        "rounded-lg overflow-hidden border border-border bg-white shadow-sm relative group",
-        onClick && "cursor-pointer hover:shadow-md transition-all"
-      )}
-    >
-      <Document
-        file={url}
-        loading={<div className="w-full h-full bg-muted animate-pulse" />}
-        error={
-          <div className="w-full h-full bg-destructive/5 text-destructive/60 text-[8px] font-black uppercase tracking-widest flex items-center justify-center text-center p-2">
-            Failed to load
-          </div>
-        }
-      >
-        <Page pageNumber={1} width={width} renderTextLayer={false} renderAnnotationLayer={false} />
-      </Document>
-      {onClick && (
-        <div className="absolute inset-0 flex items-center justify-center bg-foreground/0 group-hover:bg-foreground/15 opacity-0 group-hover:opacity-100 transition-all">
-          <div className="px-2 py-1 bg-background/90 backdrop-blur-sm rounded text-[8px] font-black uppercase tracking-widest border border-border shadow-md inline-flex items-center gap-1">
-            <Eye size={10} /> {hoverLabel}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 /** Thumbnail that fetches a document by id and renders its finalised PDF. */
 const DocPdfThumbnail: React.FC<{ docId: string; width?: number; onClick?: () => void; hoverLabel?: string }> = ({ docId, width, onClick, hoverLabel }) => {
   const { data: doc } = useQuery({
@@ -498,6 +418,71 @@ const DocPdfThumbnail: React.FC<{ docId: string; width?: number; onClick?: () =>
   });
   const url = useMemo(() => resolvePdfUrl((doc as any)?.metadata?.pdfUrl), [doc]);
   return <PdfThumbnail url={url} width={width} onClick={onClick} hoverLabel={hoverLabel} />;
+};
+
+/**
+ * Per-invoice "use this BOQ as a task source" checkbox. Only renders when
+ * the invoice is BOQ-shaped (useSections flag OR section-header rows). Updates
+ * via the dedicated /settings endpoint so it works even on locked invoices.
+ *
+ * Default behavior: a BOQ is task-source eligible UNLESS the user explicitly
+ * unchecks it (boqTaskSource === false). undefined or true both count as on.
+ */
+const BoqTaskSourceToggle: React.FC<{ invoiceId: string; invoiceDoc: any }> = ({
+  invoiceId,
+  invoiceDoc,
+}) => {
+  const queryClient = useQueryClient();
+  const content = invoiceDoc?.content;
+
+  const isBoq = useMemo(() => {
+    if (!content) return false;
+    if (content.useSections === true) return true;
+    const rows: any[] = content?.table?.rows || [];
+    return rows.some(
+      (r) => r?.rowType === "section-header" || r?.rowType === "sub-section-header",
+    );
+  }, [content]);
+
+  // undefined → true (default ON); only explicit false counts as off
+  const enabled = content?.boqTaskSource !== false;
+
+  const mutation = useMutation({
+    mutationFn: (next: boolean) => api.updateInvoiceSettings(invoiceId, { boqTaskSource: next }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['document', invoiceId] });
+      // The Tasks page caches the docs list to drive the BOQ picker.
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+    onError: (e: any) => alert(e?.message || 'Failed to update setting'),
+  });
+
+  if (!invoiceDoc || !isBoq) return null;
+
+  return (
+    <section className="bg-card border border-border rounded-2xl p-4 shadow-sm">
+      <label className={cn(
+        "flex items-start gap-3 cursor-pointer select-none",
+        mutation.isPending && "opacity-60 cursor-wait",
+      )}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={mutation.isPending}
+          onChange={(e) => mutation.mutate(e.target.checked)}
+          className="mt-0.5 w-4 h-4 accent-primary cursor-pointer"
+        />
+        <div className="flex-1 min-w-0">
+          <span className="block text-xs font-bold text-foreground">
+            Use as Task Source
+          </span>
+          <span className="block text-[10px] text-muted-foreground font-medium mt-0.5 leading-relaxed">
+            When checked, this BOQ shows up in the Tasks page&apos;s &ldquo;Generate from BOQ&rdquo; picker (provided it has at least one finalised receipt). Uncheck to keep it out.
+          </span>
+        </div>
+      </label>
+    </section>
+  );
 };
 
 export default InvoiceManagementPage;
