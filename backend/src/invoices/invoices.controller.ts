@@ -84,7 +84,13 @@ export class InvoicesController {
         ...data,
         name: invoice.name,
         draft: invoice.draft,
-        receipts: invoice.receipts
+        // Metadata is needed by the management page so the workflow
+        // pickers (Resource Category, Counterparty) can render their
+        // current selection. Don't dump the whole row — just the bits
+        // the frontend uses.
+        metadata: invoice.metadata,
+        projectId: invoice.projectId,
+        receipts: invoice.receipts,
       }
     };
   }
@@ -211,10 +217,18 @@ export class InvoicesController {
   }
 
   /**
-   * Updates project-management-only flags on an invoice's draft. Currently
-   * exposes `boqTaskSource` (whether this BOQ shows up in the Tasks page's
-   * "Generate from BOQ" picker) — that's a workflow toggle, not document
-   * content, so it works on locked invoices unlike the regular upsert path.
+   * Updates project-management-only flags on an invoice. Workflow metadata,
+   * not document content — works on locked invoices unlike the regular
+   * upsert path.
+   *
+   * - boqTaskSource         (draft.*) — does this BOQ show up in the Tasks
+   *                                     page's "Generate from BOQ" picker
+   * - categoryId            (metadata.*) — inventory category id
+   * - counterpartyMemberId  (metadata.*) — project member id (user or
+   *                                       company / vendor) the invoice
+   *                                       is paid to / billed by
+   *
+   * Setting categoryId / counterpartyMemberId to null clears the link.
    */
   @Patch(':id/settings')
   @UseGuards(FirebaseGuard)
@@ -225,16 +239,54 @@ export class InvoicesController {
     if (!invoice) throw new NotFoundException('Invoice not found');
 
     const draft: any = (invoice.draft as any) || {};
+    const meta: any = (invoice.metadata as any) || {};
+    let touchedDraft = false;
+    let touchedMeta = false;
+
     if (typeof body.boqTaskSource === 'boolean') {
       draft.boqTaskSource = body.boqTaskSource;
+      touchedDraft = true;
     }
+
+    // categoryId: string sets, null clears. Empty string treated as clear.
+    if (body.categoryId !== undefined) {
+      const v = body.categoryId;
+      if (v === null || v === '') {
+        delete meta.categoryId;
+      } else if (typeof v === 'string') {
+        meta.categoryId = v;
+      }
+      touchedMeta = true;
+    }
+
+    // counterpartyMemberId: same shape — string sets, null clears.
+    if (body.counterpartyMemberId !== undefined) {
+      const v = body.counterpartyMemberId;
+      if (v === null || v === '') {
+        delete meta.counterpartyMemberId;
+      } else if (typeof v === 'string') {
+        meta.counterpartyMemberId = v;
+      }
+      touchedMeta = true;
+    }
+
+    const patch: any = { updatedAt: new Date() };
+    if (touchedDraft) patch.draft = draft;
+    if (touchedMeta) patch.metadata = meta;
 
     await this.db
       .update(schema.invoices)
-      .set({ draft, updatedAt: new Date() })
+      .set(patch)
       .where(eq(schema.invoices.id, id));
 
-    return { success: true, data: { boqTaskSource: draft.boqTaskSource } };
+    return {
+      success: true,
+      data: {
+        boqTaskSource: draft.boqTaskSource,
+        categoryId: meta.categoryId || null,
+        counterpartyMemberId: meta.counterpartyMemberId || null,
+      },
+    };
   }
 
   /**

@@ -275,6 +275,14 @@ const InvoiceManagementPage: React.FC = () => {
           </div>
         </section>
 
+        {/* Workflow pickers — Resource Category + Counterparty.
+            Always shown so every invoice can be tagged for the
+            Accounting transaction log. */}
+        <InvoiceWorkflowMetadata
+          invoiceId={id!}
+          invoice={invoiceResult}
+        />
+
         {/* Task-source toggle — only shown for BOQ-shaped invoices */}
         <BoqTaskSourceToggle invoiceId={id!} invoiceDoc={invoiceDoc} />
 
@@ -481,6 +489,210 @@ const BoqTaskSourceToggle: React.FC<{ invoiceId: string; invoiceDoc: any }> = ({
           </span>
         </div>
       </label>
+    </section>
+  );
+};
+
+// ── Workflow pickers — Resource Category + Counterparty ─────────────────
+//
+// Tags this invoice with the metadata the Accounting log renders:
+// • Resource Category (from Inventory module)
+// • Counterparty       (from Members — both real users and company/vendor
+//                       members)
+//
+// Both go through PATCH /api/invoices/:id/settings, which bypasses the
+// content lock since they're workflow metadata (not document content).
+// Same precedent as boqTaskSource and metadata.taskId.
+
+const InvoiceWorkflowMetadata: React.FC<{
+  invoiceId: string;
+  invoice: any;
+}> = ({ invoiceId, invoice }) => {
+  const queryClient = useQueryClient();
+  const { businessId } = useAuth();
+  const projectId = invoice?.projectId as string | undefined;
+
+  const currentCategoryId = (invoice?.metadata?.categoryId as string | undefined) || "";
+  const currentCounterpartyId =
+    (invoice?.metadata?.counterpartyMemberId as string | undefined) || "";
+
+  // Inventory categories — business-scoped.
+  const { data: categories = [] } = useQuery({
+    queryKey: ["inventory-categories", businessId],
+    queryFn: () => api.listInventoryCategories(businessId!),
+    enabled: !!businessId,
+  });
+
+  // Project members (both real users and company/vendor entries).
+  const { data: allProjects = [] } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api.getProjects(),
+    enabled: !!projectId,
+  });
+  const projectMembers: any[] = useMemo(() => {
+    const proj = (allProjects as any[]).find((p) => p.id === projectId);
+    return (proj?.members as any[]) || [];
+  }, [allProjects, projectId]);
+
+  const [showAddCompany, setShowAddCompany] = useState(false);
+  const [companyName, setCompanyName] = useState("");
+  const [companyKind, setCompanyKind] = useState<"company" | "vendor">("company");
+  const [savingCompany, setSavingCompany] = useState(false);
+
+  const settingsMutation = useMutation({
+    mutationFn: (settings: { categoryId?: string | null; counterpartyMemberId?: string | null }) =>
+      api.updateInvoiceSettings(invoiceId, settings),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["invoice-management", invoiceId] });
+      queryClient.invalidateQueries({ queryKey: ["document", invoiceId] });
+    },
+    onError: (e: any) => alert(e?.message || "Failed to update setting"),
+  });
+
+  const handleAddCompany = async () => {
+    const name = companyName.trim();
+    if (!name || !projectId) return;
+    setSavingCompany(true);
+    try {
+      const created = await api.addCompanyMember(projectId, {
+        displayName: name,
+        kind: companyKind,
+      });
+      // Refresh members + auto-select the new one as counterparty.
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      settingsMutation.mutate({ counterpartyMemberId: created.id });
+      setShowAddCompany(false);
+      setCompanyName("");
+    } catch (e: any) {
+      alert(e?.message || "Failed to add company");
+    } finally {
+      setSavingCompany(false);
+    }
+  };
+
+  const memberLabel = (m: any): string => {
+    if (m.kind === "company" || m.kind === "vendor") {
+      return m.displayName || "(Unnamed)";
+    }
+    return m.displayName || m.email || m.userId || "Unknown";
+  };
+
+  return (
+    <section className="bg-card border border-border rounded-2xl p-5 shadow-sm space-y-4">
+      <div>
+        <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+          Resource &amp; Counterparty
+        </h2>
+        <p className="text-[10px] text-muted-foreground/70 font-medium mt-0.5">
+          These tags drive the project Accounting log. Editable any time, even on locked invoices.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Resource Category */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+            Resource Category
+          </label>
+          <select
+            value={currentCategoryId}
+            onChange={(e) =>
+              settingsMutation.mutate({ categoryId: e.target.value || null })
+            }
+            disabled={settingsMutation.isPending}
+            className="w-full px-3 py-2 bg-muted/40 border border-transparent rounded-lg text-sm focus:outline-none focus:border-border focus:bg-background disabled:opacity-60"
+          >
+            <option value="">Not set</option>
+            {(categories as any[]).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          {categories.length === 0 && (
+            <p className="text-[10px] text-muted-foreground/70 font-medium">
+              No categories yet —{" "}
+              <a
+                href="/inventory"
+                className="text-primary font-black underline hover:opacity-80"
+              >
+                manage in Inventory
+              </a>
+            </p>
+          )}
+        </div>
+
+        {/* Counterparty */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+            Counterparty
+          </label>
+          <select
+            value={currentCounterpartyId}
+            onChange={(e) =>
+              settingsMutation.mutate({ counterpartyMemberId: e.target.value || null })
+            }
+            disabled={settingsMutation.isPending}
+            className="w-full px-3 py-2 bg-muted/40 border border-transparent rounded-lg text-sm focus:outline-none focus:border-border focus:bg-background disabled:opacity-60"
+          >
+            <option value="">Not set</option>
+            {projectMembers.map((m: any) => (
+              <option key={m.id || m.email} value={m.id || ""} disabled={!m.id}>
+                {memberLabel(m)}
+                {m.kind && m.kind !== "user" ? `  ·  ${m.kind}` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setShowAddCompany((v) => !v)}
+            className="self-start text-[10px] font-black uppercase tracking-widest text-primary hover:opacity-80 transition-opacity"
+          >
+            {showAddCompany ? "− Cancel" : "+ Add company / vendor"}
+          </button>
+          {showAddCompany && (
+            <div className="border border-border rounded-lg p-3 bg-muted/20 space-y-2">
+              <input
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="e.g. Steel & Sand Co."
+                className="w-full px-3 py-2 bg-card border border-transparent rounded-md text-sm focus:outline-none focus:border-border"
+                autoFocus
+              />
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-[10px] font-bold cursor-pointer">
+                  <input
+                    type="radio"
+                    name="company-kind"
+                    checked={companyKind === "company"}
+                    onChange={() => setCompanyKind("company")}
+                    className="accent-primary"
+                  />
+                  Company
+                </label>
+                <label className="flex items-center gap-1.5 text-[10px] font-bold cursor-pointer">
+                  <input
+                    type="radio"
+                    name="company-kind"
+                    checked={companyKind === "vendor"}
+                    onChange={() => setCompanyKind("vendor")}
+                    className="accent-primary"
+                  />
+                  Vendor
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddCompany}
+                  disabled={savingCompany || !companyName.trim()}
+                  className="ml-auto px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-[10px] font-black uppercase tracking-widest shadow-sm hover:opacity-90 disabled:opacity-50 transition-all"
+                >
+                  {savingCompany ? "Adding…" : "Add"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </section>
   );
 };

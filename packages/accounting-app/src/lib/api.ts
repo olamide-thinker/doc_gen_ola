@@ -776,8 +776,18 @@ export const api = {
    */
   updateInvoiceSettings: async (
     id: string,
-    settings: { boqTaskSource?: boolean },
-  ): Promise<{ boqTaskSource?: boolean }> => {
+    settings: {
+      boqTaskSource?: boolean;
+      /** Resource category id (from /api/inventory/categories). Pass null to clear. */
+      categoryId?: string | null;
+      /** Project member id (user or company/vendor). Pass null to clear. */
+      counterpartyMemberId?: string | null;
+    },
+  ): Promise<{
+    boqTaskSource?: boolean;
+    categoryId?: string | null;
+    counterpartyMemberId?: string | null;
+  }> => {
     const headers = await authHeaders();
     const res = await fetch(`${API_BASE}/invoices/${id}/settings`, {
       method: 'PATCH',
