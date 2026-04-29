@@ -490,3 +490,110 @@ export const tasksRelations = relations(tasks, ({ one }) => ({
     references: [documents.id],
   }),
 }));
+
+// 7. Field Reports — workflow + dialogue layer over tasks.
+//
+// A report is a first-class document filed by a team member (often the
+// assignee). It can stand alone (general site observation) or attach to a
+// task. Common shapes:
+//   - kind=note:                 simple status update / observation
+//   - kind=incident:             something went wrong; needs attention
+//   - kind=update:               progress narrative
+//   - kind=confirmation_request: assignee asks supervisor to apply a
+//                                status change to a task. The `request`
+//                                jsonb holds { targetTaskId, requestedStatus }.
+//                                When resolved, `resolution` records who
+//                                acted and whether they accepted.
+//
+// Every report also has its own thread (field_report_messages) so the
+// back-and-forth lives in one place.
+export const fieldReports = pgTable('field_reports', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  reportCode: text('report_code').notNull(), // REP-NNNNN per project
+
+  // Subject + scope
+  taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  title: text('title'), // optional one-liner; falls back to first line of body
+  body: text('body').notNull(),
+  kind: text('kind').notNull().default('note'), // note | incident | update | confirmation_request
+
+  // Author
+  authorId: text('author_id').references(() => users.id),
+
+  // Voice + transcription (V2 — kept here so the column exists from day one)
+  voiceUrl: text('voice_url'),
+  transcription: text('transcription'),
+
+  // Attachments — array of { url, type: 'image'|'video'|'doc', label? }
+  attachments: jsonb('attachments'),
+
+  // Confirmation-request payload (only meaningful when kind === 'confirmation_request')
+  // { targetTaskId: string, requestedStatus: string, note?: string }
+  request: jsonb('request'),
+
+  // Resolution of the request (null until acted on)
+  // { status: 'accepted'|'declined', resolvedById: string, resolvedAt: ISO, note?: string }
+  resolution: jsonb('resolution'),
+
+  metadata: jsonb('metadata'),
+
+  ...projectContext,
+  ...timestamps,
+}, (table) => {
+  return {
+    reportProjectIdx: index('report_project_idx').on(table.projectId),
+    reportTaskIdx: index('report_task_idx').on(table.taskId),
+    reportAuthorIdx: index('report_author_idx').on(table.authorId),
+    reportKindIdx: index('report_kind_idx').on(table.kind),
+    uniqueReportCodePerProject: uniqueIndex('unique_report_code_per_project')
+      .on(table.projectId, table.reportCode),
+  };
+});
+
+export const fieldReportsRelations = relations(fieldReports, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [fieldReports.projectId],
+    references: [projects.id],
+  }),
+  task: one(tasks, {
+    fields: [fieldReports.taskId],
+    references: [tasks.id],
+  }),
+  author: one(users, {
+    fields: [fieldReports.authorId],
+    references: [users.id],
+  }),
+  messages: many(fieldReportMessages),
+}));
+
+// Thread of replies on a report. Mirrors the right-hand panel in the
+// design — voice, text, image replies all live here.
+export const fieldReportMessages = pgTable('field_report_messages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  reportId: uuid('report_id')
+    .notNull()
+    .references(() => fieldReports.id, { onDelete: 'cascade' }),
+  authorId: text('author_id').references(() => users.id),
+  body: text('body'),
+  voiceUrl: text('voice_url'),
+  transcription: text('transcription'),
+  attachments: jsonb('attachments'),
+  metadata: jsonb('metadata'),
+  ...timestamps,
+}, (table) => {
+  return {
+    msgReportIdx: index('msg_report_idx').on(table.reportId),
+    msgAuthorIdx: index('msg_author_idx').on(table.authorId),
+  };
+});
+
+export const fieldReportMessagesRelations = relations(fieldReportMessages, ({ one }) => ({
+  report: one(fieldReports, {
+    fields: [fieldReportMessages.reportId],
+    references: [fieldReports.id],
+  }),
+  author: one(users, {
+    fields: [fieldReportMessages.authorId],
+    references: [users.id],
+  }),
+}));

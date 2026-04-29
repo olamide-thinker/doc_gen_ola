@@ -92,7 +92,8 @@ import {
   Square as LucideSquare,
   Wand2 as LucideWand2,
   Paintbrush as LucidePaintbrush,
-  Unlink as LucideUnlink
+  Unlink as LucideUnlink,
+  Send as LucideSend
 } from "lucide-react";
 import { wrapIcon } from "../utils";
 
@@ -194,3 +195,4 @@ export const Wand2 = wrapIcon(LucideWand2);
 export const Square = wrapIcon(LucideSquare);
 export const Paintbrush = wrapIcon(LucidePaintbrush);
 export const Unlink = wrapIcon(LucideUnlink);
+export const Send = wrapIcon(LucideSend);

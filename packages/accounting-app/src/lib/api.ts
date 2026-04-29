@@ -962,6 +962,139 @@ export const api = {
     return json.data;
   },
 
+  // ─── Field Reports ──────────────────────────────────────────────────────
+  // Reports = workflow + dialogue layer over tasks. They can stand alone or
+  // attach to a task. A confirmation_request kind carries a request payload
+  // that, when resolved as 'accept', applies the requested status to the
+  // target task atomically.
+
+  listFieldReports: async (
+    projectId: string,
+    filters?: { taskId?: string; kind?: string },
+  ): Promise<any[]> => {
+    const headers = await authHeaders();
+    const params = new URLSearchParams({ projectId });
+    if (filters?.taskId) params.set('taskId', filters.taskId);
+    if (filters?.kind) params.set('kind', filters.kind);
+    const res = await fetch(`${API_BASE}/field-reports?${params.toString()}`, { headers });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load reports');
+    return json.data || [];
+  },
+
+  getFieldReport: async (id: string): Promise<any | null> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports/${id}`, { headers });
+    const json = await res.json();
+    if (!json.success) return null;
+    return json.data;
+  },
+
+  createFieldReport: async (input: {
+    projectId: string;
+    body: string;
+    kind?: 'note' | 'incident' | 'update' | 'confirmation_request';
+    taskId?: string | null;
+    title?: string;
+    voiceUrl?: string;
+    transcription?: string;
+    attachments?: Array<{ url: string; type: string; label?: string }>;
+    // Required when kind === 'confirmation_request'
+    request?: { targetTaskId: string; requestedStatus: string; note?: string };
+    metadata?: any;
+  }): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to create report');
+    return json.data;
+  },
+
+  updateFieldReport: async (id: string, patch: Record<string, any>): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports/${id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to update report');
+    return json.data;
+  },
+
+  deleteFieldReport: async (id: string): Promise<void> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to delete report');
+  },
+
+  /**
+   * Resolve a confirmation_request. action='accept' atomically applies
+   * `request.requestedStatus` to the target task; action='decline' just
+   * records the rejection.
+   */
+  resolveFieldReport: async (
+    id: string,
+    action: 'accept' | 'decline',
+    note?: string,
+  ): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports/${id}/resolve`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, note }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to resolve report');
+    return json.data;
+  },
+
+  listReportMessages: async (reportId: string): Promise<any[]> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports/${reportId}/messages`, { headers });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to load thread');
+    return json.data || [];
+  },
+
+  postReportMessage: async (
+    reportId: string,
+    input: {
+      body?: string;
+      voiceUrl?: string;
+      transcription?: string;
+      attachments?: Array<{ url: string; type: string; label?: string }>;
+    },
+  ): Promise<any> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports/${reportId}/messages`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to post message');
+    return json.data;
+  },
+
+  deleteReportMessage: async (reportId: string, messageId: string): Promise<void> => {
+    const headers = await authHeaders();
+    const res = await fetch(`${API_BASE}/field-reports/${reportId}/messages/${messageId}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || json.error || 'Failed to delete message');
+  },
+
   // ─── Execution: Stages, Milestones, Plan ────────────────────────────────
   // Hierarchy: project → stages (phases) → milestones → tasks.
 

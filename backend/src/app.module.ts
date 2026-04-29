@@ -11,6 +11,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { PdfModule } from './pdf/pdf.module';
 import { TasksModule } from './tasks/tasks.module';
 import { ExecutionModule } from './execution/execution.module';
+import { FieldReportsModule } from './field-reports/field-reports.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { ExecutionModule } from './execution/execution.module';
     PdfModule,
     TasksModule,
     ExecutionModule,
+    FieldReportsModule,
   ],
   controllers: [],
   providers: [],

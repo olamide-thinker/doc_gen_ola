@@ -172,6 +172,12 @@ const MainLayout: React.FC = () => {
                 onClick={() => { setActiveModule("documents"); navigate("/tasks"); }}
               />
               <SidebarItem
+                icon={<ScrollText size={18} />}
+                label="Reports"
+                active={currentPath === "/reports"}
+                onClick={() => { setActiveModule("documents"); navigate("/reports"); }}
+              />
+              <SidebarItem
                 icon={<Layers size={18} />}
                 label="Execution"
                 active={currentPath.startsWith("/project/") && currentPath.endsWith("/execution")}
@@ -342,6 +348,7 @@ const MainLayout: React.FC = () => {
                   type="text"
                   placeholder={
                     currentPath.startsWith('/tasks') ? 'Search tasks...' :
+                    currentPath.startsWith('/reports') ? 'Search reports...' :
                     currentPath.startsWith('/projects') ? 'Search repositories...' :
                     currentPath.startsWith('/team') ? 'Search team...' :
                     'Search...'

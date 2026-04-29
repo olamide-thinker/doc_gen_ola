@@ -15,6 +15,13 @@
       "when": 1777458438462,
       "tag": "0001_magical_maelstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1777464328793,
+      "tag": "0002_stormy_sway",
+      "breakpoints": true
     }
   ]
 }
