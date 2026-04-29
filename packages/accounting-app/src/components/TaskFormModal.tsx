@@ -18,6 +18,7 @@ import {
 import { cn } from "../lib/utils";
 import { api } from "../lib/api";
 import { TaskFinancialsTab } from "./TaskFinancialsTab";
+import { TaskReportsTab } from "./TaskReportsTab";
 
 // ── Types ────────────────────────────────────────────────────────────────
 type TaskStatus = "pending" | "progress" | "done" | "cancelled";
@@ -591,7 +592,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               ) : (
                 <FinancialsTabStub />
               ))}
-            {tab === "reports" && <ReportsTabStub />}
+            {tab === "reports" &&
+              (editing ? (
+                <TaskReportsTab projectId={projectId} taskId={editing.id} />
+              ) : (
+                <ReportsTabStub />
+              ))}
             </div>
 
             {/* Footer — view mode and the read-only tab stubs collapse to
